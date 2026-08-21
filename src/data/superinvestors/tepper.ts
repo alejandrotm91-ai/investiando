@@ -1,0 +1,42 @@
+import { SuperinvestorMeta } from "./types";
+
+export const tepper: SuperinvestorMeta = {
+  name: "David Tepper",
+  fund: "Appaloosa Management",
+  institution: "Appaloosa Management LP",
+  period: "Q2 2026 (30-Jun-2026)",
+  aum13F: 7.47,
+  filingDate: "14-Ago-2026",
+  source: "SEC EDGAR 13F-HR / Dataroma.com (archivo Excel Q2 2026)",
+  category: "Specialty",
+  categoryES: "Especializado",
+  descEN: "Master distressed-debt investor and macro specialist, known for aggressive, high-conviction allocations across semiconductors, power, and tech megacaps.",
+  descES: "Especialista macroeconómico e inversor en situaciones especiales, reconocido por rotaciones oportunas de gran convicción en semiconductores, energía y megacaps.",
+  holdings: [
+    { ticker: "AMZN", company: "Amazon.com Inc.", shares: 5000000, avgCost: 238.34, reportedPrice: 238.34, valueM: 1191.70, portfolioWeight: 15.95, sector: "Consumer Cyclical", activity: "Add 15.74%" },
+    { ticker: "MU", company: "Micron Technology Inc.", shares: 975000, avgCost: 1154.29, reportedPrice: 1154.29, valueM: 1125.43, portfolioWeight: 15.06, sector: "Technology", activity: "Reduce 41.44%" },
+    { ticker: "TSM", company: "Taiwan Semiconductor S.A.", shares: 1650000, avgCost: 477.57, reportedPrice: 477.57, valueM: 787.99, portfolioWeight: 10.55, sector: "Technology", activity: "Add 24.29%" },
+    { ticker: "GOOG", company: "Alphabet Inc. CL C", shares: 1850000, avgCost: 353.33, reportedPrice: 353.33, valueM: 653.66, portfolioWeight: 8.75, sector: "Communication Services", activity: "Add 6.77%" },
+    { ticker: "UBER", company: "Uber Technologies Inc.", shares: 7694071, avgCost: 72.16, reportedPrice: 72.16, valueM: 555.20, portfolioWeight: 7.43, sector: "Technology", activity: "Add 21.50%" },
+    { ticker: "EWY", company: "iShares MSCI South Korea ETF", shares: 2425000, avgCost: 201.90, reportedPrice: 201.90, valueM: 489.61, portfolioWeight: 6.55, sector: "Financial Services", activity: "Add 1.04%" },
+    { ticker: "META", company: "Meta Platforms Inc.", shares: 675000, avgCost: 563.29, reportedPrice: 563.29, valueM: 380.22, portfolioWeight: 5.09, sector: "Communication Services", activity: "Add 54.64%" },
+    { ticker: "VST", company: "Vistra Corp.", shares: 2215272, avgCost: 158.63, reportedPrice: 158.63, valueM: 351.41, portfolioWeight: 4.70, sector: "Utilities", activity: "Add 9.54%" },
+    { ticker: "NVDA", company: "NVIDIA Corp.", shares: 1525000, avgCost: 200.09, reportedPrice: 200.09, valueM: 305.14, portfolioWeight: 4.08, sector: "Technology", activity: "Add 3.64%" },
+    { ticker: "NRG", company: "NRG Energy Inc.", shares: 1760000, avgCost: 146.06, reportedPrice: 146.06, valueM: 257.07, portfolioWeight: 3.44, sector: "Utilities", activity: "Add 1.47%" },
+    { ticker: "BABA", company: "Alibaba Group Holdings", shares: 2000000, avgCost: 95.98, reportedPrice: 95.98, valueM: 191.96, portfolioWeight: 2.57, sector: "Consumer Cyclical", activity: "Reduce 42.28%" },
+    { ticker: "BA", company: "Boeing Co.", shares: 800000, avgCost: 216.47, reportedPrice: 216.47, valueM: 173.18, portfolioWeight: 2.32, sector: "Industrials", activity: "Buy" },
+    { ticker: "LRCX", company: "Lam Research", shares: 382500, avgCost: 433.33, reportedPrice: 433.33, valueM: 165.75, portfolioWeight: 2.22, sector: "Technology", activity: "Hold" },
+    { ticker: "BIDU", company: "Baidu Inc.", shares: 1295000, avgCost: 114.29, reportedPrice: 114.29, valueM: 148.01, portfolioWeight: 1.98, sector: "Communication Services", activity: "Add 87.11%" },
+    { ticker: "AAL", company: "American Airlines Group Inc.", shares: 7500000, avgCost: 18.07, reportedPrice: 18.07, valueM: 135.53, portfolioWeight: 1.81, sector: "Industrials", activity: "Buy" },
+    { ticker: "AMD", company: "Advanced Micro Devices", shares: 197500, avgCost: 580.91, reportedPrice: 580.91, valueM: 114.73, portfolioWeight: 1.54, sector: "Technology", activity: "Reduce 10.79%" },
+    { ticker: "CRWV", company: "Coreweave Inc Cl A", shares: 1078248, avgCost: 99.54, reportedPrice: 99.54, valueM: 107.33, portfolioWeight: 1.44, sector: "Technology", activity: "Buy" },
+    { ticker: "ASML", company: "ASML Holding NV", shares: 50000, avgCost: 1989.44, reportedPrice: 1989.44, valueM: 99.47, portfolioWeight: 1.33, sector: "Technology", activity: "Add 1.01%" },
+    { ticker: "AVGO", company: "Broadcom Inc.", shares: 150000, avgCost: 377.75, reportedPrice: 377.75, valueM: 56.66, portfolioWeight: 0.76, sector: "Technology", activity: "Buy" },
+    { ticker: "QCOM", company: "QUALCOMM Inc.", shares: 250000, avgCost: 184.79, reportedPrice: 184.79, valueM: 46.20, portfolioWeight: 0.62, sector: "Technology", activity: "Reduce 49.86%" },
+    { ticker: "SPCX", company: "Space Exploration Technologies Corp.", shares: 225000, avgCost: 170.86, reportedPrice: 170.86, valueM: 38.44, portfolioWeight: 0.51, sector: "Industrials", activity: "Buy" },
+    { ticker: "ET", company: "Energy Transfer LP", shares: 1576125, avgCost: 19.12, reportedPrice: 19.12, valueM: 30.14, portfolioWeight: 0.40, sector: "Energy", activity: "Hold" },
+    { ticker: "MPLX", company: "MPLX LP", shares: 502460, avgCost: 56.33, reportedPrice: 56.33, valueM: 28.30, portfolioWeight: 0.38, sector: "Energy", activity: "Hold" },
+    { ticker: "WHR", company: "Whirlpool Corp.", shares: 715000, avgCost: 39.42, reportedPrice: 39.42, valueM: 28.19, portfolioWeight: 0.38, sector: "Consumer Cyclical", activity: "Reduce 63.33%" },
+    { ticker: "GT", company: "Goodyear Tire & Rubber", shares: 1508591, avgCost: 6.60, reportedPrice: 6.60, valueM: 9.96, portfolioWeight: 0.13, sector: "Consumer Cyclical", activity: "Buy" }
+  ]
+};

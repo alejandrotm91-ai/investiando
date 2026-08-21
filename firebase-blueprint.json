@@ -1,0 +1,29 @@
+{
+  "entities": {
+    "users": {
+      "title": "User Portfolios",
+      "description": "User portfolio holdings, watchlists, and simulator positions synchronized across devices",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string"
+        },
+        "holdings": {
+          "type": "array"
+        },
+        "watchlist": {
+          "type": "array"
+        },
+        "marginPositions": {
+          "type": "array"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "email"
+      ]
+    }
+  }
+}

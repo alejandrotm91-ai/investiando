@@ -1,0 +1,337 @@
+import React from "react";
+import { SidebarTabType } from "../types";
+import { 
+  TrendingUp, 
+  Briefcase, 
+  BarChart3, 
+  Search,
+  Eye, 
+  Calendar, 
+  HelpCircle, 
+  User, 
+  LogOut, 
+  DollarSign,
+  Sun, 
+  Moon,
+  X
+} from "lucide-react";
+
+// Custom high-resolution vector logo for investiando.ai
+function InvestiandoLogo({ theme = "dark" }: { theme?: "dark" | "light" }) {
+  const isLight = theme === "light";
+
+  return (
+    <div 
+      className={`relative w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-xl p-1.5 transition-all duration-300 group hover:scale-105 ${
+        isLight 
+          ? "bg-gradient-to-br from-emerald-50 via-teal-50 to-emerald-100/80 border border-emerald-300/80 shadow-md shadow-emerald-700/10 hover:border-emerald-500/80" 
+          : "bg-gradient-to-br from-slate-900 via-[#131927] to-[#0a0f1d] border border-emerald-500/30 shadow-lg shadow-emerald-500/10 hover:border-emerald-400/60"
+      }`}
+    >
+      {/* Background ambient glow */}
+      <div 
+        className={`absolute inset-0 rounded-xl blur-sm opacity-50 group-hover:opacity-100 transition-opacity pointer-events-none ${
+          isLight ? "bg-emerald-400/25" : "bg-emerald-500/15"
+        }`} 
+      />
+      
+      <svg 
+        viewBox="0 0 36 36" 
+        fill="none" 
+        xmlns="http://www.w3.org/2000/svg"
+        className="w-full h-full relative z-10"
+      >
+        <defs>
+          <linearGradient id={`invGradPrimary-${theme}`} x1="0%" y1="100%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor={isLight ? "#047857" : "#059669"} />
+            <stop offset="50%" stopColor={isLight ? "#0f766e" : "#10b981"} />
+            <stop offset="100%" stopColor={isLight ? "#0284c7" : "#06b6d4"} />
+          </linearGradient>
+          <linearGradient id={`invGradBar-${theme}`} x1="0%" y1="100%" x2="0%" y2="0%">
+            <stop offset="0%" stopColor={isLight ? "#6ee7b7" : "#064e3b"} stopOpacity={isLight ? "0.5" : "0.4"} />
+            <stop offset="100%" stopColor={isLight ? "#059669" : "#10b981"} />
+          </linearGradient>
+          <linearGradient id={`invLineGlow-${theme}`} x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor={isLight ? "#047857" : "#34d399"} />
+            <stop offset="100%" stopColor={isLight ? "#0284c7" : "#38bdf8"} />
+          </linearGradient>
+        </defs>
+
+        {/* Financial Chart Bar 1 */}
+        <rect x="6" y="18" width="4.5" height="12" rx="2" fill={`url(#invGradBar-${theme})`} />
+        {/* Financial Chart Bar 2 */}
+        <rect x="13.5" y="12" width="4.5" height="18" rx="2" fill={`url(#invGradBar-${theme})`} />
+        {/* Financial Chart Bar 3 */}
+        <rect x="21" y="6" width="4.5" height="24" rx="2" fill={`url(#invGradPrimary-${theme})`} />
+
+        {/* Dynamic Ascending Trendline */}
+        <path 
+          d="M 5 23 Q 12 21 16 13 T 29 6" 
+          stroke={`url(#invLineGlow-${theme})`} 
+          strokeWidth="2.8" 
+          strokeLinecap="round" 
+          strokeLinejoin="round" 
+        />
+
+        {/* Sparkle Node at peak */}
+        <circle cx="29" cy="6" r="3" fill={isLight ? "#047857" : "#ffffff"} />
+        <circle cx="29" cy="6" r="1.5" fill={isLight ? "#ffffff" : "#10b981"} />
+        
+        {/* Intelligence dot */}
+        <circle cx="8" cy="8" r="1.8" fill={isLight ? "#0284c7" : "#34d399"} />
+      </svg>
+    </div>
+  );
+}
+
+interface SidebarProps {
+  activeTab: SidebarTabType;
+  onTabChange: (tab: SidebarTabType) => void;
+  language: "EN" | "ES";
+  onLanguageChange: (lang: "EN" | "ES") => void;
+  theme: "dark" | "light";
+  onThemeChange: (theme: "dark" | "light") => void;
+  onCloseMobile?: () => void;
+  selectedPortfolioId?: string;
+  onPortfolioSelect?: (id: string) => void;
+}
+
+export default function Sidebar({
+  activeTab,
+  onTabChange,
+  language,
+  onLanguageChange,
+  theme,
+  onThemeChange,
+  onCloseMobile,
+  selectedPortfolioId = "user",
+  onPortfolioSelect
+}: SidebarProps) {
+
+  // Dictionary of labels in EN and ES
+  const t = {
+    EN: {
+      market: "Market",
+      stocks: "Stock Explorer",
+      watchlist: "Watchlist",
+      earnings: "Earnings",
+      support: "Help and Support",
+      account: "Account",
+      logout: "Logout",
+      logoTitle: "investiando.ai",
+      yourPortfolio: "Your Portfolio",
+      superinvestors: "Superinvestors"
+    },
+    ES: {
+      market: "Mercado",
+      stocks: "Buscador de Acciones",
+      watchlist: "Lista de Seguimiento",
+      earnings: "Resultados",
+      support: "Ayuda y Soporte",
+      account: "Mi Cuenta",
+      logout: "Cerrar Sesión",
+      logoTitle: "investiando.ai",
+      yourPortfolio: "Tu Portafolio",
+      superinvestors: "Superinversores"
+    }
+  }[language];
+
+  const handleItemClick = (id: SidebarTabType) => {
+    onTabChange(id);
+    if (onCloseMobile) {
+      onCloseMobile();
+    }
+  };
+
+  const navItems = [
+    {
+      id: "market",
+      label: t.market,
+      icon: TrendingUp,
+      isActive: activeTab === "market",
+      onClick: () => handleItemClick("market")
+    },
+    {
+      id: "userPortfolio",
+      label: t.yourPortfolio,
+      icon: Briefcase,
+      isActive: activeTab === "portfolios" && selectedPortfolioId === "user",
+      onClick: () => {
+        if (onPortfolioSelect) onPortfolioSelect("user");
+        handleItemClick("portfolios");
+      }
+    },
+    {
+      id: "superinvestors",
+      label: t.superinvestors,
+      icon: DollarSign,
+      isActive: activeTab === "portfolios" && selectedPortfolioId !== "user",
+      onClick: () => {
+        if (onPortfolioSelect) onPortfolioSelect("superinvestors");
+        handleItemClick("portfolios");
+      }
+    },
+    {
+      id: "stocks",
+      label: t.stocks,
+      icon: Search,
+      isActive: activeTab === "stocks",
+      onClick: () => handleItemClick("stocks")
+    },
+    {
+      id: "watchlist",
+      label: t.watchlist,
+      icon: Eye,
+      isActive: activeTab === "watchlist",
+      onClick: () => handleItemClick("watchlist")
+    },
+    {
+      id: "earnings",
+      label: t.earnings,
+      icon: Calendar,
+      isActive: activeTab === "earnings",
+      onClick: () => handleItemClick("earnings")
+    },
+    {
+      id: "support",
+      label: t.support,
+      icon: HelpCircle,
+      isActive: activeTab === "support",
+      onClick: () => handleItemClick("support")
+    },
+    {
+      id: "account",
+      label: t.account,
+      icon: User,
+      isActive: activeTab === "account",
+      onClick: () => handleItemClick("account")
+    },
+    {
+      id: "logout",
+      label: t.logout,
+      icon: LogOut,
+      isActive: activeTab === "logout",
+      onClick: () => handleItemClick("logout")
+    },
+  ];
+
+  return (
+    <div className="flex flex-col h-full bg-theme-sidebar text-theme-text-muted border-r border-theme-border w-64">
+      {/* Sidebar Header / Logo */}
+      <div className="flex items-center justify-between px-5 py-5 border-b border-theme-border">
+        <div className="flex items-center gap-3">
+          <InvestiandoLogo theme={theme} />
+          <div className="flex items-center gap-0.5 font-display text-sm md:text-base font-black tracking-tight leading-none">
+            <span className={theme === "light"
+              ? "bg-gradient-to-r from-emerald-700 via-teal-700 to-cyan-800 bg-clip-text text-transparent"
+              : "bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent"
+            }>
+              investiando
+            </span>
+            <span className={theme === "light"
+              ? "text-emerald-700 font-mono font-bold text-xs lowercase"
+              : "text-emerald-400/90 font-mono font-bold text-xs lowercase"
+            }>
+              .app
+            </span>
+          </div>
+        </div>
+        
+        {/* Mobile close button */}
+        {onCloseMobile && (
+          <button 
+            onClick={onCloseMobile}
+            className="lg:hidden p-1.5 rounded-lg text-theme-text-muted hover:text-theme-text-bright hover:bg-theme-card-hover transition-colors cursor-pointer"
+          >
+            <X size={18} />
+          </button>
+        )}
+      </div>
+
+      {/* Navigation Links */}
+      <div className="flex-1 px-3 py-4 space-y-1.5 overflow-y-auto scrollbar-thin">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = item.isActive;
+
+          return (
+            <button
+              key={item.id}
+              onClick={item.onClick}
+              className={`w-full flex items-center justify-between px-3 py-3 rounded-xl transition-all duration-150 cursor-pointer group ${
+                isActive 
+                  ? "bg-theme-input text-theme-text-bright font-semibold shadow-sm" 
+                  : "hover:bg-theme-card-hover hover:text-theme-text-bright"
+              }`}
+            >
+              <div className="flex items-center gap-3.5">
+                <Icon 
+                  size={18} 
+                  className={`transition-colors ${
+                    isActive ? "text-theme-accent" : "text-theme-text-muted group-hover:text-theme-text-bright"
+                  }`} 
+                />
+                <span className="text-[13px] leading-none tracking-wide">
+                  {item.label}
+                </span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Sidebar Footer (Language + Theme selectors matching mockup perfectly) */}
+      <div className="p-4 border-t border-theme-border flex items-center justify-between gap-4 bg-theme-sidebar">
+        {/* Language selector: EN vs ES */}
+        <div className="flex bg-theme-bg p-1 rounded-xl border border-theme-border text-[11px] font-bold">
+          <button
+            onClick={() => onLanguageChange("EN")}
+            className={`px-3 py-1.5 rounded-lg transition-all duration-150 cursor-pointer ${
+              language === "EN" 
+                ? "bg-theme-card text-theme-text-bright shadow-inner" 
+                : "text-theme-text-muted hover:text-theme-text-bright"
+            }`}
+          >
+            EN
+          </button>
+          <button
+            onClick={() => onLanguageChange("ES")}
+            className={`px-3 py-1.5 rounded-lg transition-all duration-150 cursor-pointer ${
+              language === "ES" 
+                ? "bg-theme-card text-theme-text-bright shadow-inner" 
+                : "text-theme-text-muted hover:text-theme-text-bright"
+            }`}
+          >
+            ES
+          </button>
+        </div>
+
+        {/* Theme selector: Light vs Dark */}
+        <div className="flex bg-theme-bg p-1 rounded-xl border border-theme-border">
+          <button
+            onClick={() => onThemeChange("light")}
+            className={`p-1.5 rounded-lg transition-all duration-150 cursor-pointer ${
+              theme === "light" 
+                ? "bg-theme-card text-amber-500 shadow-inner" 
+                : "text-theme-text-muted hover:text-theme-text-bright"
+            }`}
+            title="Light Mode"
+          >
+            <Sun size={14} />
+          </button>
+          <button
+            onClick={() => onThemeChange("dark")}
+            className={`p-1.5 rounded-lg transition-all duration-150 cursor-pointer ${
+              theme === "dark" 
+                ? "bg-theme-card text-sky-400 shadow-inner" 
+                : "text-theme-text-muted hover:text-theme-text-bright"
+            }`}
+            title="Dark Mode"
+          >
+            <Moon size={14} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

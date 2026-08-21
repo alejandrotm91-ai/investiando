@@ -1,0 +1,1197 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+:root {
+  --theme-bg: #020617;
+  --theme-sidebar: #0f111a;
+  --theme-card: #0f111a;
+  --theme-card-hover: #151722;
+  --theme-input: #121420;
+  --theme-border: #1e293b;
+  --theme-text: #f1f5f9;
+  --theme-text-muted: #94a3b8;
+  --theme-text-bright: #ffffff;
+  --theme-green: #10b981;
+  --theme-red: #f43f5e;
+  --theme-accent: #059669;
+}
+
+.light {
+  --theme-bg: #f7f5ef;
+  --theme-sidebar: #ebe8df;
+  --theme-card: #ffffff;
+  --theme-card-hover: #fcfbf9;
+  --theme-input: #ffffff;
+  --theme-border: #ded9cb;
+  --theme-text: #3a3730;
+  --theme-text-muted: #787366;
+  --theme-text-bright: #1b1917;
+  --theme-green: #0c5c3e;
+  --theme-red: #b82e2e;
+  --theme-accent: #0c5c3e;
+}
+
+/* Dynamic Skin Overrides for Light Mode */
+.light .bg-slate-955\/95,
+.light .bg-slate-950\/20,
+.light .bg-slate-950\/30,
+.light .bg-slate-950\/40,
+.light .bg-slate-950\/50,
+.light .bg-slate-950\/60,
+.light .bg-slate-950\/80,
+.light .bg-slate-955,
+.light .bg-slate-950,
+.light .bg-slate-900,
+.light .bg-slate-900\/90,
+.light .bg-slate-900\/80,
+.light .bg-slate-900\/60,
+.light .bg-slate-900\/50,
+.light .bg-slate-850,
+.light .bg-slate-800,
+.light .bg-[#0b0e14],
+.light .bg-[#0f121a],
+.light .bg-[#0f121a]/80,
+.light .bg-[#0f121a]/60,
+.light .bg-[#0c0f17],
+.light .bg-[#0a0d14],
+.light .bg-[#0f111a],
+.light .bg-[#121420],
+.light .bg-[#0d0f1a],
+.light .bg-[#11131f],
+.light .bg-[#0e111a] {
+  background-color: var(--theme-card) !important;
+}
+
+.light .bg-transparent {
+  background-color: transparent !important;
+}
+
+.light .bg-[#0a0c14],
+.light .bg-[#0a0c14]/40,
+.light .bg-[#0a0c14]/60,
+.light .bg-[#0a0c14]/80,
+.light .bg-[#0e111d]/90,
+.light .bg-[#0e111d],
+.light .bg-[#121420]/30,
+.light .bg-[#121420]/60,
+.light .bg-slate-900/80,
+.light .bg-slate-900/60,
+.light .bg-slate-900/50,
+.light .bg-slate-900/40,
+.light .bg-slate-900/30,
+.light .bg-slate-900/20,
+.light .bg-slate-900/10 {
+  background-color: var(--theme-sidebar) !important;
+}
+
+/* Table header light mode overrides */
+.light thead tr,
+.light thead th {
+  background-color: var(--theme-sidebar) !important;
+  color: var(--theme-text) !important;
+  border-color: var(--theme-border) !important;
+}
+
+.light .hover\:bg-slate-900\/80:hover,
+.light .hover\:bg-slate-850\/80:hover,
+.light .hover\:bg-slate-800\/15:hover,
+.light .hover\:bg-slate-800\/20:hover,
+.light .hover\:bg-slate-800\/30:hover,
+.light .hover\:bg-slate-800:hover,
+.light .hover\:bg-slate-700:hover,
+.light .hover\:bg-\[\#1c1e29\]:hover,
+.light .hover\:bg-\[\#151722\]\/40:hover,
+.light .hover\:bg-\[\#151722\]\/60:hover {
+  background-color: var(--theme-card-hover) !important;
+}
+
+.light .border-slate-950,
+.light .border-slate-900,
+.light .border-slate-900\/40,
+.light .border-slate-900\/60,
+.light .border-slate-800,
+.light .border-slate-800\/80,
+.light .border-slate-800\/60,
+.light .border-slate-800\/40,
+.light .border-slate-700,
+.light .border-slate-700\/40,
+.light .border-slate-700\/50,
+.light .border-slate-600,
+.light .border-slate-500,
+.light .divide-slate-800\/40 > * + *,
+.light .divide-slate-900\/40 > * + * {
+  border-color: var(--theme-border) !important;
+}
+
+.light .text-white,
+.light .text-slate-100,
+.light .text-slate-50 {
+  color: var(--theme-text-bright) !important;
+}
+
+.light .text-slate-200,
+.light .text-slate-300 {
+  color: var(--theme-text) !important;
+}
+
+.light .text-slate-400,
+.light .text-slate-500,
+.light .text-slate-600 {
+  color: var(--theme-text-muted) !important;
+}
+
+/* Emerald green and rose red color optimizations */
+.light .text-emerald-400 {
+  color: var(--theme-green) !important;
+}
+.light .text-rose-400 {
+  color: var(--theme-red) !important;
+}
+.light .bg-emerald-500\/10 {
+  background-color: rgba(12, 92, 62, 0.08) !important;
+}
+.light .bg-rose-500\/10 {
+  background-color: rgba(184, 46, 46, 0.08) !important;
+}
+.light .border-emerald-500\/20,
+.light .border-emerald-500\/30 {
+  border-color: rgba(12, 92, 62, 0.2) !important;
+}
+.light .text-emerald-300 {
+  color: var(--theme-green) !important;
+}
+
+/* Advanced Shadow Overrides for Light Mode to make components pop beautifully */
+.light .shadow-md {
+  box-shadow: 0 4px 12px -2px rgba(58, 55, 48, 0.04), 0 2px 6px -1px rgba(58, 55, 48, 0.02) !important;
+}
+.light .shadow-lg {
+  box-shadow: 0 10px 15px -3px rgba(58, 55, 48, 0.05), 0 4px 6px -2px rgba(58, 55, 48, 0.02) !important;
+}
+.light .shadow-xl {
+  box-shadow: 0 16px 24px -4px rgba(58, 55, 48, 0.06), 0 8px 12px -3px rgba(58, 55, 48, 0.03) !important;
+}
+.light .shadow-2xl {
+  box-shadow: 0 25px 50px -12px rgba(58, 55, 48, 0.08) !important;
+}
+
+/* Table styling polish in Light Mode */
+.light tr:hover {
+  background-color: var(--theme-card-hover) !important;
+}
+
+/* Custom form elements and dropdown overrides in Light Mode */
+.light select, .light input, .light textarea {
+  background-color: var(--theme-input) !important;
+  color: var(--theme-text) !important;
+  border-color: var(--theme-border) !important;
+}
+.light select option {
+  background-color: var(--theme-card) !important;
+  color: var(--theme-text) !important;
+}
+.light select:focus, .light input:focus, .light textarea:focus {
+  border-color: var(--theme-accent) !important;
+  outline: none;
+}
+
+/* Light Mode Overrides for Summary Dashboard Cards (to match targeted focus mode) */
+.light #summary-section > div:first-child,
+.light #summary-section > div:nth-of-type(1),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#summary-section:nth-of-type(3) > div:nth-of-type(1) {
+  background: transparent !important;
+  background-color: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.light #summary-section > div:first-child > div:nth-child(1),
+.light #summary-section > div:first-child > div:nth-child(3) {
+  background-color: var(--theme-card) !important;
+  border-color: var(--theme-border) !important;
+}
+
+/* Card containing 4 metric cards: same color as background */
+.light #summary-section > div:first-child > div:nth-child(2),
+.light #summary-metrics-card,
+.light .metrics-container-card,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#summary-section:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) {
+  background-color: var(--theme-bg) !important;
+  background: var(--theme-bg) !important;
+  border-color: var(--theme-border) !important;
+  box-shadow: 0 4px 20px -3px rgba(58, 55, 48, 0.05), 0 2px 6px -1px rgba(58, 55, 48, 0.03) !important;
+}
+
+/* Internal elements inside Card 1 (Value Card) and Card 2 (Metrics Card) under Light Mode */
+.light .metrics-subcard,
+.light #summary-section .metrics-subcard,
+.light #summary-section > div:first-child > div:nth-child(2) div.bg-\[\#121420\]\/30,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#summary-section:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#summary-section:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) {
+  background-color: #ffffff !important;
+  border-color: var(--theme-border) !important;
+}
+
+.light #summary-section > div:first-child > div:nth-child(2) .bg-slate-950\/80 {
+  background-color: var(--theme-sidebar) !important;
+  border-color: var(--theme-border) !important;
+}
+
+.light #summary-section > div:first-child > div:nth-child(1) .border-slate-800\/60,
+.light #summary-section > div:first-child > div:nth-child(1) .border-slate-800\/40,
+.light #summary-section > div:first-child > div:nth-child(2) .border-slate-800\/40,
+.light #summary-section > div:first-child > div:nth-child(2) .border-slate-800\/60 {
+  border-color: var(--theme-border) !important;
+}
+
+.light .bg-\[\#0f111a\]\/40,
+.light .bg-\[\#0f111a\]\/80,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div#portfolio-projections-section:nth-of-type(4) {
+  background: transparent !important;
+  background-color: transparent !important;
+  border-color: var(--theme-border) !important;
+  box-shadow: none !important;
+}
+
+/* Light mode card styling for selected summary card and holdings section card to match ticker card background (#fcfbf9) */
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div:nth-of-type(1) {
+  background-color: #fcfbf9 !important;
+  border-color: #e5e3da !important;
+}
+
+/* Make the outer tabs container transparent to delete the empty white background in light mode */
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) {
+  background-color: transparent !important;
+}
+
+/* Light mode popover card overrides for Daily Dynamics (Suben & Bajan) */
+.light .daily-dynamics-popover {
+  background-color: #ffffff !important;
+  border-color: var(--theme-border) !important;
+  color: #121420 !important;
+  box-shadow: 0 15px 30px -5px rgba(0, 0, 0, 0.12), 0 8px 10px -6px rgba(0, 0, 0, 0.05) !important;
+}
+
+.light .daily-dynamics-popover .text-slate-100 {
+  color: #121420 !important;
+}
+
+.light .daily-dynamics-popover .border-slate-800 {
+  border-color: #e5e3da !important;
+}
+
+.light .daily-dynamics-popover-item {
+  background-color: #fcfbf9 !important;
+  border-color: #e5e3da !important;
+}
+
+.light .daily-dynamics-popover-item:hover {
+  background-color: #f3f1e7 !important;
+}
+
+/* Holdings Mode Toggle (Basis, Valuation, Health, Financials) in Light Mode */
+.light #holdings-mode-toggle,
+.light .simulator-mode-toggle,
+.light #simulator-mode-toggle,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div#holdings-mode-toggle:nth-of-type(1),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#simulator-section:nth-of-type(3) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) {
+  background-color: var(--theme-sidebar) !important;
+  background: var(--theme-sidebar) !important;
+  border-color: var(--theme-border) !important;
+  box-shadow: inset 0 1px 2px rgba(58, 55, 48, 0.06) !important;
+}
+
+.light #holdings-mode-toggle button,
+.light #simulator-mode-toggle button,
+.light .simulator-mode-toggle button,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#simulator-section:nth-of-type(3) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) button {
+  color: var(--theme-text-muted) !important;
+}
+
+.light #holdings-mode-toggle button:hover,
+.light #simulator-mode-toggle button:hover,
+.light .simulator-mode-toggle button:hover,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#simulator-section:nth-of-type(3) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) button:hover {
+  color: var(--theme-text-bright) !important;
+}
+
+.light #holdings-mode-toggle button.font-extrabold,
+.light #simulator-mode-toggle button.font-extrabold,
+.light .simulator-mode-toggle button.font-extrabold,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#simulator-section:nth-of-type(3) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) button.font-extrabold {
+  color: #0a0d1a !important;
+  box-shadow: 0 2px 8px rgba(92, 109, 253, 0.25) !important;
+}
+
+/* Holdings & Simulator View Mode Toggle (Cards vs Table) in Light Mode */
+.light .holdings-view-toggle,
+.light #holdings-view-toggle,
+.light .simulator-view-toggle,
+.light #simulator-view-toggle,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#simulator-section:nth-of-type(3) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) {
+  background-color: var(--theme-sidebar) !important;
+  background: var(--theme-sidebar) !important;
+  border-color: var(--theme-border) !important;
+  box-shadow: inset 0 1px 2px rgba(58, 55, 48, 0.06) !important;
+}
+
+.light .holdings-view-toggle button.active-view-mode,
+.light #holdings-view-toggle button.active-view-mode,
+.light .simulator-view-toggle button.active-view-mode,
+.light #simulator-view-toggle button.active-view-mode,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > button.active-view-mode,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#simulator-section:nth-of-type(3) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > button.active-view-mode {
+  background-color: #ffffff !important;
+  color: var(--theme-text-bright) !important;
+  border-color: var(--theme-border) !important;
+  box-shadow: 0 2px 6px -1px rgba(58, 55, 48, 0.08), 0 1px 3px rgba(58, 55, 48, 0.04) !important;
+}
+
+.light .holdings-view-toggle button.inactive-view-mode,
+.light #holdings-view-toggle button.inactive-view-mode,
+.light .simulator-view-toggle button.inactive-view-mode,
+.light #simulator-view-toggle button.inactive-view-mode,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > button.inactive-view-mode,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#simulator-section:nth-of-type(3) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > button.inactive-view-mode {
+  background-color: transparent !important;
+  color: var(--theme-text-muted) !important;
+}
+
+.light .holdings-view-toggle button.inactive-view-mode:hover,
+.light #holdings-view-toggle button.inactive-view-mode:hover,
+.light .simulator-view-toggle button.inactive-view-mode:hover,
+.light #simulator-view-toggle button.inactive-view-mode:hover,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > button.inactive-view-mode:hover,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#simulator-section:nth-of-type(3) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > button.inactive-view-mode:hover {
+  color: var(--theme-text-bright) !important;
+  background-color: #e5e2d8 !important;
+}
+
+/* Specific Light Mode overrides for requested cards to have beautiful white backgrounds and crisp details */
+.light #portfolio-projections-section,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#simulator-section:nth-of-type(3) > div#portfolio-projections-section:nth-of-type(4) {
+  background-color: var(--theme-bg) !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div#ticker-performance-comparator-card:nth-of-type(3),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div:nth-of-type(5) > div:nth-of-type(1),
+.light #portfolio-projections-section .grid > div,
+.light #simulator-section .grid > div,
+.light #simulator-section > div,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div#portfolio-projections-section:nth-of-type(4) > div:nth-of-type(1),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div#portfolio-projections-section:nth-of-type(4) > div:nth-of-type(2),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#simulator-section:nth-of-type(3) > div:nth-of-type(1),
+.light #simulator-section > div:first-child,
+.light #simulator-section .bg-slate-900 {
+  background-color: var(--theme-card) !important; /* Pure white background #ffffff */
+  border-color: var(--theme-border) !important; /* #ded9cb */
+  color: var(--theme-text) !important;
+  box-shadow: 0 10px 30px -10px rgba(58, 55, 48, 0.08), 0 1px 3px rgba(58, 55, 48, 0.02) !important;
+}
+
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div:nth-of-type(5) > div:nth-of-type(1) .text-white,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div:nth-of-type(5) .text-white,
+.light #ticker-performance-comparator-card .text-white,
+.light #portfolio-projections-section .text-white,
+.light #simulator-section .text-white {
+  color: var(--theme-text-bright) !important;
+}
+
+.light #portfolio-projections-section .text-slate-300,
+.light #simulator-section .text-slate-300 {
+  color: var(--theme-text) !important;
+}
+
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div:nth-of-type(5) > div:nth-of-type(1) .text-slate-400,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div:nth-of-type(5) > div:nth-of-type(1) .text-slate-500,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div:nth-of-type(5) .text-slate-400,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div:nth-of-type(5) .text-slate-500,
+.light #portfolio-projections-section .text-slate-400,
+.light #portfolio-projections-section .text-slate-500,
+.light #portfolio-projections-section .text-slate-600,
+.light #simulator-section .text-slate-400,
+.light #simulator-section .text-slate-500,
+.light #simulator-section .text-slate-600 {
+  color: var(--theme-text-muted) !important;
+}
+
+.light #simulator-section .bg-slate-800,
+.light #simulator-section .bg-\[\#121420\]\/60,
+.light #simulator-section .bg-\[\#121420\],
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#simulator-section:nth-of-type(3) > div#portfolio-projections-section:nth-of-type(4) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(3),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div#portfolio-projections-section:nth-of-type(4) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(3),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div#portfolio-projections-section:nth-of-type(4) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div#portfolio-projections-section:nth-of-type(4) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div#portfolio-projections-section:nth-of-type(4) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#summary-section:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#summary-section:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#summary-section:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#summary-section:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(3),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#summary-section:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(4) {
+  background-color: #f7f5ef !important;
+}
+.light #portfolio-projections-section .bg-\[\#121420\]\/60,
+.light #portfolio-projections-section .bg-\[\#121420\],
+.light #portfolio-projections-section .bg-\[\#0a0c14\]\/80 {
+  background-color: var(--theme-bg) !important;
+  border-color: var(--theme-border) !important;
+  color: var(--theme-text-bright) !important;
+}
+
+.light #portfolio-projections-section .bg-\[\#0a0c14\]\/80 {
+  background-color: var(--theme-sidebar) !important;
+  border-color: var(--theme-border) !important;
+}
+
+.light #ticker-performance-comparator-card .bg-slate-900\/60 {
+  background-color: var(--theme-sidebar) !important;
+  border-color: var(--theme-border) !important;
+  color: var(--theme-text) !important;
+}
+
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div:nth-of-type(5) .border-slate-900\/60,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div:nth-of-type(5) .border-slate-900,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div:nth-of-type(5) .border-slate-800\/60,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div:nth-of-type(5) .border-slate-800\/80,
+.light #ticker-performance-comparator-card .border-slate-900\/60,
+.light #portfolio-projections-section .border-slate-900\/60,
+.light #portfolio-projections-section .border-slate-900,
+.light #simulator-section .border-slate-900,
+.light #simulator-section .border-slate-800,
+.light #simulator-section .border-slate-800\/10,
+.light #simulator-section .border-slate-800\/60,
+.light #simulator-section .border-slate-800\/80 {
+  border-color: var(--theme-border) !important;
+}
+
+/* Background for year and timeframe selectors inside white cards */
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div:nth-of-type(5) .bg-\[\#121420\],
+.light #ticker-performance-comparator-card .bg-\[\#121420\],
+.light #portfolio-projections-section .bg-\[\#121420\],
+.light #simulator-section .bg-\[\#121420\] {
+  background-color: var(--theme-sidebar) !important;
+  border-color: var(--theme-border) !important;
+}
+
+/* Selected active button backgrounds for inner toggles in light mode */
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div:nth-of-type(5) .bg-\[\#1c1e29\],
+.light #portfolio-projections-section .bg-\[\#1c1e29\],
+.light #simulator-section .bg-\[\#1c1e29\] {
+  background-color: var(--theme-card) !important;
+  color: var(--theme-text-bright) !important;
+  box-shadow: 0 2px 5px rgba(58, 55, 48, 0.08) !important;
+}
+
+/* Style for active inputs inside light mode cards */
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#holdings-section:nth-of-type(3) > div:nth-of-type(5) input,
+.light #portfolio-projections-section input,
+.light #simulator-section input {
+  color: var(--theme-text-bright) !important;
+  background-color: transparent !important;
+}
+
+/* Recharts Tooltip in Light Mode */
+.light .recharts-default-tooltip {
+  background-color: var(--theme-card) !important;
+  border-color: var(--theme-border) !important;
+  color: var(--theme-text) !important;
+}
+
+/* Specific Light Mode overrides for requested RSI gauges to match the light cream background */
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(3) > div:nth-of-type(1) > span:nth-of-type(2),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(3) > div:nth-of-type(3) > div:nth-of-type(1) > span:nth-of-type(2),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > span:nth-of-type(2),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(3) > div:nth-of-type(1) > span:nth-of-type(2),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(3) > div:nth-of-type(3) > div:nth-of-type(1) > span:nth-of-type(2),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(4) > div:nth-of-type(3) > div:nth-of-type(1) > span:nth-of-type(2),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(5) > div:nth-of-type(3) > div:nth-of-type(1) > span:nth-of-type(2),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(6) > div:nth-of-type(3) > div:nth-of-type(1) > span:nth-of-type(2),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(8) > div:nth-of-type(3) > div:nth-of-type(1) > span:nth-of-type(2) {
+  background-color: var(--theme-bg) !important;
+  border-color: var(--theme-border) !important;
+  color: var(--theme-text) !important;
+}
+
+/* Specific Light Mode overrides for the requested metrics inner cards (Weighted P/E, FWD P/E, PEG, Beta) to have light cream background */
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#summary-section:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#summary-section:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#summary-section:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(3),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#summary-section:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(4) {
+  background-color: var(--theme-sidebar) !important;
+  border-color: var(--theme-border) !important;
+}
+
+/* Light Mode override for progress bar remaining/background track */
+.light .bg-slate-800\/60,
+.light #simulator-section .bg-slate-800\/60,
+.light #portfolio-projections-section .bg-slate-800\/60,
+.light #summary-section .bg-slate-800\/60,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#simulator-section:nth-of-type(3) > div#portfolio-projections-section:nth-of-type(4) > div:nth-of-type(2) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) {
+  background-color: #e2e8f0 !important;
+}
+
+/* Legibility optimizations for benchmarks (S&P 500 / QQQ) text colors in Light Mode */
+.light .text-sky-400 {
+  color: #0369a1 !important; /* sky-700 for beautiful crisp contrast */
+}
+.light .text-violet-400 {
+  color: #6d28d9 !important; /* violet-700 for beautiful crisp contrast */
+}
+
+/* Ensure the Cash/Efectivo rows (bg-slate-800/10 or bg-slate-800/20) are transparent (light and clear) like other rows in Light Mode */
+.light tr.bg-slate-800\/10:not(:hover),
+.light tr.bg-slate-800\/20:not(:hover) {
+  background-color: transparent !important;
+}
+
+/* Footer row background matching Cash and position rows */
+tfoot tr, .light tfoot tr {
+  background-color: transparent !important;
+}
+
+/* Specific Light Mode overrides for Superinvestors Cards to have pure white background */
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div,
+.light #superinvestor-cards-grid > div,
+.light .superinvestor-card {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  background-image: none !important;
+  border-color: var(--theme-border) !important;
+  box-shadow: 0 10px 25px -5px rgba(58, 55, 48, 0.06), 0 2px 6px -1px rgba(58, 55, 48, 0.03) !important;
+}
+
+.light #superinvestor-cards-grid > div:hover,
+.light .superinvestor-card:hover {
+  background: #fcfbf9 !important;
+  background-color: #fcfbf9 !important;
+  background-image: none !important;
+}
+
+.light .superinvestor-card h3,
+.light .superinvestor-card .text-white {
+  color: var(--theme-text-bright) !important;
+}
+
+.light .superinvestor-card .text-slate-200,
+.light .superinvestor-card .text-slate-300 {
+  color: var(--theme-text-bright) !important;
+}
+
+.light .superinvestor-card .text-slate-400,
+.light .superinvestor-card .text-slate-500 {
+  color: var(--theme-text-muted) !important;
+}
+
+.light .superinvestor-card .border-slate-900,
+.light .superinvestor-card .border-slate-900\/60,
+.light .superinvestor-card .border-slate-900\/40,
+.light .superinvestor-card .border-slate-800,
+.light .superinvestor-card .border-slate-800\/80 {
+  border-color: var(--theme-border) !important;
+}
+
+.light .superinvestor-card .bg-\[\#121420\],
+.light .superinvestor-card .bg-\[\#121420\]\/30 {
+  background-color: var(--theme-sidebar) !important;
+  border-color: var(--theme-border) !important;
+  color: var(--theme-text-bright) !important;
+}
+
+.light .score-donut-track {
+  color: #e2e8f0 !important;
+}
+
+.light .score-donut-text {
+  color: var(--theme-text-bright) !important;
+}
+
+/* User-requested selectors for light mode adaptation */
+div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#superinvestor-cards-grid:nth-of-type(3) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > span:nth-of-type(1),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#superinvestor-cards-grid:nth-of-type(3) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > span:nth-of-type(1) {
+  background-color: rgba(16, 185, 129, 0.12) !important;
+  color: #047857 !important;
+  border-color: rgba(16, 185, 129, 0.35) !important;
+}
+
+/* Light mode styling for all superinvestor card badges */
+.light .superinvestor-card .bg-emerald-500\/15 {
+  background-color: rgba(16, 185, 129, 0.12) !important;
+  color: #047857 !important;
+  border-color: rgba(16, 185, 129, 0.35) !important;
+}
+
+.light .superinvestor-card .bg-amber-500\/15 {
+  background-color: rgba(245, 158, 11, 0.12) !important;
+  color: #b45309 !important;
+  border-color: rgba(245, 158, 11, 0.35) !important;
+}
+
+.light .superinvestor-card .bg-slate-800\/50 {
+  background-color: var(--theme-sidebar) !important;
+  color: var(--theme-text) !important;
+  border-color: var(--theme-border) !important;
+}
+
+.light .superinvestor-card .bg-emerald-500\/10 {
+  background-color: rgba(16, 185, 129, 0.12) !important;
+  color: #047857 !important;
+  border-color: rgba(16, 185, 129, 0.35) !important;
+}
+
+.light .superinvestor-card .bg-sky-500\/10 {
+  background-color: rgba(14, 165, 233, 0.12) !important;
+  color: #0369a1 !important;
+  border-color: rgba(14, 165, 233, 0.35) !important;
+}
+
+.light .superinvestor-card .bg-indigo-500\/10 {
+  background-color: rgba(99, 102, 241, 0.12) !important;
+  color: #4338ca !important;
+  border-color: rgba(99, 102, 241, 0.35) !important;
+}
+
+.light .superinvestor-card .bg-purple-500\/10 {
+  background-color: rgba(168, 85, 247, 0.12) !important;
+  color: #7e22ce !important;
+  border-color: rgba(168, 85, 247, 0.35) !important;
+}
+
+.light .superinvestor-card .bg-rose-500\/10 {
+  background-color: rgba(244, 63, 94, 0.12) !important;
+  color: #be123c !important;
+  border-color: rgba(244, 63, 94, 0.35) !important;
+}
+
+.light .superinvestor-card .bg-teal-500\/10 {
+  background-color: rgba(20, 184, 166, 0.12) !important;
+  color: #0f766e !important;
+  border-color: rgba(20, 184, 166, 0.35) !important;
+}
+
+.light .superinvestor-card .bg-cyan-500\/10 {
+  background-color: rgba(6, 182, 212, 0.12) !important;
+  color: #0e7490 !important;
+  border-color: rgba(6, 182, 212, 0.35) !important;
+}
+
+.light .superinvestor-card .bg-blue-500\/10 {
+  background-color: rgba(59, 130, 246, 0.12) !important;
+  color: #1d4ed8 !important;
+  border-color: rgba(59, 130, 246, 0.35) !important;
+}
+
+/* User-requested selectors for light mode adaptation */
+div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > span:nth-of-type(2),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > span:nth-of-type(2) {
+  background-color: var(--theme-sidebar) !important;
+  border-color: var(--theme-border) !important;
+  color: var(--theme-text) !important;
+}
+
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) {
+  background-color: var(--theme-sidebar) !important;
+  border-color: var(--theme-border) !important;
+  color: var(--theme-text) !important;
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1),
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) {
+  background-color: var(--theme-sidebar) !important;
+  border-color: var(--theme-border) !important;
+  color: var(--theme-text-bright) !important;
+}
+
+/* Light mode overrides for Superinvestors Banner & Top Control Bar */
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) {
+  background-color: #ffffff !important;
+  border-color: var(--theme-border) !important;
+  box-shadow: 0 4px 20px -3px rgba(58, 55, 48, 0.05), 0 2px 6px -1px rgba(58, 55, 48, 0.03) !important;
+}
+
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) h2 {
+  color: var(--theme-text-bright) !important;
+}
+
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) p {
+  color: var(--theme-text-muted) !important;
+}
+
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) {
+  background-color: #ffffff !important;
+  border-color: var(--theme-border) !important;
+}
+
+/* Light mode for Superinvestors Table View */
+.light table th {
+  background-color: var(--theme-sidebar) !important;
+  border-color: var(--theme-border) !important;
+  color: var(--theme-text-muted) !important;
+}
+
+.light table td {
+  border-color: var(--theme-border) !important;
+  color: var(--theme-text-bright) !important;
+}
+
+.light table tr:hover {
+  background-color: #f7f5ef !important;
+}
+
+.light table .bg-\[\#121420\] {
+  background-color: var(--theme-sidebar) !important;
+  border-color: var(--theme-border) !important;
+  color: var(--theme-text-bright) !important;
+}
+
+/* Light Mode Overrides for Performance Metrics Panel Block Background */
+.light #performance-metrics-panel,
+.light div#summary-section > div#performance-metrics-panel,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#summary-section:nth-of-type(3) > div#performance-metrics-panel:nth-of-type(2) {
+  background: transparent !important;
+  background-color: transparent !important;
+  border-color: transparent !important;
+}
+
+.light #performance-metrics-panel > div {
+  background-color: var(--theme-card) !important;
+  border-color: var(--theme-border) !important;
+  box-shadow: 0 10px 30px -10px rgba(58, 55, 48, 0.08), 0 1px 3px rgba(58, 55, 48, 0.02) !important;
+}
+
+.light #performance-metrics-panel .text-white {
+  color: var(--theme-text-bright) !important;
+}
+
+.light #performance-metrics-panel .border-slate-800,
+.light #performance-metrics-panel .border-slate-800\/40,
+.light #performance-metrics-panel .border-slate-800\/60,
+.light #performance-metrics-panel .border-slate-800\/20 {
+  border-color: var(--theme-border) !important;
+}
+
+.light #performance-metrics-panel select,
+.light #performance-metrics-panel .bg-slate-800 {
+  background-color: var(--theme-sidebar) !important;
+  border-color: var(--theme-border) !important;
+  color: var(--theme-text-bright) !important;
+}
+
+/* Light Mode Overrides for Market Dashboard Header & Controls */
+.light .market-header-card,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  border-color: var(--theme-border) !important;
+  box-shadow: 0 4px 20px -3px rgba(58, 55, 48, 0.05), 0 2px 6px -1px rgba(58, 55, 48, 0.03) !important;
+}
+
+.light .market-header-card .text-white {
+  color: var(--theme-text-bright) !important;
+}
+
+.light .market-header-card .text-slate-400 {
+  color: var(--theme-text-muted) !important;
+}
+
+.light .market-status-pill,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) {
+  background-color: var(--theme-sidebar) !important;
+  border-color: var(--theme-border) !important;
+  box-shadow: 0 1px 2px rgba(58, 55, 48, 0.04) !important;
+}
+
+.light .market-status-pill .text-emerald-400 {
+  color: #0c5c3e !important;
+}
+
+.light .market-status-pill .text-rose-400 {
+  color: #b82e2e !important;
+}
+
+.light .market-refresh-btn,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > button:nth-of-type(1) {
+  background-color: var(--theme-sidebar) !important;
+  border-color: var(--theme-border) !important;
+  color: var(--theme-text-bright) !important;
+  box-shadow: 0 1px 2px rgba(58, 55, 48, 0.04) !important;
+}
+
+.light .market-refresh-btn:hover,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > button:nth-of-type(1):hover {
+  background-color: #eeebe3 !important;
+  border-color: #cbd5e1 !important;
+  color: var(--theme-text-bright) !important;
+}
+
+/* Light Mode Overrides for Market Dashboard Panels */
+.light .market-panel-card {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  border-color: var(--theme-border) !important;
+  box-shadow: 0 4px 20px -3px rgba(58, 55, 48, 0.05), 0 2px 6px -1px rgba(58, 55, 48, 0.03) !important;
+}
+
+.light .market-panel-card .text-white,
+.light .market-panel-card .text-slate-200 {
+  color: var(--theme-text-bright) !important;
+}
+
+.light .market-panel-card .text-slate-400,
+.light .market-panel-card .text-slate-500 {
+  color: var(--theme-text-muted) !important;
+}
+
+.light .market-panel-card .border-slate-800,
+.light .market-panel-card .border-slate-800\/60,
+.light .market-panel-card .border-slate-800\/40,
+.light .market-panel-card .border-slate-800\/30,
+.light .market-panel-card .border-slate-800\/20 {
+  border-color: var(--theme-border) !important;
+}
+
+.light .market-panel-card .hover\:bg-slate-800\/20:hover {
+  background-color: #f7f5ef !important;
+}
+
+.light .market-panel-card .bg-slate-950 {
+  background-color: #eeebe3 !important;
+}
+
+/* Light Mode Overrides for Market Dashboard Index Cards */
+.light [id^="index-card-"],
+.light div#index-card-gspc,
+.light div#index-card-dji,
+.light div#index-card-ixic,
+.light div#index-card-rut,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div#index-card-gspc:nth-of-type(1),
+.light .index-card {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  background-image: none !important;
+  border-color: var(--theme-border) !important;
+  box-shadow: 0 4px 18px -3px rgba(58, 55, 48, 0.05), 0 2px 6px -1px rgba(58, 55, 48, 0.03) !important;
+}
+
+.light [id^="index-card-"]:hover,
+.light div#index-card-gspc:hover,
+.light .index-card:hover {
+  background: #fcfbf9 !important;
+  background-color: #fcfbf9 !important;
+  background-image: none !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 10px 25px -5px rgba(58, 55, 48, 0.08), 0 4px 10px -2px rgba(58, 55, 48, 0.04) !important;
+}
+
+.light [id^="index-card-"] .text-white,
+.light .index-card .text-white {
+  color: var(--theme-text-bright) !important;
+}
+
+.light [id^="index-card-"] .text-slate-300,
+.light .index-card .text-slate-300 {
+  color: var(--theme-text-bright) !important;
+}
+
+.light [id^="index-card-"] .text-slate-500,
+.light .index-card .text-slate-500 {
+  color: var(--theme-text-muted) !important;
+}
+
+.light .index-card .text-slate-400 {
+  color: var(--theme-text-muted) !important;
+}
+
+.light .index-progress-track {
+  background-color: #e2e8f0 !important;
+  border-color: #cbd5e1 !important;
+}
+
+/* Light Mode Overrides for Holdings Position Cards */
+.light .holding-card,
+.light .holding-banner-card,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  background-image: none !important;
+  border-color: var(--theme-border) !important;
+  box-shadow: 0 4px 18px -3px rgba(58, 55, 48, 0.05), 0 2px 6px -1px rgba(58, 55, 48, 0.03) !important;
+}
+
+.light .holding-card:hover,
+.light .holding-banner-card:hover,
+.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:hover {
+  background: #fcfbf9 !important;
+  background-color: #fcfbf9 !important;
+  background-image: none !important;
+}
+
+.light .holding-card .bg-slate-950\/60,
+.light .holding-card .bg-slate-900,
+.light .holding-banner-card .bg-slate-950\/60 {
+  background-color: #f7f5ef !important;
+  border-color: var(--theme-border) !important;
+}
+
+.light .holding-card .text-white,
+.light .holding-banner-card .text-white {
+  color: var(--theme-text-bright) !important;
+}
+
+.light .holding-card .text-slate-300,
+.light .holding-card .text-slate-400,
+.light .holding-banner-card .text-slate-300,
+.light .holding-banner-card .text-slate-400 {
+  color: var(--theme-text) !important;
+}
+
+/* Health Metrics Tooltip Styling for Dark & Light Mode */
+.health-metrics-tooltip {
+  background-color: #1a1d27;
+  border-color: rgba(51, 65, 85, 0.8);
+  color: #e2e8f0;
+}
+
+.health-metrics-tooltip .tooltip-title {
+  color: #94a3b8;
+  border-color: rgba(51, 65, 85, 0.5);
+}
+
+.health-metrics-tooltip .tooltip-label {
+  color: #94a3b8;
+}
+
+.health-metrics-tooltip .tooltip-val {
+  color: #f8fafc;
+}
+
+.health-metrics-tooltip .arrow-top {
+  border-bottom-color: #1a1d27;
+}
+
+.health-metrics-tooltip .arrow-bottom {
+  border-top-color: #1a1d27;
+}
+
+/* Light Mode Overrides for Health Metrics Tooltip */
+.light .health-metrics-tooltip {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 12px 28px -5px rgba(15, 23, 42, 0.16), 0 8px 10px -6px rgba(15, 23, 42, 0.1) !important;
+}
+
+.light .health-metrics-tooltip .tooltip-title {
+  color: #334155 !important;
+  border-color: #e2e8f0 !important;
+}
+
+.light .health-metrics-tooltip .tooltip-label {
+  color: #64748b !important;
+}
+
+.light .health-metrics-tooltip .tooltip-val {
+  color: #0f172a !important;
+}
+
+.light .health-metrics-tooltip .arrow-top {
+  border-bottom-color: #ffffff !important;
+}
+
+.light .health-metrics-tooltip .arrow-bottom {
+  border-top-color: #ffffff !important;
+}
+
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --color-theme-bg: var(--theme-bg);
+  --color-theme-sidebar: var(--theme-sidebar);
+  --color-theme-card: var(--theme-card);
+  --color-theme-card-hover: var(--theme-card-hover);
+  --color-theme-input: var(--theme-input);
+  --color-theme-border: var(--theme-border);
+  --color-theme-text: var(--theme-text);
+  --color-theme-text-muted: var(--theme-text-muted);
+  --color-theme-text-bright: var(--theme-text-bright);
+  --color-theme-green: var(--theme-green);
+  --color-theme-red: var(--theme-red);
+  --color-theme-accent: var(--theme-accent);
+}
+
+/* Hide native spin-buttons for number inputs */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+html, body {
+  overflow-x: hidden;
+  max-width: 100vw;
+  width: 100%;
+}
+
+#root {
+  overflow-x: hidden;
+  max-width: 100vw;
+  width: 100%;
+}
+
+body {
+  background-color: var(--theme-bg);
+  color: var(--theme-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Hide lateral / horizontal scrollbar on mobile devices while maintaining smooth swipe/touch */
+@media (max-width: 768px) {
+  * {
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  ::-webkit-scrollbar:horizontal {
+    display: none !important;
+    height: 0px !important;
+  }
+
+  .overflow-x-auto,
+  .overflow-x-scroll {
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+
+  .overflow-x-auto::-webkit-scrollbar,
+  .overflow-x-scroll::-webkit-scrollbar {
+    display: none !important;
+    width: 0px !important;
+    height: 0px !important;
+  }
+}
+
+/* Custom scrollbar to keep it looking clean and modern */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--theme-sidebar);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--theme-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--theme-text-muted);
+}
+
+/* Animations and custom styles */
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.75; }
+}
+
+.pulse-subtle {
+  animation: pulse-subtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Utility to completely hide scrollbars across all browsers while maintaining smooth scroll */
+.no-scrollbar::-webkit-scrollbar,
+.scrollbar-none::-webkit-scrollbar {
+  display: none !important;
+  width: 0px !important;
+  height: 0px !important;
+}
+
+.no-scrollbar,
+.scrollbar-none {
+  -ms-overflow-style: none !important; /* IE and Edge */
+  scrollbar-width: none !important; /* Firefox */
+}
+
+@keyframes ticker {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.animate-ticker {
+  animation: ticker 180s linear infinite;
+  will-change: transform;
+}
+
+.animate-ticker:hover {
+  animation-play-state: paused;
+}
+
+/* Ensure sector distribution card uses full vertical space without scroll constraint */
+div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#simulator-section:nth-of-type(3) > div#portfolio-projections-section:nth-of-type(4) > div:nth-of-type(2) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(2) {
+  max-height: none !important;
+  overflow-y: visible !important;
+}
+
+div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div#simulator-section:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > span:nth-of-type(2),
+div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(5) > div:nth-of-type(3) > div:nth-of-type(1) > span:nth-of-type(2),
+div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(6) > div:nth-of-type(3) > div:nth-of-type(1) > span:nth-of-type(2) {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+
+
+
+/* Base (Dark Mode) Type Badges */
+.badge-type-mature { background-color: rgba(6, 78, 59, 0.4); color: #34d399; border-color: #065f46; } 
+.badge-type-growth { background-color: rgba(19, 78, 74, 0.4); color: #2dd4bf; border-color: #115e59; } 
+.badge-type-infra { background-color: #1e293b; color: #cbd5e1; border-color: #334155; } 
+.badge-type-cyclical { background-color: rgba(120, 53, 15, 0.4); color: #fbbf24; border-color: #92400e; } 
+.badge-type-speculative { background-color: rgba(136, 19, 55, 0.4); color: #fb7185; border-color: #9f1239; } 
+.badge-type-financial { background-color: rgba(30, 58, 138, 0.4); color: #60a5fa; border-color: #1e40af; } 
+.badge-type-hypergrowth { background-color: rgba(88, 28, 135, 0.4); color: #c084fc; border-color: #6b21a8; } 
+.badge-type-turnaround { background-color: rgba(124, 45, 18, 0.4); color: #fb923c; border-color: #9a3412; } 
+.badge-type-unknown { background-color: #1e293b; color: #94a3b8; border-color: #334155; } 
+
+/* Light Mode Type Badges */
+.light .badge-type-mature { background-color: #d1fae5; color: #065f46; border-color: #a7f3d0; }
+.light .badge-type-growth { background-color: #ccfbf1; color: #115e59; border-color: #99f6e4; }
+.light .badge-type-infra { background-color: #f1f5f9; color: #334155; border-color: #cbd5e1; }
+.light .badge-type-cyclical { background-color: #fef3c7; color: #92400e; border-color: #fde68a; }
+.light .badge-type-speculative { background-color: #ffe4e6; color: #9f1239; border-color: #fecdd3; }
+.light .badge-type-financial { background-color: #dbeafe; color: #1e3a8a; border-color: #bfdbfe; }
+.light .badge-type-hypergrowth { background-color: #f3e8ff; color: #581c87; border-color: #e9d5ff; }
+.light .badge-type-turnaround { background-color: #ffedd5; color: #9a3412; border-color: #fed7aa; }
+.light .badge-type-unknown { background-color: #f1f5f9; color: #475569; border-color: #cbd5e1; }
+
+.light .active-view-mode {
+  background-color: #f2f2f2 !important;
+  color: #121420 !important;
+}
+
+.light .inactive-view-mode {
+  background-color: transparent !important;
+  color: #73706b !important;
+}
+
+.light .light-search-input {
+  color: #121420 !important;
+}

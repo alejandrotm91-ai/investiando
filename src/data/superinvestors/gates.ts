@@ -1,0 +1,41 @@
+import { SuperinvestorMeta } from "./types";
+
+export const gates: SuperinvestorMeta = {
+  name: "Bill Gates",
+  fund: "Gates Foundation Trust",
+  institution: "Bill & Melinda Gates Foundation Trust",
+  period: "Q2 2026 (30-Jun-2026)",
+  aum13F: 34.42,
+  filingDate: "14-Ago-2026",
+  source: "SEC EDGAR 13F-HR / Dataroma.com (archivo Excel Q2 2026)",
+  category: "Value",
+  categoryES: "Valor",
+  descEN: "Manages philanthropic assets with high exposure to compounders, global logistics, waste management, heavy equipment, and classic value leaders.",
+  descES: "Gestiona activos filantrópicos con alta exposición a compounders, logística global, gestión de residuos, maquinaria pesada y valor clásico.",
+  holdings: [
+    { ticker: "BRK.B", company: "Berkshire Hathaway CL B", shares: 14689844, avgCost: 500.39, reportedPrice: 500.39, valueM: 7350.65, portfolioWeight: 21.35, sector: "Financial Services", activity: "Reduce 13.83%" },
+    { ticker: "CAT", company: "Caterpillar Inc.", shares: 6353614, avgCost: 1064.90, reportedPrice: 1064.90, valueM: 6765.96, portfolioWeight: 19.65, sector: "Industrials", activity: "Hold" },
+    { ticker: "CNI", company: "Canadian Natl Railway Co.", shares: 51826786, avgCost: 119.24, reportedPrice: 119.24, valueM: 6179.83, portfolioWeight: 17.95, sector: "Industrials", activity: "Hold" },
+    { ticker: "WM", company: "Waste Management Inc.", shares: 26720744, avgCost: 222.88, reportedPrice: 222.88, valueM: 5955.52, portfolioWeight: 17.30, sector: "Industrials", activity: "Reduce 3.33%" },
+    { ticker: "DE", company: "Deere & Co.", shares: 3557378, avgCost: 634.33, reportedPrice: 634.33, valueM: 2256.55, portfolioWeight: 6.56, sector: "Industrials", activity: "Hold" },
+    { ticker: "ECL", company: "Ecolab Inc.", shares: 5218044, avgCost: 278.61, reportedPrice: 278.61, valueM: 1453.80, portfolioWeight: 4.22, sector: "Basic Materials", activity: "Hold" },
+    { ticker: "WMT", company: "Walmart Inc.", shares: 8390477, avgCost: 113.26, reportedPrice: 113.26, valueM: 950.31, portfolioWeight: 2.76, sector: "Consumer Defensive", activity: "Hold" },
+    { ticker: "FDX", company: "FedEx Corp.", shares: 2384362, avgCost: 313.13, reportedPrice: 313.13, valueM: 746.62, portfolioWeight: 2.17, sector: "Industrials", activity: "Hold" },
+    { ticker: "KOF", company: "Coca-Cola FEMSA S A CV", shares: 6214719, avgCost: 106.25, reportedPrice: 106.25, valueM: 660.31, portfolioWeight: 1.92, sector: "Consumer Defensive", activity: "Hold" },
+    { ticker: "HD", company: "Home Depot", shares: 1000000, avgCost: 352.68, reportedPrice: 352.68, valueM: 352.68, portfolioWeight: 1.02, sector: "Consumer Cyclical", activity: "Buy" },
+    { ticker: "WCN", company: "Waste Connections", shares: 2039175, avgCost: 166.69, reportedPrice: 166.69, valueM: 339.91, portfolioWeight: 0.99, sector: "Industrials", activity: "Hold" },
+    { ticker: "MSGS", company: "Madison Square Garden Sports Corp.", shares: 592406, avgCost: 401.84, reportedPrice: 401.84, valueM: 238.05, portfolioWeight: 0.69, sector: "Communication Services", activity: "Hold" },
+    { ticker: "FDXF", company: "FedEx Freight Holding Co.", shares: 1192181, avgCost: 151.00, reportedPrice: 151.00, valueM: 180.02, portfolioWeight: 0.52, sector: "Industrials", activity: "Buy" },
+    { ticker: "CPNG", company: "Coupang Inc.", shares: 9248045, avgCost: 17.37, reportedPrice: 17.37, valueM: 160.64, portfolioWeight: 0.47, sector: "Consumer Cyclical", activity: "Hold" },
+    { ticker: "WST", company: "West Pharmaceutical Services", shares: 444500, avgCost: 359.00, reportedPrice: 359.00, valueM: 159.58, portfolioWeight: 0.46, sector: "Healthcare", activity: "Hold" },
+    { ticker: "BUD", company: "Anheuser-Busch InBev", shares: 1703000, avgCost: 82.40, reportedPrice: 82.40, valueM: 140.33, portfolioWeight: 0.41, sector: "Consumer Defensive", activity: "Hold" },
+    { ticker: "PCAR", company: "PACCAR Inc.", shares: 1000000, avgCost: 120.12, reportedPrice: 120.12, valueM: 120.12, portfolioWeight: 0.35, sector: "Industrials", activity: "Hold" },
+    { ticker: "SDGR", company: "SCHRODINGER Inc.", shares: 6981664, avgCost: 16.25, reportedPrice: 16.25, valueM: 113.45, portfolioWeight: 0.33, sector: "Technology", activity: "Hold" },
+    { ticker: "MCD", company: "McDonald's Corp.", shares: 334900, avgCost: 270.31, reportedPrice: 270.31, valueM: 90.53, portfolioWeight: 0.26, sector: "Consumer Cyclical", activity: "Hold" },
+    { ticker: "DHR", company: "Danaher Corp.", shares: 373000, avgCost: 190.48, reportedPrice: 190.48, valueM: 71.05, portfolioWeight: 0.21, sector: "Healthcare", activity: "Hold" },
+    { ticker: "KHC", company: "Kraft Heinz Co.", shares: 2472600, avgCost: 23.62, reportedPrice: 23.62, valueM: 58.40, portfolioWeight: 0.17, sector: "Consumer Defensive", activity: "Hold" },
+    { ticker: "HRL", company: "Hormel Foods Corp.", shares: 2085290, avgCost: 24.82, reportedPrice: 24.82, valueM: 51.76, portfolioWeight: 0.15, sector: "Consumer Defensive", activity: "Hold" },
+    { ticker: "ONON", company: "On Holding AG", shares: 500000, avgCost: 35.42, reportedPrice: 35.42, valueM: 17.71, portfolioWeight: 0.05, sector: "Consumer Cyclical", activity: "Hold" },
+    { ticker: "VLTO", company: "Veralto Corp.", shares: 124333, avgCost: 88.68, reportedPrice: 88.68, valueM: 11.03, portfolioWeight: 0.03, sector: "Industrials", activity: "Hold" }
+  ]
+};

@@ -1,0 +1,40 @@
+import { SuperinvestorMeta } from "./types";
+
+export const klarman: SuperinvestorMeta = {
+  name: "Seth Klarman",
+  fund: "Baupost Group",
+  institution: "Baupost Group LLC",
+  period: "Q2 2026 (30-Jun-2026)",
+  aum13F: 5.42,
+  filingDate: "14-Ago-2026",
+  source: "SEC EDGAR 13F-HR / Dataroma.com (archivo Excel Q2 2026)",
+  category: "Value",
+  categoryES: "Valor",
+  descEN: "Legendary value investor who emphasizes strict margin of safety, patient capital allocation, and deeply mispriced securities.",
+  descES: "Legendario inversor de valor que enfatiza el estricto margen de seguridad, disciplina de capital y compra de activos infravalorados con catalizador.",
+  holdings: [
+    { ticker: "AMZN", company: "Amazon.com Inc.", shares: 3743854, avgCost: 238.34, reportedPrice: 238.34, valueM: 892.31, portfolioWeight: 16.48, sector: "Consumer Cyclical", activity: "Add 20.04%" },
+    { ticker: "ELV", company: "Elevance Health Inc.", shares: 1275154, avgCost: 386.73, reportedPrice: 386.73, valueM: 493.14, portfolioWeight: 9.11, sector: "Healthcare", activity: "Hold" },
+    { ticker: "QSR", company: "Restaurant Brands International", shares: 6753112, avgCost: 72.50, reportedPrice: 72.50, valueM: 489.61, portfolioWeight: 9.04, sector: "Consumer Cyclical", activity: "Reduce 16.42%" },
+    { ticker: "GOOG", company: "Alphabet Inc. CL C", shares: 1371931, avgCost: 353.33, reportedPrice: 353.33, valueM: 484.74, portfolioWeight: 8.95, sector: "Communication Services", activity: "Add 16.15%" },
+    { ticker: "FERG", company: "Ferguson Enterprises Inc.", shares: 1450594, avgCost: 237.33, reportedPrice: 237.33, valueM: 344.27, portfolioWeight: 6.36, sector: "Industrials", activity: "Add 0.57%" },
+    { ticker: "GPC", company: "Genuine Parts", shares: 2816178, avgCost: 117.98, reportedPrice: 117.98, valueM: 332.25, portfolioWeight: 6.13, sector: "Consumer Defensive", activity: "Add 88.96%" },
+    { ticker: "UNP", company: "Union Pacific", shares: 1185395, avgCost: 272.00, reportedPrice: 272.00, valueM: 322.43, portfolioWeight: 5.95, sector: "Industrials", activity: "Reduce 23.08%" },
+    { ticker: "V", company: "Visa Inc.", shares: 701355, avgCost: 343.09, reportedPrice: 343.09, valueM: 240.63, portfolioWeight: 4.44, sector: "Financial Services", activity: "Hold" },
+    { ticker: "WCC", company: "WESCO International Inc.", shares: 662881, avgCost: 345.43, reportedPrice: 345.43, valueM: 228.98, portfolioWeight: 4.23, sector: "Industrials", activity: "Reduce 53.87%" },
+    { ticker: "AON", company: "Aon Plc", shares: 687000, avgCost: 331.69, reportedPrice: 331.69, valueM: 227.87, portfolioWeight: 4.21, sector: "Financial Services", activity: "Reduce 10.66%" },
+    { ticker: "TFX", company: "Teleflex", shares: 1409000, avgCost: 126.76, reportedPrice: 126.76, valueM: 178.61, portfolioWeight: 3.30, sector: "Healthcare", activity: "Reduce 11.66%" },
+    { ticker: "NCLH", company: "Norwegian Cruise Line Hlgs Ltd.", shares: 7730000, avgCost: 21.11, reportedPrice: 21.11, valueM: 163.18, portfolioWeight: 3.01, sector: "Consumer Cyclical", activity: "Add 112.95%" },
+    { ticker: "MOH", company: "Molina Healthcare Inc.", shares: 633609, avgCost: 228.70, reportedPrice: 228.70, valueM: 144.91, portfolioWeight: 2.68, sector: "Healthcare", activity: "Hold" },
+    { ticker: "CME", company: "CME Group", shares: 619000, avgCost: 220.83, reportedPrice: 220.83, valueM: 136.69, portfolioWeight: 2.52, sector: "Financial Services", activity: "Buy" },
+    { ticker: "HLF", company: "Herbalife Nutrition Ltd.", shares: 9259844, avgCost: 13.15, reportedPrice: 13.15, valueM: 121.77, portfolioWeight: 2.25, sector: "Consumer Defensive", activity: "Hold" },
+    { ticker: "EXP", company: "Eagle Materials Inc.", shares: 530763, avgCost: 225.00, reportedPrice: 225.00, valueM: 119.42, portfolioWeight: 2.21, sector: "Basic Materials", activity: "Reduce 40.55%" },
+    { ticker: "GDS", company: "GDS Holdings Ltd", shares: 3769818, avgCost: 30.03, reportedPrice: 30.03, valueM: 113.21, portfolioWeight: 2.09, sector: "Technology", activity: "Add 23.81%" },
+    { ticker: "COLD", company: "Americold Realty Trust", shares: 6830230, avgCost: 15.72, reportedPrice: 15.72, valueM: 107.37, portfolioWeight: 1.98, sector: "Real Estate", activity: "Reduce 12.22%" },
+    { ticker: "LBTYK", company: "Liberty Global Ltd CL C", shares: 8543161, avgCost: 11.00, reportedPrice: 11.00, valueM: 93.98, portfolioWeight: 1.74, sector: "Communication Services", activity: "Reduce 36.23%" },
+    { ticker: "AERO", company: "Grupo Aeromexico Sab De Cv", shares: 4880188, avgCost: 18.00, reportedPrice: 18.00, valueM: 87.84, portfolioWeight: 1.62, sector: "Industrials", activity: "Hold" },
+    { ticker: "AXTA", company: "Axalta Coating Systems Ltd.", shares: 1274356, avgCost: 34.22, reportedPrice: 34.22, valueM: 43.61, portfolioWeight: 0.81, sector: "Basic Materials", activity: "Buy" },
+    { ticker: "DNOW", company: "NOW Inc.", shares: 2788000, avgCost: 12.97, reportedPrice: 12.97, valueM: 36.16, portfolioWeight: 0.67, sector: "Industrials", activity: "Reduce 23.09%" },
+    { ticker: "PS", company: "Pershing Square Inc.", shares: 392000, avgCost: 32.86, reportedPrice: 32.86, valueM: 12.88, portfolioWeight: 0.24, sector: "Financial Services", activity: "Buy" }
+  ]
+};

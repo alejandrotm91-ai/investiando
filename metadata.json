@@ -1,0 +1,6 @@
+{
+  "name": "investiando.ai",
+  "description": "An interactive stock tracking and portfolio dashboard integrating real-time Yahoo Finance data, historical performance charts, scenarios, and AI-powered portfolio insights.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

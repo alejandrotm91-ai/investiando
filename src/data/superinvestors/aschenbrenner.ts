@@ -1,0 +1,40 @@
+import { SuperinvestorMeta } from "./types";
+
+export const aschenbrenner: SuperinvestorMeta = {
+  name: "Leopold Aschenbrenner",
+  fund: "Situational Awareness",
+  institution: "Situational Awareness LP",
+  period: "Q2 2026 (30-Jun-2026) — PRE-LIQUIDACIÓN",
+  aum13F: 19.98,
+  filingDate: "14-Ago-2026 (Liquidado 30-31-Jul-2026)",
+  source: "SEC EDGAR 13F-HR / Dataroma.com (captura verificada, incluye Avg Buy Price). SA liquidó todo su libro público a Citadel 30-31-Jul-2026.",
+  category: "Specialty",
+  categoryES: "Especializado",
+  descEN: "Former OpenAI researcher leading a specialized fund focused on AI supercluster compute infrastructure, memory semiconductors, and nuclear/grid power.",
+  descES: "Ex-investigador de OpenAI enfocado en infraestructura física de IA, memoria de alto ancho de banda, energía para centros de cómputo y semiconductores (libro liquidado a fin de julio 2026).",
+  holdings: [
+    { ticker: "SNDK", company: "SanDisk Corp", shares: 2500000, avgCost: 2280.00, reportedPrice: 2280.00, avgBuyPrice: 1073.99, valueM: 5700.00, portfolioWeight: 27.99, sector: "Technology", activity: "Add 118.87% (+1.4M)" },
+    { ticker: "MU", company: "Micron Technology Inc", shares: 4800000, avgCost: 1166.67, reportedPrice: 1166.67, avgBuyPrice: 913.16, valueM: 5600.00, portfolioWeight: 27.49, sector: "Technology", activity: "Add 27712.38% (+4.8M)" },
+    { ticker: "BE", company: "Bloom Energy Corp", shares: 6300000, avgCost: 301.59, reportedPrice: 301.59, avgBuyPrice: 85.73, valueM: 1900.00, portfolioWeight: 9.37, sector: "Industrials", activity: "Reduce 3.28% (-213k)" },
+    { ticker: "TSM", company: "Taiwan Semiconductor Mfg", shares: 2600000, avgCost: 500.00, reportedPrice: 500.00, avgBuyPrice: 407.02, valueM: 1300.00, portfolioWeight: 6.24, sector: "Technology", activity: "Add 11713.92% (+2.6M)" },
+    { ticker: "NBIS", company: "Nebius Group N.V.", shares: 4500000, avgCost: 266.67, reportedPrice: 266.67, avgBuyPrice: 211.39, valueM: 1200.00, portfolioWeight: 6.08, sector: "Technology", activity: "NEW (+4.5M)" },
+    { ticker: "CRWV", company: "CoreWeave Inc", shares: 7500000, avgCost: 99.33, reportedPrice: 99.33, avgBuyPrice: 124.48, valueM: 745.00, portfolioWeight: 3.67, sector: "Technology", activity: "Add 4.2% (+302k)" },
+    { ticker: "STM", company: "STMicroelectronics N.V.", shares: 7800000, avgCost: 74.87, reportedPrice: 74.87, avgBuyPrice: 56.28, valueM: 584.00, portfolioWeight: 2.88, sector: "Technology", activity: "NEW (+7.8M)" },
+    { ticker: "APLD", company: "Applied Digital Corp", shares: 15400000, avgCost: 37.27, reportedPrice: 37.27, avgBuyPrice: 18.07, valueM: 574.00, portfolioWeight: 2.83, sector: "Technology", activity: "Add 14.14% (+1.9M)" },
+    { ticker: "RIOT", company: "Riot Platforms Inc", shares: 17100000, avgCost: 27.37, reportedPrice: 27.37, avgBuyPrice: 16.22, valueM: 468.00, portfolioWeight: 2.31, sector: "Technology", activity: "Add 48.67% (+5.6M)" },
+    { ticker: "SHAZ", company: "Sharonai Holdings Inc", shares: 5400000, avgCost: 84.63, reportedPrice: 84.63, avgBuyPrice: 61.35, valueM: 457.00, portfolioWeight: 2.25, sector: "Technology", activity: "Add 577.81% (+4.6M)" },
+    { ticker: "IREN", company: "IREN Limited", shares: 9500000, avgCost: 45.58, reportedPrice: 45.58, avgBuyPrice: 22.33, valueM: 433.00, portfolioWeight: 2.14, sector: "Technology", activity: "Reduce 19.02% (-2.2M)" },
+    { ticker: "CORZ", company: "Core Scientific Inc", shares: 14100000, avgCost: 22.70, reportedPrice: 22.70, avgBuyPrice: 15.50, valueM: 320.00, portfolioWeight: 1.61, sector: "Technology", activity: "Reduce 45.83% (-11.9M)" },
+    { ticker: "CLSK", company: "CleanSpark Inc", shares: 12300000, avgCost: 14.55, reportedPrice: 14.55, avgBuyPrice: 9.72, valueM: 179.00, portfolioWeight: 0.88, sector: "Technology", activity: "Hold" },
+    { ticker: "KEEL", company: "Keel Infrastructure Corp", shares: 26500000, avgCost: 5.74, reportedPrice: 5.74, avgBuyPrice: 2.81, valueM: 152.00, portfolioWeight: 0.75, sector: "Technology", activity: "Add 33.08% (+6.6M)" },
+    { ticker: "SEI", company: "Solaris Energy Infrastructure", shares: 1100000, avgCost: 82.64, reportedPrice: 82.64, avgBuyPrice: 38.18, valueM: 90.90, portfolioWeight: 0.45, sector: "Industrials", activity: "Add 2.18% (+24.1k)" },
+    { ticker: "WYFI", company: "WhiteFiber Inc", shares: 1800000, avgCost: 37.94, reportedPrice: 37.94, avgBuyPrice: 21.49, valueM: 68.30, portfolioWeight: 0.34, sector: "Communication Services", activity: "Hold" },
+    { ticker: "BTDR", company: "Bitdeer Technologies", shares: 3400000, avgCost: 16.06, reportedPrice: 16.06, avgBuyPrice: 12.16, valueM: 54.60, portfolioWeight: 0.27, sector: "Technology", activity: "Hold" },
+    { ticker: "TE", company: "T1 Energy Inc", shares: 4900000, avgCost: 9.49, reportedPrice: 9.49, avgBuyPrice: 5.54, valueM: 46.50, portfolioWeight: 0.23, sector: "Industrials", activity: "Reduce 51% (-5.1M)" },
+    { ticker: "HIVE", company: "Hive Digital Technologies", shares: 9100000, avgCost: 3.65, reportedPrice: 3.65, avgBuyPrice: 2.57, valueM: 33.20, portfolioWeight: 0.16, sector: "Technology", activity: "Add 169.31% (+5.7M)" },
+    { ticker: "BW", company: "Babcock & Wilcox Enterprises", shares: 2000000, avgCost: 14.30, reportedPrice: 14.30, avgBuyPrice: 7.97, valueM: 28.60, portfolioWeight: 0.14, sector: "Industrials", activity: "Add 49.75% (+674k)" },
+    { ticker: "PUMP", company: "ProPetro Holding Corp", shares: 2000000, avgCost: 14.05, reportedPrice: 14.05, avgBuyPrice: 11.13, valueM: 28.10, portfolioWeight: 0.14, sector: "Energy", activity: "Add 115.36% (+1.1M)" },
+    { ticker: "VSH", company: "Vishay Intertechnology Inc", shares: 375000, avgCost: 53.87, reportedPrice: 53.87, avgBuyPrice: 41.80, valueM: 20.20, portfolioWeight: 0.10, sector: "Technology", activity: "NEW (+375k)" },
+    { ticker: "CBRS", company: "Cerebras Systems Inc", shares: 10000, avgCost: 220.00, reportedPrice: 220.00, avgBuyPrice: 221.00, valueM: 2.20, portfolioWeight: 0.01, sector: "Technology", activity: "NEW (+10k)" }
+  ]
+};
