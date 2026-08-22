@@ -334,7 +334,7 @@ export function overrideFeaturesWithFinancials(raw: RawFeatures, fin: { annual: 
     raw.revenue_cagr = revCagr;
   }
 
-  const epsCagr = calculateGrowth("basicEPS");
+  const epsCagr = calculateGrowth("dilutedEPS") ?? calculateGrowth("basicEPS");
   if (epsCagr !== null) {
     raw.eps_cagr = epsCagr;
   }
@@ -354,7 +354,7 @@ export function overrideFeaturesWithFinancials(raw: RawFeatures, fin: { annual: 
     }
   }
 
-  const sharesCagr = calculateGrowth("basicAverageShares");
+  const sharesCagr = calculateGrowth("dilutedAverageShares") ?? calculateGrowth("basicAverageShares");
   if (sharesCagr !== null) raw.shareDilution3y = sharesCagr;
 
   if (sortedAnnual.length >= 4) {

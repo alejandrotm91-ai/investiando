@@ -631,7 +631,7 @@ export default function StockSearchExplorer({
     return scored[0] || null;
   }, [stockData, financialsData]);
 
-  // Basic EPS CAGR for Annual Financials (matching Financials Income Statement)
+  // Diluted EPS CAGR for Annual Financials (matching Financials Income Statement)
   const basicEpsAnnualCagr = useMemo(() => {
     if (!financialsData?.annual || financialsData.annual.length < 2) {
       return scoredRow?.raw?.eps_cagr ?? null;
@@ -641,7 +641,7 @@ export default function StockSearchExplorer({
     const sortedAnnual = [...financialsData.annual].sort(sortFn);
 
     const validCols = sortedAnnual
-      .map((col, idx) => ({ col, val: col.basicEPS ?? col.dilutedEPS, idx }))
+      .map((col, idx) => ({ col, val: col.dilutedEPS ?? col.basicEPS, idx }))
       .filter(item => typeof item.val === "number" && !isNaN(item.val as number));
 
     if (validCols.length >= 2) {
@@ -1158,9 +1158,9 @@ export default function StockSearchExplorer({
               </div>
 
               {/* Right Column: Real-Time Price & Actions */}
-              <div className="flex flex-col sm:flex-row sm:items-center lg:items-end justify-between lg:justify-end gap-5 border-t lg:border-t-0 pt-4 lg:pt-0 border-theme-border">
+              <div className="flex flex-wrap items-center justify-between lg:justify-end gap-4 sm:gap-5 border-t lg:border-t-0 pt-4 lg:pt-0 border-theme-border">
                 
-                {/* Price Display */}
+                {/* Price Display & Daily Change */}
                 <div className="text-left lg:text-right">
                   <div className="text-3xl sm:text-4xl font-mono font-black tracking-tight text-theme-text-bright">
                     {formatCurrency(stockData.price)}
@@ -1187,11 +1187,11 @@ export default function StockSearchExplorer({
                   )}
                 </div>
 
-                {/* Actions: Watchlist & Refresh */}
-                <div className="flex items-center gap-2">
+                {/* Actions: Watchlist & Refresh (Positioned directly beside price) */}
+                <div className="flex items-center gap-2 shrink-0">
                   <button
                     onClick={handleToggleWatchlist}
-                    className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all cursor-pointer border ${
+                    className={`px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all cursor-pointer border ${
                       isInWatchlist
                         ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-rose-500/10 hover:border-rose-500/30 hover:text-rose-400"
                         : "bg-emerald-500 hover:bg-emerald-600 text-slate-950 border-emerald-400 shadow-md font-extrabold"
@@ -1215,7 +1215,7 @@ export default function StockSearchExplorer({
                       fetchStockDetails(selectedTicker);
                       fetchChartData(selectedTicker, chartRange);
                     }}
-                    className="p-2.5 rounded-xl border border-theme-border bg-theme-input hover:bg-theme-card-hover text-theme-text-muted hover:text-theme-text-bright transition-all cursor-pointer"
+                    className="p-2 sm:p-2.5 rounded-xl border border-theme-border bg-theme-input hover:bg-theme-card-hover text-theme-text-muted hover:text-theme-text-bright transition-all cursor-pointer"
                     title={language === "EN" ? "Refresh Data" : "Actualizar Datos"}
                   >
                     <RefreshCw size={15} className={loadingDetails ? "animate-spin text-emerald-400" : ""} />
@@ -1714,7 +1714,7 @@ export default function StockSearchExplorer({
                       <span className="font-mono font-bold text-theme-text-bright">{formatNumber(stockData.beta)}</span>
                     </div>
                     <div className="flex justify-between items-center py-1 border-b border-theme-border/40">
-                      <span className="text-theme-text-muted">{language === "EN" ? "Basic EPS CAGR (Annual)" : "CAGR BPA Básico (Anual)"}</span>
+                      <span className="text-theme-text-muted">{language === "EN" ? "Diluted EPS CAGR (Annual)" : "CAGR BPA Diluido (Anual)"}</span>
                       <span className={`font-mono font-bold ${basicEpsAnnualCagr !== null ? (basicEpsAnnualCagr > 0 ? "text-emerald-400" : basicEpsAnnualCagr < 0 ? "text-rose-400" : "text-theme-text-bright") : "text-theme-text-muted"}`}>
                         {basicEpsAnnualCagr !== null ? `${basicEpsAnnualCagr > 0 ? "+" : ""}${basicEpsAnnualCagr.toFixed(1)}%` : "—"}
                       </span>

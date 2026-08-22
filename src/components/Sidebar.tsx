@@ -216,7 +216,7 @@ export default function Sidebar({
   ];
 
   return (
-    <div className="flex flex-col h-full bg-theme-sidebar text-theme-text-muted border-r border-theme-border w-64">
+    <div className="flex flex-col h-full bg-theme-sidebar text-theme-text-muted border-r border-theme-border w-full">
       {/* Sidebar Header / Logo */}
       <div className="flex items-center justify-between px-5 py-5 border-b border-theme-border">
         <div className="flex items-center gap-3">

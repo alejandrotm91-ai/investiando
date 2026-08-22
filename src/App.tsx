@@ -576,7 +576,7 @@ export default function App() {
             onClick={() => setMobileSidebarOpen(false)}
           />
           {/* Sidebar container */}
-          <div className="relative flex-1 flex flex-col max-w-xs w-full bg-theme-sidebar border-r border-theme-border">
+          <div className="relative flex flex-col w-64 max-w-[85vw] h-full shadow-2xl">
             <Sidebar
               activeTab={sidebarTab}
               onTabChange={handleSidebarTabChange}

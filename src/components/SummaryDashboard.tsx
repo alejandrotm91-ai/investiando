@@ -13,7 +13,7 @@ import {
   Cell,
   Legend,
 } from "recharts";
-import { TrendingUp, TrendingDown, DollarSign, Wallet, ArrowUpRight, ArrowDownRight, Activity, Calendar, Loader2, PieChart as PieChartIcon, ChevronDown, ChevronRight, BarChart3 } from "lucide-react";
+import { TrendingUp, TrendingDown, DollarSign, Wallet, ArrowUpRight, ArrowDownRight, Activity, Calendar, Loader2, PieChart as PieChartIcon, ChevronDown, ChevronRight, BarChart3, Eye, EyeOff } from "lucide-react";
 import { getTickerSector, getSectorSpanish, getSectorColor, getTickerBeta, getTickerSubsector, getDividendPerShare } from "./HoldingsTable";
 import { getRawFeatures, buildScores, overrideFeaturesWithFinancials } from "../utils/engine";
 import { calculatePortfolioScoreFromMatrix, getStockScore } from "../utils/stockScoresMatrix";
@@ -87,6 +87,7 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
   const [selectedSector, setSelectedSector] = useState<string | null>(null);
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
   const [benchmarkToggle, setBenchmarkToggle] = useState<"SP500" | "QQQ">("SP500");
+  const [showPortfolioTotal, setShowPortfolioTotal] = useState<boolean>(true);
 
   const [financialsMap, setFinancialsMap] = useState<Record<string, { annual: any[]; quarterly: any[] }>>({});
 
@@ -486,25 +487,28 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
 
   const sortedForPie = [...filteredPositionsForPie].sort((a, b) => b.weight - a.weight);
   
-  // If filtered by sector, list all positions individually without bundling in "Otros"
+  // Filter positions with weight >= 1% (or all positions if a sector filter is active)
   const individualPositions = selectedSector
     ? sortedForPie
-    : sortedForPie.filter((pos, idx) => idx < 5 || pos.weight >= 5);
+    : sortedForPie.filter((pos) => pos.weight >= 1);
   const otherPositions = selectedSector
     ? []
-    : sortedForPie.filter((pos, idx) => idx >= 5 && pos.weight < 5);
+    : sortedForPie.filter((pos) => pos.weight < 1);
+
+  const effectiveIndividual = individualPositions.length > 0 ? individualPositions : sortedForPie.slice(0, 5);
+  const effectiveOthers = individualPositions.length > 0 ? otherPositions : sortedForPie.slice(5);
   
-  const pieDataDisplay = individualPositions.map((pos) => ({
+  const pieDataDisplay = effectiveIndividual.map((pos) => ({
     name: pos.ticker,
     value: Number(pos.mktValue.toFixed(2)),
     weight: pos.weight,
   }));
   
-  if (otherPositions.length > 0) {
-    const othersMktValue = otherPositions.reduce((sum, p) => sum + p.mktValue, 0);
-    const othersWeight = otherPositions.reduce((sum, p) => sum + p.weight, 0);
+  if (effectiveOthers.length > 0) {
+    const othersMktValue = effectiveOthers.reduce((sum, p) => sum + p.mktValue, 0);
+    const othersWeight = effectiveOthers.reduce((sum, p) => sum + p.weight, 0);
     pieDataDisplay.push({
-      name: language === "ES" ? "Otros" : "Other",
+      name: language === "ES" ? "Otros (<1%)" : "Other (<1%)",
       value: Number(othersMktValue.toFixed(2)),
       weight: othersWeight,
     });
@@ -514,12 +518,23 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
     "#10b981", // emerald-500
     "#06b6d4", // cyan-500
     "#3b82f6", // blue-500
-    "#14b8a6", // teal-500
+    "#6366f1", // indigo-500
     "#8b5cf6", // violet-500
-    "#f59e0b", // amber-500
+    "#d946ef", // fuchsia-500
     "#ec4899", // pink-500
-    "#ef4444", // red-500
+    "#f43f5e", // rose-500
     "#f97316", // orange-500
+    "#f59e0b", // amber-500
+    "#eab308", // yellow-500
+    "#84cc16", // lime-500
+    "#14b8a6", // teal-500
+    "#0ea5e9", // sky-500
+    "#a855f7", // purple-500
+    "#fb7185", // rose-400
+    "#38bdf8", // sky-400
+    "#4ade80", // green-400
+    "#fb923c", // orange-400
+    "#818cf8", // indigo-400
     "#64748b", // slate-500
   ];
 
@@ -658,71 +673,73 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
     <div className="space-y-6" id="summary-section">
       <div className="flex flex-col lg:flex-row gap-4 items-stretch">
         {/* Card 1: Combined Portfolio Value & Daily Dynamics (Stacked Vertically) */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 hover:border-slate-700 transition-all shadow-xl flex flex-col justify-between w-full lg:w-[320px] shrink-0">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-5 hover:border-slate-700 transition-all shadow-xl flex flex-col justify-between w-full lg:w-[320px] shrink-0">
           <div>
             {/* Top Part: Portfolio Valuation */}
             <div>
-              <div className="flex items-start justify-between text-slate-400 mb-1.5">
-                <span className="text-xs font-semibold uppercase tracking-wider mt-1">
+              <div className="flex items-start justify-between text-slate-400 mb-1 sm:mb-1.5">
+                <span className="text-[11px] sm:text-xs font-semibold uppercase tracking-wider mt-0.5 sm:mt-1">
                   {language === "ES" ? "Valor del Portafolio" : "Portfolio Value"}
                 </span>
-
               </div>
               <div className="flex items-center justify-between gap-2">
-                <h3 className="text-xl font-display font-bold text-white tracking-wide truncate">
+                <h3 className="text-xl sm:text-2xl font-display font-bold text-white tracking-wide truncate">
                   {formatValuation(portfolio.totals.mktValue)}
                 </h3>
-
               </div>
-              <div className="text-xs text-slate-400 mt-1 flex items-center justify-between font-medium">
+              <div className="text-[11px] sm:text-xs text-slate-400 mt-1 flex items-center justify-between font-medium">
                 <span>{language === "ES" ? "Costo del Portafolio:" : "Portfolio Cost:"}</span>
                 <span className="font-mono text-slate-300 font-semibold">{formatValuation(portfolioCost)}</span>
               </div>
               
-              <div className="flex flex-col gap-2 mt-3.5">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-slate-400 font-medium">{language === "ES" ? "Histórico:" : "Historic:"}</span>
-                  <span className={`font-semibold flex items-center gap-1 text-sm ${portfolio.totals.totalReturn >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                    {portfolio.totals.totalReturn >= 0 ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
-                    <span>
+              {/* Informative metrics breakdown - ultra compact on mobile */}
+              <div className="grid grid-cols-2 sm:flex sm:flex-col gap-1.5 sm:gap-2 mt-2.5 sm:mt-3.5">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-1.5 sm:p-0 rounded-xl sm:rounded-none bg-slate-950/40 sm:bg-transparent border border-slate-800/40 sm:border-0 text-xs sm:text-sm">
+                  <span className="text-[10px] sm:text-xs text-slate-400 font-medium">{language === "ES" ? "Histórico:" : "Historic:"}</span>
+                  <span className={`font-semibold flex items-center gap-0.5 sm:gap-1 text-xs sm:text-sm ${portfolio.totals.totalReturn >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                    {portfolio.totals.totalReturn >= 0 ? <ArrowUpRight size={12} className="sm:w-3.5 sm:h-3.5 shrink-0" /> : <ArrowDownRight size={12} className="sm:w-3.5 sm:h-3.5 shrink-0" />}
+                    <span className="truncate">
                       {portfolio.totals.totalReturn >= 0 ? "+" : ""}
                       {formatStockValue(portfolio.totals.totalReturn)} ({formatPercent(portfolio.totals.totalReturnPercent)})
                     </span>
                   </span>
                 </div>
                 
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-slate-400 font-medium">{language === "ES" ? "Efectivo:" : "Cash:"}</span>
-                  <span className="font-mono font-bold text-slate-200">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-1.5 sm:p-0 rounded-xl sm:rounded-none bg-slate-950/40 sm:bg-transparent border border-slate-800/40 sm:border-0 text-xs sm:text-sm">
+                  <span className="text-[10px] sm:text-xs text-slate-400 font-medium">{language === "ES" ? "Efectivo:" : "Cash:"}</span>
+                  <span className="font-mono font-bold text-slate-200 text-xs sm:text-sm truncate">
                     {formatValuation(cashAmount)}
-                    <span className="text-slate-400 ml-1 font-sans font-medium text-[11px]">
+                    <span className="text-slate-400 ml-1 font-sans font-medium text-[10px] sm:text-[11px]">
                       ({((cashAmount / (portfolio.totals.mktValue || 1)) * 100).toFixed(0)}%)
                     </span>
                   </span>
                 </div>
 
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-slate-400 font-medium">{language === "ES" ? "Dividendos:" : "Dividend:"}</span>
-                  <span className="font-mono font-bold text-emerald-400">
-                    {formatValuation(totalDividendIncome)}
-                  </span>
-                </div>
-
                 {(portfolio.totals.marginCostBasis ?? 0) > 0 && (
-                  <div className="flex items-center justify-between text-sm pt-1 border-t border-slate-800/50">
-                    <span className="text-amber-400 font-medium flex items-center gap-1">
-                      {language === "ES" ? "Costo Margen (6.25%):" : "Margin Cost (6.25%):"}
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-1.5 sm:p-0 rounded-xl sm:rounded-none bg-slate-950/40 sm:bg-transparent border border-slate-800/40 sm:border-0 text-xs sm:text-sm">
+                    <span className="text-[10px] sm:text-xs text-amber-400 font-medium flex items-center gap-1">
+                      {language === "ES" ? "Margen:" : "Margin:"}
                     </span>
-                    <span className="font-mono font-bold text-amber-300" title={language === "ES" ? `Interés anual: $${(portfolio.totals.marginAnnualCost ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/año` : `Annual interest: $${(portfolio.totals.marginAnnualCost ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/year`}>
-                      ~${(portfolio.totals.marginMonthlyCost ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/m
+                    <span className="font-mono font-bold text-amber-300 text-xs sm:text-sm truncate" title={language === "ES" ? `Costo estimado: ~$${(portfolio.totals.marginMonthlyCost ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mes (6.25% anual)` : `Estimated cost: ~$${(portfolio.totals.marginMonthlyCost ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/month (6.25% annual)`}>
+                      {formatValuation(portfolio.totals.marginCostBasis ?? 0)}
+                      <span className="text-amber-400/80 ml-1 font-sans font-medium text-[10px] sm:text-[11px]">
+                        ({(((portfolio.totals.marginCostBasis ?? 0) / (portfolio.totals.mktValue || 1)) * 100).toFixed(1)}%)
+                      </span>
                     </span>
                   </div>
                 )}
+
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-1.5 sm:p-0 rounded-xl sm:rounded-none bg-slate-950/40 sm:bg-transparent border border-slate-800/40 sm:border-0 text-xs sm:text-sm">
+                  <span className="text-[10px] sm:text-xs text-slate-400 font-medium">{language === "ES" ? "Dividendos:" : "Dividend:"}</span>
+                  <span className="font-mono font-bold text-emerald-400 text-xs sm:text-sm truncate">
+                    {formatValuation(totalDividendIncome)}
+                  </span>
+                </div>
               </div>
             </div>
 
             {/* Divider */}
-            <div className="border-t border-slate-800/60 my-6" />
+            <div className="border-t border-slate-800/60 my-3 sm:my-6" />
 
             {/* Bottom Part: Daily Dynamics */}
             <div>
@@ -1019,6 +1036,14 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
               <div className="flex items-center justify-between gap-2 min-w-0">
                 <span className="text-xs font-semibold uppercase tracking-wider flex items-center gap-2 truncate">
                   {language === "ES" ? "Distribución de Portafolio" : "Portfolio Distribution"}
+                  <button
+                    type="button"
+                    onClick={() => setShowPortfolioTotal(prev => !prev)}
+                    className="text-slate-400 hover:text-white p-1 rounded-md hover:bg-slate-800 transition-colors cursor-pointer inline-flex items-center justify-center shrink-0"
+                    title={showPortfolioTotal ? (language === "ES" ? "Ocultar total del portafolio" : "Hide portfolio total") : (language === "ES" ? "Mostrar total del portafolio" : "Show portfolio total")}
+                  >
+                    {showPortfolioTotal ? <Eye size={14} /> : <EyeOff size={14} className="text-slate-500" />}
+                  </button>
                   {selectedSector && (
                     <button 
                       onClick={() => setSelectedSector(null)}
@@ -1123,7 +1148,7 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
                               fillOpacity={opacity}
                               className="cursor-pointer outline-none transition-all duration-300"
                               onClick={() => {
-                                if (entry.name !== "Otros" && entry.name !== "Other") {
+                                if (!entry.name.startsWith("Otros") && !entry.name.startsWith("Other")) {
                                   setSelectedTicker(prev => prev === entry.name ? null : entry.name);
                                 }
                               }}
@@ -1139,7 +1164,9 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
                       {selectedSector ? (language === "ES" ? "SECTOR" : "SECTOR") : (language === "ES" ? "TOTAL" : "TOTAL")}
                     </span>
                     <span className="text-2xl font-mono font-black text-white mt-1 leading-none tracking-tight">
-                      {isReadOnly ? formatStockValue(pieTotalValue) : formatKValue(pieTotalValue)}
+                      {showPortfolioTotal 
+                        ? (isReadOnly ? formatStockValue(pieTotalValue) : formatKValue(pieTotalValue)) 
+                        : "••••••"}
                     </span>
                   </div>
                 </div>
@@ -1149,7 +1176,7 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
                   {pieDataDisplay.map((pos, index) => {
                     const isSelected = selectedTicker === pos.name;
                     const hasSelection = selectedTicker !== null;
-                    const isOther = pos.name === "Otros" || pos.name === "Other";
+                    const isOther = pos.name.startsWith("Otros") || pos.name.startsWith("Other");
                     return (
                       <button 
                         key={`${pos.name}-${index}`} 

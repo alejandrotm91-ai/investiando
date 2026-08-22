@@ -233,6 +233,11 @@
   border-color: var(--theme-border) !important;
 }
 
+.light #summary-section > div:first-child > div:nth-child(1) .bg-slate-950\/40 {
+  background-color: var(--theme-sidebar) !important;
+  border-color: var(--theme-border) !important;
+}
+
 .light #summary-section > div:first-child > div:nth-child(2) .bg-slate-950\/80 {
   background-color: var(--theme-sidebar) !important;
   border-color: var(--theme-border) !important;
