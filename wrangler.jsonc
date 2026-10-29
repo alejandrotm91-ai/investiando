@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "investiando",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // Dirección investiando.<cuenta>.workers.dev (el dominio propio se agrega en la Fase 5)
+  "workers_dev": true,
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "observability": { "enabled": true },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "investiando-db",
+      "database_id": "9358941b-c895-455d-b4fa-5cd7ad6c754f",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

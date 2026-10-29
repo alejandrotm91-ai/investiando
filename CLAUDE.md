@@ -1,5 +1,15 @@
 # Claude Code Integration Guide — investiando.app
 
+## Migración a Cloudflare (rama `cloudflare-migration`, en curso)
+La app se está pasando de Express/Cloud Run + Gemini + Firestore a Cloudflare Workers + Claude + D1,
+con la misma estructura que el proyecto trackerz. Mientras dure, `server.ts` sigue siendo la versión vigente.
+- `wrangler.jsonc` — Worker `investiando`, sirve `dist/` y envía `/api/*` al Worker; base D1 `investiando-db` (binding `DB`).
+- `src/worker/` — API nueva con Hono. `yahoo.ts` tiene la instancia de yahoo-finance2. Las rutas de `server.ts` se migran aquí por fases.
+- `/api/_probe/yahoo` — diagnóstico temporal de Yahoo desde Cloudflare; se quita al terminar la Fase 2.
+- Comandos: `npm run cf:dev` (local en http://localhost:8787), `npm run cf:lint`, `npm run cf:deploy` (publica en https://investiando.alejandrotm91.workers.dev).
+- Secretos: `npx wrangler secret put NOMBRE`; en local van en `.dev.vars` (ver `.dev.vars.example`). Nunca en el repositorio.
+- npm bloquea scripts de instalación: los permitidos están en `allowScripts` de `package.json` (esbuild, workerd).
+
 ## Project Overview
 **investiando.app** is an institutional financial terminal and investment analysis platform.
 - **Frontend**: React 18+ with Vite, Tailwind CSS, Lucide React, Recharts.
