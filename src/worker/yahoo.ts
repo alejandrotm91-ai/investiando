@@ -19,6 +19,10 @@ export function getYahoo(): any {
     suppressNotices: ["yahooSurvey", "ripHistorical"],
     validation: { logErrors: false, logOptionsErrors: false },
     fetchOptions: { headers: BROWSER_HEADERS },
+    // La cola interna de yahoo-finance2 hace que la consulta de una petición se ejecute dentro
+    // de otra; Cloudflare la cancela cuando esa otra responde (error 1101 con varias peticiones
+    // a la vez). Sin límite, cada consulta corre en su propia petición.
+    queue: { concurrency: Number.MAX_SAFE_INTEGER },
   });
   instance = yf;
   return yf;
