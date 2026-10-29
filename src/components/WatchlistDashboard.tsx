@@ -6,7 +6,7 @@ import { getTickerSector, CompanyLogo, HealthMetricsTooltip } from "./HoldingsTa
 import { CompanyFinancials } from "./CompanyFinancials";
 import { SearchResult } from "../types";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from "recharts";
-import { saveUserCloudData, subscribeUserCloudData } from "../lib/firebase";
+import { saveUserCloudData, subscribeUserCloudData } from "../lib/cloudData";
 
 interface WatchlistItem {
   symbol: string;

@@ -24,7 +24,7 @@ import { TopTickersMarquee } from "./components/TopTickersMarquee";
 import EducationalDisclaimerModal from "./components/EducationalDisclaimerModal";
 import WelcomePlatformModal from "./components/WelcomePlatformModal";
 import AppWalkthrough from "./components/AppWalkthrough";
-import { saveUserCloudData, subscribeUserCloudData } from "./lib/firebase";
+import { saveUserCloudData, subscribeUserCloudData } from "./lib/cloudData";
 import { fetchFinancialsForTickers, getAllCachedFinancials } from "./utils/financialsCache";
 import { 
   BarChart3, 
@@ -392,7 +392,7 @@ export default function App() {
 
     setUserPortfolios(initialPortfolios);
 
-    // If logged in, subscribe to Firebase Firestore for cloud synchronization across devices
+    // If logged in, subscribe to the server (Cloudflare D1) for cloud synchronization across devices
     if (user?.email) {
       const unsubscribe = subscribeUserCloudData(user.email, (cloudData) => {
         if (cloudData && Array.isArray(cloudData.portfolios)) {
@@ -1043,6 +1043,8 @@ export default function App() {
 
   const handleSidebarTabChange = (tab: SidebarTabType) => {
     if (tab === "logout") {
+      // Borra también la cookie de sesión del servidor.
+      fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }).catch(() => {});
       localStorage.removeItem("stock_tracker_user_token");
       sessionStorage.removeItem("investiando_disclaimer_accepted_session");
       sessionStorage.removeItem("investiando_welcome_session");

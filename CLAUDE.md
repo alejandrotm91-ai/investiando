@@ -8,7 +8,12 @@ con la misma estructura que el proyecto trackerz. Mientras dure, `server.ts` sig
   - `yahoo.ts` — instancia única de yahoo-finance2. Su cola va sin límite (`queue.concurrency`): con límite, la consulta de una petición corre dentro de otra y Cloudflare la cancela (error 1101).
   - `legacy/express-shim.ts` — adaptador que permite usar en Hono los handlers estilo Express de `server.ts` tal cual. `bg(promesa)` lanza trabajo en segundo plano con `waitUntil`; sin eso Cloudflare lo corta al responder.
   - `legacy/market.ts` — rutas de mercado copiadas de `server.ts` (Fase 2). Las cachés viven en memoria y se recargan solas al recibir peticiones.
-- `scripts/smoke-market.ps1` — prueba las 18 rutas de mercado contra el Worker publicado.
+  - `auth/` — usuarios en D1 (Fase 3): `routes.ts` (`/api/auth/*` y `/api/user/*`, mismo contrato que server.ts), `password.ts` (PBKDF2, 100.000 iteraciones: el máximo de Workers), `session.ts` (JWT firmado con `SESSION_SECRET`, en cookie `investiando_session` y devuelto como `token`).
+  - `email.ts` — correos con la API de Resend (`RESEND_API_KEY`, `EMAIL_FROM`). Sin ellos, solo se registran en el log.
+- `migrations/` — SQL de D1. Tabla `users`: datos de la app (carteras, watchlist, margen) como JSON en `data`; `/api/user/save-cloud-data` mezcla con `json_patch`.
+- `src/lib/cloudData.ts` — lado navegador de los datos del usuario (sustituye a `firebase.ts`): caché local, envío al servidor con reintento y consulta cada 60 s.
+- `scripts/smoke-market.ps1` y `scripts/smoke-auth.ps1` — pruebas de punta a punta contra el Worker publicado (la de auth crea y borra una cuenta @example.com).
+- `scripts/import-firestore-users.mjs` — importa usuarios de Firestore a D1 cifrando sus contraseñas. Firestore no deja listar: se le pasa un archivo con los correos.
 - Comandos: `npm run cf:dev` (local en http://localhost:8787), `npm run cf:lint`, `npm run cf:deploy` (publica en https://investiando.alejandrotm91.workers.dev).
 - Secretos: `npx wrangler secret put NOMBRE`; en local van en `.dev.vars` (ver `.dev.vars.example`). Nunca en el repositorio.
 - npm bloquea scripts de instalación: los permitidos están en `allowScripts` de `package.json` (esbuild, workerd).

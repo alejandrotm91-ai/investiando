@@ -1,6 +1,10 @@
 # Copiar como .dev.vars para desarrollo local (npm run cf:dev). Nunca subir .dev.vars al repositorio.
 # En Cloudflare se guardan como secretos: npx wrangler secret put NOMBRE
-# (Se irán usando en las fases siguientes.)
-ANTHROPIC_API_KEY="sk-ant-..."
 SESSION_SECRET="texto-largo-y-aleatorio"
+# Correo (opcional en local): sin estas dos, los correos solo se registran en la consola.
 RESEND_API_KEY="re_..."
+EMAIL_FROM="investiando <no-reply@tudominio.com>"
+# URL pública para los enlaces de los correos (opcional; por defecto, la del propio Worker)
+APP_URL="https://investiando.alejandrotm91.workers.dev"
+# Fase 4
+ANTHROPIC_API_KEY="sk-ant-..."

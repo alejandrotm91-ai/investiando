@@ -28,7 +28,7 @@ import {
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { getTickerSector, getSectorSpanish, getSectorColor, getTickerSubsector, CompanyLogo, HealthMetricsTooltip } from "./HoldingsTable";
 import { CompanyFinancials } from "./CompanyFinancials";
-import { saveUserCloudData, subscribeUserCloudData } from "../lib/firebase";
+import { saveUserCloudData, subscribeUserCloudData } from "../lib/cloudData";
 import { getRawFeatures, buildScores, overrideFeaturesWithFinancials } from "../utils/engine";
 
 // Function to calculate Quarterly Compound Growth Rate (CAGR) of basicEPS from Financials

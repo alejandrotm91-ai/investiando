@@ -1,4 +1,4 @@
-# Prueba rápida de las rutas de mercado del Worker (Fase 2).
+﻿# Prueba rápida de las rutas de mercado del Worker (Fase 2).
 # Uso: powershell -File scripts\smoke-market.ps1 [-Base https://investiando.alejandrotm91.workers.dev]
 param([string]$Base = "https://investiando.alejandrotm91.workers.dev")
 $ProgressPreference = 'SilentlyContinue'

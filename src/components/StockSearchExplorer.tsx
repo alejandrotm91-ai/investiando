@@ -51,7 +51,7 @@ import { CompanyFinancials } from "./CompanyFinancials";
 import SingleStockBogleAnalysis from "./SingleStockBogleAnalysis";
 import ThreeStatementModel from "./ThreeStatementModel";
 import { SearchResult } from "../types";
-import { saveUserCloudData, subscribeUserCloudData } from "../lib/firebase";
+import { saveUserCloudData, subscribeUserCloudData } from "../lib/cloudData";
 import { getRawFeatures, buildScores, overrideFeaturesWithFinancials, ScoredRow } from "../utils/engine";
 
 interface StockDetails {
