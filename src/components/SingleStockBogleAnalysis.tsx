@@ -19,6 +19,7 @@ import {
   Scale,
   Settings2,
   BarChart3,
+  Activity,
   ChevronDown,
   ChevronUp
 } from "lucide-react";
@@ -61,6 +62,8 @@ interface StockMetrics {
   buybackYield: number | null;
   fScore?: number | null;
   netIncome?: number | null;
+  avgPe?: number | null;
+  peHistory?: Array<{ year: number | string; eps: number; price: number; pe: number; isCurrentYear?: boolean; quarterDate?: string; date?: string }> | null;
 }
 
 export default function SingleStockBogleAnalysis({
@@ -75,11 +78,11 @@ export default function SingleStockBogleAnalysis({
   const [horizonYears, setHorizonYears] = useState<number>(5);
   const [hurdleRate, setHurdleRate] = useState<number>(10); // IRR target
   const [modelCagrOverride, setModelCagrOverride] = useState<number | null>(null);
+  const [shareholderYieldOverride, setShareholderYieldOverride] = useState<number | null>(null);
   const [peExitBearOverride, setPeExitBearOverride] = useState<number | null>(null);
   const [peExitBaseOverride, setPeExitBaseOverride] = useState<number | null>(null);
   const [peExitBullOverride, setPeExitBullOverride] = useState<number | null>(null);
   const [applyNetDebtAdjustment, setApplyNetDebtAdjustment] = useState<boolean>(true);
-  const [showSettings, setShowSettings] = useState<boolean>(false);
 
   // Re-fetch when ticker changes
   useEffect(() => {
@@ -95,13 +98,13 @@ export default function SingleStockBogleAnalysis({
           fetch("/api/portfolio/financials", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ tickers: [ticker] })
+            body: JSON.stringify({ ticker })
           })
         ]);
 
         const stockData = stockRes.ok ? await stockRes.json() : null;
         const fins = finRes.ok ? await finRes.json() : {};
-        const finData = fins[ticker] || null;
+        const finData = fins?.annual ? fins : (fins?.[ticker] || null);
 
         if (stockData) {
           const price = stockData.price || 100;
@@ -111,21 +114,29 @@ export default function SingleStockBogleAnalysis({
           const peForward = stockData.forwardPE ?? (forwardEps > 0 ? price / forwardEps : 20);
           const divYield = stockData.dividendYield ? (stockData.dividendYield > 1 ? stockData.dividendYield : stockData.dividendYield * 100) : 0;
           
-          // Calculate historical metrics from financials
+          // Calculate historical metrics strictly from Annual Financials (Diluted EPS CAGR)
           let epsCagr = 12.0;
           let buybackYield = 1.0;
           
-          if (finData?.annual && finData.annual.length >= 2) {
+          if (finData?.annual && Array.isArray(finData.annual) && finData.annual.length >= 2) {
             const sorted = [...finData.annual].sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
             
-            // Basic EPS CAGR
-            const valid = sorted.map((c, i) => ({ val: c.basicEPS ?? c.dilutedEPS, idx: i })).filter(x => typeof x.val === "number" && x.val > 0);
+            // Diluted EPS CAGR from annual data (matching Financials Income Statement Annual CAGR column)
+            const valid = sorted
+              .map((c: any, i: number) => ({
+                val: (c.dilutedEPS !== undefined && c.dilutedEPS !== null) ? c.dilutedEPS : c.basicEPS,
+                idx: i
+              }))
+              .filter(x => typeof x.val === "number" && !isNaN(x.val) && x.val > 0);
+
             if (valid.length >= 2) {
               const latest = valid[0];
-              const oldest = valid[valid.length - 1];
-              const n = oldest.idx - latest.idx;
-              if (n > 0) {
-                epsCagr = (Math.pow(latest.val / oldest.val, 1 / n) - 1) * 100;
+              const oldestPositive = [...valid].reverse().find(item => item.val > 0 && item.idx > latest.idx);
+              if (oldestPositive) {
+                const n = oldestPositive.idx - latest.idx;
+                if (n > 0) {
+                  epsCagr = (Math.pow(latest.val / oldestPositive.val, 1 / n) - 1) * 100;
+                }
               }
             }
 
@@ -174,11 +185,14 @@ export default function SingleStockBogleAnalysis({
               shareholderYield: divYield + buybackYield,
               buybackYield,
               fScore: 7, // Mock fallback
-              netIncome: stockData.netIncome || 5000000000
+              netIncome: stockData.netIncome || 5000000000,
+              avgPe: finData?.avgPe ?? stockData.avgPe ?? null,
+              peHistory: finData?.peHistory ?? stockData.peHistory ?? null
             });
             
             // Reset overrides when changing ticker
             setModelCagrOverride(null);
+            setShareholderYieldOverride(null);
             setPeExitBearOverride(null);
             setPeExitBaseOverride(null);
             setPeExitBullOverride(null);
@@ -220,30 +234,32 @@ export default function SingleStockBogleAnalysis({
     const PE0 = PE0_raw && PE0_raw > 0 ? PE0_raw : P0 / EPS_TTM;
     const PE_fwd = PE_fwd_raw && PE_fwd_raw > 0 ? PE_fwd_raw : P0 / EPS_fwd;
 
-    // 1. ENGINE 1 — EPS CAGR
+    // 1. ENGINE 1 — EPS CAGR (Strictly Diluted EPS CAGR from Annual Financials)
     const EPS_CAGR_hist = basicEpsCagrAnnual ?? 12.0;
     const EPS_CAGR_fwd_1Y = ((EPS_fwd / EPS_TTM) - 1) * 100;
 
-    let defaultModelCagr = (EPS_CAGR_hist + EPS_CAGR_fwd_1Y) / 2;
-    if (EPS_CAGR_hist > 50) {
-      defaultModelCagr = Math.min(35, (EPS_CAGR_fwd_1Y * 0.7 + 20));
-    } else if (EPS_CAGR_hist > 30) {
-      defaultModelCagr = (EPS_CAGR_hist * 0.4 + EPS_CAGR_fwd_1Y * 0.6);
-    }
-    const EPS_CAGR_modelo = modelCagrOverride !== null ? modelCagrOverride : Number(defaultModelCagr.toFixed(1));
+    const defaultModelCagr = Number(EPS_CAGR_hist.toFixed(1));
+    const EPS_CAGR_modelo = modelCagrOverride !== null ? modelCagrOverride : defaultModelCagr;
 
     const H = horizonYears;
     const EPS_H = EPS_TTM * Math.pow(1 + EPS_CAGR_modelo / 100, H);
     const contribE1 = EPS_CAGR_modelo;
 
     // 2. ENGINE 2 — Shareholder Yield
-    const SY = SY_raw ?? (DY + (BBY || 0));
+    const defaultSY = Number((SY_raw ?? ((DY || 0) + (BBY || 0))).toFixed(2));
+    const SY = shareholderYieldOverride !== null ? shareholderYieldOverride : defaultSY;
     const contribE2 = SY;
 
     // 3. ENGINE 3 — P/E Multiple Change & Scenarios
+    // Base exit assumes multiple unchanged at Current P/E (PE0, E3 = 0%)
+    // Bull exit assumes mean reversion to historical AVG P/E (avgPe), so E3 is the expansion/change from current P/E to AVG P/E
+    // Bear exit assumes multiple compression (-20% from current P/E)
+    const avgPe = (typeof stockMetrics.avgPe === "number" && !isNaN(stockMetrics.avgPe) && stockMetrics.avgPe > 0)
+      ? stockMetrics.avgPe
+      : Number(PE0.toFixed(1));
     const defaultPeExitBase = Number(PE0.toFixed(1));
-    const defaultPeExitBull = Number((defaultPeExitBase * 1.05).toFixed(1));
-    const defaultPeExitBear = Math.max(8, Number((PE0 * 0.80).toFixed(1)));
+    const defaultPeExitBull = Number(avgPe.toFixed(1));
+    const defaultPeExitBear = Math.max(8, Number((defaultPeExitBase * 0.80).toFixed(1)));
 
     const peExitBear = peExitBearOverride !== null ? peExitBearOverride : defaultPeExitBear;
     const peExitBase = peExitBaseOverride !== null ? peExitBaseOverride : defaultPeExitBase;
@@ -258,16 +274,28 @@ export default function SingleStockBogleAnalysis({
     const r = hurdleRate / 100;
 
     const computeScenario = (peExit: number) => {
-      const P_H = EPS_H * peExit;
-      const retorno_precio_anual = (Math.pow(P_H / P0, 1 / H) - 1) * 100;
-      const contribE3 = retorno_precio_anual - contribE1;
+      let P_H: number;
+      let retorno_precio_anual: number;
+      let contribE3: number;
+
+      // When multiple stays flat at Current P/E (Base Case with default peExitBase), E3 is strictly 0%
+      if (Math.abs(peExit - PE0) < 0.05 || peExit === defaultPeExitBase) {
+        retorno_precio_anual = contribE1;
+        contribE3 = 0;
+        P_H = P0 * Math.pow(1 + contribE1 / 100, H);
+      } else {
+        P_H = EPS_H * peExit;
+        retorno_precio_anual = (Math.pow(P_H / P0, 1 / H) - 1) * 100;
+        contribE3 = retorno_precio_anual - contribE1;
+      }
       const retorno_total = retorno_precio_anual + SY;
 
+      const target_upside = ((P_H - P0) / P0) * 100;
       const P_star = P_H / Math.pow(1 + r, H);
       const P_star_ajustado = (applyNetDebtAdjustment && isNetDebtMaterial) ? P_star - netDebtPerShare : P_star;
       const upside = ((P_star_ajustado - P0) / P0) * 100;
 
-      return { peExit, P_H, retorno_precio_anual, contribE3, retorno_total, P_star, P_star_ajustado, upside };
+      return { peExit, P_H, retorno_precio_anual, contribE3, retorno_total, target_upside, P_star, P_star_ajustado, upside };
     };
 
     const bear = computeScenario(peExitBear);
@@ -303,9 +331,11 @@ export default function SingleStockBogleAnalysis({
       netDebtPerShare, isNetDebtMaterial, netDebt,
       bear, base, bull,
       chartData,
+      avgPe,
+      peHistory: stockMetrics.peHistory || [],
       formatCurrency, formatPct
     };
-  }, [stockMetrics, horizonYears, hurdleRate, modelCagrOverride, peExitBearOverride, peExitBaseOverride, peExitBullOverride, applyNetDebtAdjustment]);
+  }, [stockMetrics, horizonYears, hurdleRate, modelCagrOverride, shareholderYieldOverride, peExitBearOverride, peExitBaseOverride, peExitBullOverride, applyNetDebtAdjustment]);
 
   if (loading) {
     return (
@@ -320,135 +350,6 @@ export default function SingleStockBogleAnalysis({
 
   return (
     <div className={`space-y-6 ${theme === "light" ? "text-slate-900" : "text-white"}`}>
-      {/* Settings Panel */}
-      <div className={`border rounded-2xl overflow-hidden transition-all duration-300 ${theme === "light" ? "border-slate-200 bg-white" : "border-slate-800 bg-slate-900/50"}`}>
-        <button 
-          onClick={() => setShowSettings(!showSettings)}
-          className="w-full flex items-center justify-between p-4 cursor-pointer hover:bg-black/5"
-        >
-          <div className="flex items-center gap-2">
-            <Settings2 size={16} className="text-emerald-500" />
-            <span className="font-bold text-sm">{language === "EN" ? "Model Assumptions & Adjustments" : "Parámetros y Ajustes del Modelo"}</span>
-          </div>
-          {showSettings ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-        </button>
-
-        {showSettings && (
-          <div className={`p-5 border-t grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 ${theme === "light" ? "border-slate-200 bg-slate-50" : "border-slate-800 bg-slate-950"}`}>
-            {/* H & R */}
-            <div className="space-y-3">
-              <label className="text-xs font-mono text-slate-500 block">
-                {language === "EN" ? "Horizon & Hurdle Rate" : "Horizonte y Tasa de Retorno"}
-              </label>
-              <div className="flex items-center gap-2">
-                <span className="text-xs w-12">{language === "EN" ? "Years" : "Años"}</span>
-                <input 
-                  type="range" min="1" max="15" step="1" 
-                  value={horizonYears} onChange={e => setHorizonYears(Number(e.target.value))}
-                  className="flex-1 accent-emerald-500"
-                />
-                <span className="text-xs font-bold w-6">{horizonYears}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs w-12">Hurdle</span>
-                <input 
-                  type="range" min="5" max="25" step="0.5" 
-                  value={hurdleRate} onChange={e => setHurdleRate(Number(e.target.value))}
-                  className="flex-1 accent-emerald-500"
-                />
-                <span className="text-xs font-bold w-8">{hurdleRate}%</span>
-              </div>
-            </div>
-
-            {/* EPS CAGR */}
-            <div className="space-y-3">
-              <label className="text-xs font-mono text-slate-500 block">
-                {language === "EN" ? "EPS CAGR (Engine 1)" : "EPS CAGR (Motor 1)"}
-              </label>
-              <div className="flex items-center gap-2">
-                <input 
-                  type="number" 
-                  value={calc.EPS_CAGR_modelo} 
-                  onChange={e => setModelCagrOverride(Number(e.target.value))}
-                  className="w-20 bg-transparent border-b border-slate-700 text-sm font-mono focus:outline-none focus:border-emerald-500 py-1"
-                />
-                <span className="text-xs text-slate-400">%</span>
-                <button 
-                  onClick={() => setModelCagrOverride(null)}
-                  className="ml-auto text-[10px] text-emerald-500 hover:text-emerald-400"
-                >
-                  {language === "EN" ? "Reset" : "Resetear"}
-                </button>
-              </div>
-              <p className="text-[10px] text-slate-500 leading-tight">
-                {language === "EN" ? `Base model defaults to ${calc.defaultModelCagr.toFixed(1)}% blending historic (${calc.EPS_CAGR_hist.toFixed(1)}%) & 1Y fwd (${calc.EPS_CAGR_fwd_1Y.toFixed(1)}%).` : `El modelo base usa ${calc.defaultModelCagr.toFixed(1)}% combinando histórico (${calc.EPS_CAGR_hist.toFixed(1)}%) y est. 1Y (${calc.EPS_CAGR_fwd_1Y.toFixed(1)}%).`}
-              </p>
-            </div>
-
-            {/* Exit P/E */}
-            <div className="space-y-3">
-              <label className="text-xs font-mono text-slate-500 block">
-                {language === "EN" ? "Exit P/E (Engine 3)" : "P/E de Salida (Motor 3)"}
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                <div>
-                  <span className="text-[10px] text-red-400 block mb-1">Bear</span>
-                  <input 
-                    type="number" value={calc.bear.peExit} onChange={e => setPeExitBearOverride(Number(e.target.value))}
-                    className="w-full bg-transparent border-b border-slate-700 text-xs font-mono focus:outline-none py-1"
-                  />
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 block mb-1">Base</span>
-                  <input 
-                    type="number" value={calc.base.peExit} onChange={e => setPeExitBaseOverride(Number(e.target.value))}
-                    className="w-full bg-transparent border-b border-slate-700 text-xs font-mono focus:outline-none py-1"
-                  />
-                </div>
-                <div>
-                  <span className="text-[10px] text-emerald-400 block mb-1">Bull</span>
-                  <input 
-                    type="number" value={calc.bull.peExit} onChange={e => setPeExitBullOverride(Number(e.target.value))}
-                    className="w-full bg-transparent border-b border-slate-700 text-xs font-mono focus:outline-none py-1"
-                  />
-                </div>
-              </div>
-              <button 
-                onClick={() => { setPeExitBearOverride(null); setPeExitBaseOverride(null); setPeExitBullOverride(null); }}
-                className="text-[10px] text-emerald-500 hover:text-emerald-400 w-full text-left"
-              >
-                {language === "EN" ? "Reset Multiples" : "Resetear Múltiplos"}
-              </button>
-            </div>
-
-            {/* Debt */}
-            <div className="space-y-3">
-              <label className="text-xs font-mono text-slate-500 block">
-                {language === "EN" ? "Balance Sheet Adjustments" : "Ajustes de Balance"}
-              </label>
-              <label className="flex items-center gap-2 text-xs cursor-pointer">
-                <input 
-                  type="checkbox" 
-                  checked={applyNetDebtAdjustment}
-                  onChange={e => setApplyNetDebtAdjustment(e.target.checked)}
-                  className="accent-emerald-500"
-                />
-                <span>{language === "EN" ? "Deduct Net Debt from Fair Value" : "Deducir Deuda Neta del Fair Value"}</span>
-              </label>
-              {calc.isNetDebtMaterial ? (
-                <p className="text-[10px] text-amber-500 leading-tight">
-                  {language === "EN" ? `Net debt is material (>5% of market cap). Adjustment: ${calc.formatCurrency(calc.netDebtPerShare)} per share.` : `La deuda neta es material (>5% cap). Ajuste: ${calc.formatCurrency(calc.netDebtPerShare)} por acción.`}
-                </p>
-              ) : (
-                <p className="text-[10px] text-slate-500 leading-tight">
-                  {language === "EN" ? "Net debt is immaterial (<5% of market cap). No strict adjustment needed." : "Deuda neta inmaterial (<5% cap). No requiere ajuste estricto."}
-                </p>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Core Metrics Summary */}
         <div className="col-span-1 space-y-4">
@@ -477,9 +378,18 @@ export default function SingleStockBogleAnalysis({
                   <span className="text-xs text-slate-400">{language === "EN" ? "Trailing P/E" : "P/E Actual"}</span>
                   <span className="text-sm font-mono font-bold">{calc.PE0.toFixed(1)}x</span>
                 </div>
-                <div className="flex justify-between items-end pb-2">
+                <div className="flex justify-between items-end border-b border-slate-800/50 pb-2">
                   <span className="text-xs text-slate-400">{language === "EN" ? "Forward P/E" : "P/E Forward"}</span>
                   <span className="text-sm font-mono font-bold text-emerald-400">{calc.PE_fwd.toFixed(1)}x</span>
+                </div>
+                <div className="flex justify-between items-end pb-2">
+                  <div className="flex flex-col">
+                    <span className="text-xs text-slate-400">{language === "EN" ? "Shareholder Yield (Engine 2)" : "Retorno Accionista (Motor 2)"}</span>
+                    <span className="text-[10px] text-slate-500 font-mono">
+                      {language === "EN" ? `Div: ${calc.DY.toFixed(2)}% | Buyback: ${calc.BBY.toFixed(2)}%` : `Div: ${calc.DY.toFixed(2)}% | Recompras: ${calc.BBY.toFixed(2)}%`}
+                    </span>
+                  </div>
+                  <span className="text-sm font-mono font-bold text-blue-400">+{calc.SY.toFixed(2)}%</span>
                 </div>
               </div>
             </div>
@@ -487,245 +397,363 @@ export default function SingleStockBogleAnalysis({
             <div className="mt-8 bg-slate-950/50 p-4 rounded-xl border border-slate-800">
               <div className="text-center">
                 <span className="text-[10px] uppercase tracking-wider text-slate-500 block mb-1">
-                  {language === "EN" ? "Intrinsic Fair Value (Base Case)" : "Fair Value Intrínseco (Caso Base)"}
+                  {language === "EN" ? `Intrinsic Fair Value (Base Case)` : `Fair Value Intrínseco (Caso Base)`}
                 </span>
                 <span className={`text-3xl font-black font-mono tracking-tighter ${calc.base.upside > 0 ? "text-emerald-400" : "text-rose-400"}`}>
                   {calc.formatCurrency(calc.base.P_star_ajustado)}
                 </span>
-                <div className={`text-xs font-bold mt-2 ${calc.base.upside > 0 ? "text-emerald-500" : "text-rose-500"}`}>
+                <div className={`text-xs font-bold mt-1.5 ${calc.base.upside > 0 ? "text-emerald-500" : "text-rose-500"}`}>
                   {calc.formatPct(calc.base.upside)} {language === "EN" ? "Margin of Safety" : "Margen de Seguridad"}
                 </div>
+
+                <div className="mt-3 pt-3 border-t border-slate-800/80 space-y-1.5 text-xs px-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400 font-medium">
+                      {language === "EN" ? `Target Price (${calc.H}Y):` : `Precio Objetivo (${calc.H}A):`}
+                    </span>
+                    <span className="font-mono font-bold text-white">
+                      {calc.formatCurrency(calc.base.P_H)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-slate-500">
+                    <span>{language === "EN" ? "Discounted at:" : "Descontado al:"}</span>
+                    <span className="font-mono text-emerald-400">r = {(calc.r * 100).toFixed(0)}% / {calc.H} {language === "EN" ? "yrs" : "años"}</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* The 3 Engines Breakdown */}
-        <div className="col-span-1 lg:col-span-2 space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 h-full">
-            
-            {/* ENGINE 1 */}
-            <div className={`p-5 rounded-2xl border flex flex-col justify-between ${theme === "light" ? "bg-white border-slate-200" : "bg-[#0f111a]/40 border-slate-800"}`}>
-              <div>
-                <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400 mb-3">
-                  <TrendingUp size={16} />
-                </div>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Engine 1</h3>
-                <h4 className="text-sm font-bold mb-4">{language === "EN" ? "Earnings Growth" : "Crecimiento de EPS"}</h4>
-                
-                <div className="space-y-2 mb-4">
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-slate-500">{language === "EN" ? "Historic CAGR" : "CAGR Histórico"}</span>
-                    <span className="font-mono">{calc.EPS_CAGR_hist.toFixed(1)}%</span>
+        {/* 3-Scenarios Valuation & Return Matrix (Right Column) */}
+        <div className="col-span-1 lg:col-span-2">
+          <div className={`border rounded-2xl p-6 h-full flex flex-col justify-between ${theme === "light" ? "bg-white border-slate-200 shadow-sm" : "bg-[#0f111a]/60 border-slate-800/80 backdrop-blur-md shadow-lg"}`}>
+            <div>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-4">
+                <div>
+                  <h3 className="text-lg font-black tracking-tight flex items-center gap-2">
+                    <BarChart3 size={18} className="text-emerald-400" />
+                    {language === "EN" ? "3-SCENARIOS VALUATION & RETURN MATRIX" : "MATRIZ DE VALORACIÓN Y RETORNO (3 ESCENARIOS)"}
+                  </h3>
+                  <div className="flex items-center gap-2.5 mt-1 font-mono text-xs text-slate-400 flex-wrap">
+                    <span>{language === "EN" ? "Current Price:" : "Precio Actual:"} <strong className="text-white">${calc.P0.toFixed(2)}</strong></span>
+                    <span className="text-slate-700">|</span>
+                    <span>{language === "EN" ? "Current P/E:" : "P/E Actual:"} <strong className="text-purple-400">{calc.PE0 > 0 ? `${calc.PE0.toFixed(1)}×` : "N/A"}</strong></span>
+                    <span className="text-slate-700">|</span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="text-purple-300 font-semibold">{language === "EN" ? "AVG P/E:" : "AVG P/E:"}</span>
+                      <span
+                        className="font-bold text-purple-200 bg-purple-500/20 px-2 py-0.5 rounded border border-purple-400/30 cursor-help"
+                        title={
+                          calc.peHistory && calc.peHistory.length > 0
+                            ? `AVG P/E: ${calc.avgPe.toFixed(1)}×\n` +
+                              calc.peHistory.map(h => `${h.isCurrentYear ? (language === "EN" ? "Current P/E" : "P/E Actual") : `Año ${h.year}`}: ${h.pe.toFixed(1)}×${h.isCurrentYear ? "" : ` (Cierre: $${h.price} / EPS: $${h.eps})`}`).join("\n")
+                            : `AVG P/E: ${calc.avgPe.toFixed(1)}×`
+                        }
+                      >
+                        {calc.avgPe.toFixed(1)}×
+                      </span>
+                    </span>
                   </div>
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-slate-500">{language === "EN" ? "Forward 1Y" : "Proyectado 1Y"}</span>
-                    <span className="font-mono">{calc.EPS_CAGR_fwd_1Y.toFixed(1)}%</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {(peExitBearOverride !== null || peExitBaseOverride !== null || peExitBullOverride !== null || modelCagrOverride !== null || shareholderYieldOverride !== null) && (
+                    <button
+                      onClick={() => {
+                        setPeExitBearOverride(null);
+                        setPeExitBaseOverride(null);
+                        setPeExitBullOverride(null);
+                        setModelCagrOverride(null);
+                        setShareholderYieldOverride(null);
+                      }}
+                      className="text-xs text-emerald-400 hover:text-emerald-300 font-mono underline"
+                    >
+                      {language === "EN" ? "Reset All" : "Resetear Todo"}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Annual P/E Breakdown bar */}
+              {calc.peHistory && calc.peHistory.length > 0 && (
+                <div className="mb-4 px-3.5 py-2 bg-purple-950/20 border border-purple-900/40 rounded-xl flex items-center justify-between flex-wrap gap-2 text-xs font-mono">
+                  <div className="flex items-center gap-2">
+                    <span className="text-purple-300 font-bold uppercase text-[10px] flex items-center gap-1">
+                      <Activity size={12} />
+                      AVG P/E Breakdown ({calc.peHistory.length} {language === "EN" ? "periods" : "datos"}):
+                    </span>
+                    <span className="text-slate-400 text-[10px] hidden md:inline">
+                      ({language === "EN" ? "4 annual P/Es (Year Close / Diluted EPS) + Current P/E" : "4 P/E anuales (Cierre / BPA diluido) + P/E Actual"}):
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {calc.peHistory.map((h, idx) => (
+                      <div
+                        key={`${h.year}-${h.isCurrentYear ? "curr" : "hist"}-${idx}`}
+                        className={`px-1.5 py-0.5 rounded text-[10px] border ${h.isCurrentYear ? "bg-purple-500/20 border-purple-400/40 text-purple-200 font-bold" : "bg-slate-900/80 border-slate-800 text-slate-300"}`}
+                        title={`${h.isCurrentYear ? (language === "EN" ? "Current P/E" : "P/E Actual") : `Año ${h.year}`}: ${h.isCurrentYear ? `Current P/E: ${h.pe.toFixed(1)}×` : `Cierre $${h.price} ÷ EPS $${h.eps} = ${h.pe.toFixed(1)}×`}`}
+                      >
+                        <span className="text-slate-400 mr-1">{h.isCurrentYear ? (language === "EN" ? "Current" : "Actual") : h.year}:</span>
+                        <span className="font-bold text-white">{h.pe.toFixed(1)}×</span>
+                      </div>
+                    ))}
+                    <div className="px-2 py-0.5 rounded text-[10px] bg-purple-500/30 border border-purple-400/60 text-purple-100 font-extrabold ml-1">
+                      <span className="mr-1">AVG P/E:</span>
+                      <span>{calc.avgPe.toFixed(1)}×</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Editable Parameters Bar: Horizon, Hurdle Rate, EPS CAGR, Shareholder Yield */}
+              <div className={`mb-6 p-4 rounded-xl border grid grid-cols-2 sm:grid-cols-4 gap-4 ${theme === "light" ? "bg-slate-50 border-slate-200" : "bg-slate-950/60 border-slate-800/80"}`}>
+                {/* Horizon */}
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-mono text-slate-400 block font-semibold">
+                    {language === "EN" ? "Horizon (Years)" : "Horizonte (Años)"}
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      min="1"
+                      max="15"
+                      step="1"
+                      value={horizonYears}
+                      onChange={e => setHorizonYears(Math.max(1, Math.min(15, Number(e.target.value))))}
+                      className="w-16 bg-slate-900/90 border border-slate-700 rounded px-2 py-1 text-sm font-mono focus:outline-none focus:border-emerald-500 text-white font-bold"
+                    />
+                    <span className="text-xs font-mono text-slate-400">{language === "EN" ? "yrs" : "años"}</span>
+                  </div>
+                </div>
+
+                {/* Hurdle Rate */}
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-mono text-slate-400 block font-semibold">
+                    {language === "EN" ? "Hurdle Rate (r)" : "Tasa Exigida (r)"}
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      min="1"
+                      max="50"
+                      step="0.5"
+                      value={hurdleRate}
+                      onChange={e => setHurdleRate(Math.max(0, Number(e.target.value)))}
+                      className="w-16 bg-slate-900/90 border border-slate-700 rounded px-2 py-1 text-sm font-mono focus:outline-none focus:border-emerald-500 text-emerald-400 font-bold"
+                    />
+                    <span className="text-xs font-mono text-slate-400">%</span>
+                  </div>
+                </div>
+
+                {/* EPS CAGR */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-mono text-slate-400 block font-semibold">
+                      {language === "EN" ? "EPS CAGR (E1)" : "EPS CAGR (M1)"}
+                    </label>
+                    {modelCagrOverride !== null && (
+                      <button
+                        onClick={() => setModelCagrOverride(null)}
+                        className="text-[10px] text-emerald-400 hover:underline"
+                      >
+                        {language === "EN" ? "Reset" : "Reset"}
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={calc.EPS_CAGR_modelo}
+                      onChange={e => setModelCagrOverride(Number(e.target.value))}
+                      className="w-16 bg-slate-900/90 border border-slate-700 rounded px-2 py-1 text-sm font-mono focus:outline-none focus:border-emerald-500 text-emerald-400 font-bold"
+                    />
+                    <span className="text-xs font-mono text-slate-400">%</span>
+                  </div>
+                </div>
+
+                {/* Shareholder Yield */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-mono text-slate-400 block font-semibold">
+                      {language === "EN" ? "Shareholder Yld" : "Retorno Accionista"}
+                    </label>
+                    {shareholderYieldOverride !== null && (
+                      <button
+                        onClick={() => setShareholderYieldOverride(null)}
+                        className="text-[10px] text-blue-400 hover:underline"
+                      >
+                        {language === "EN" ? "Reset" : "Reset"}
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={calc.SY}
+                      onChange={e => setShareholderYieldOverride(Number(e.target.value))}
+                      className="w-16 bg-slate-900/90 border border-slate-700 rounded px-2 py-1 text-sm font-mono focus:outline-none focus:border-blue-500 text-blue-400 font-bold"
+                    />
+                    <span className="text-xs font-mono text-slate-400">%</span>
                   </div>
                 </div>
               </div>
-              
-              <div className="pt-4 border-t border-slate-800 flex justify-between items-end">
-                <span className="text-[10px] text-slate-500">{language === "EN" ? "Model Contribution" : "Contribución"}</span>
-                <span className="text-xl font-black font-mono text-emerald-400">+{calc.contribE1.toFixed(1)}%</span>
+
+              {/* Scenarios Table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[700px]">
+                  <thead>
+                    <tr className="border-b border-slate-800">
+                      <th className="pb-3 px-4 font-bold text-xs uppercase tracking-wider text-slate-500">{language === "EN" ? "Scenario" : "Escenario"}</th>
+                      <th className="pb-3 px-4 font-bold text-xs uppercase tracking-wider text-slate-500">
+                        {language === "EN" ? "Exit P/E" : "P/E Salida"}
+                        <span className="block text-[10px] lowercase font-mono font-normal text-emerald-400">editable</span>
+                      </th>
+                      <th className="pb-3 px-4 font-bold text-xs uppercase tracking-wider text-purple-400">
+                        {language === "EN" ? "E3 (Δ P/E)" : "E3 (Δ P/E)"}
+                      </th>
+                      <th className="pb-3 px-4 font-bold text-xs uppercase tracking-wider text-slate-500">{language === "EN" ? "Target EPS" : "Target EPS"}</th>
+                      <th className="pb-3 px-4 font-bold text-xs uppercase tracking-wider text-slate-500">
+                        {language === "EN" ? "Target Price" : "Precio Objetivo"}
+                      </th>
+                      <th className="pb-3 px-4 font-bold text-xs uppercase tracking-wider text-slate-500">
+                        {language === "EN" ? "Fair Value" : "Valor Justo"}
+                      </th>
+                      <th className="pb-3 px-4 font-bold text-xs uppercase tracking-wider text-slate-500 text-right">
+                        {language === "EN" ? "Upside / Downside" : "Upside / Downside"}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/50">
+                    {/* Bear */}
+                    <tr className="hover:bg-white/5 transition-colors group">
+                      <td className="py-4 px-4">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-rose-500"></div>
+                          <div>
+                            <span className="font-bold text-sm">Bear</span>
+                            <span className="block text-[10px] text-rose-400/80 font-mono">-20% P/E</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-4 px-4">
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={calc.bear.peExit}
+                            onChange={e => setPeExitBearOverride(Number(e.target.value))}
+                            className="w-16 bg-slate-900/80 border border-slate-700 rounded px-2 py-1 text-sm font-mono focus:outline-none focus:border-rose-500 text-rose-400 font-bold"
+                          />
+                          <span className="text-xs font-mono text-slate-400">x</span>
+                        </div>
+                      </td>
+                      <td className={`py-4 px-4 font-mono text-sm font-bold ${calc.bear.contribE3 >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                        {calc.bear.contribE3 >= 0 ? "+" : ""}{calc.bear.contribE3.toFixed(1)}%
+                      </td>
+                      <td className="py-4 px-4 font-mono text-sm font-bold text-rose-400">{calc.formatCurrency(calc.EPS_H)}</td>
+                      <td className="py-4 px-4 font-mono text-sm">{calc.formatCurrency(calc.bear.P_H)}</td>
+                      <td className="py-4 px-4 font-mono text-sm">{calc.formatCurrency(calc.bear.P_star_ajustado)}</td>
+                      <td className="py-4 px-4 text-right">
+                        <span className={`inline-block px-2.5 py-1 rounded-lg text-xs font-bold font-mono ${calc.bear.upside > 0 ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"}`}>
+                          {calc.formatPct(calc.bear.upside)}
+                        </span>
+                      </td>
+                    </tr>
+                    {/* Base */}
+                    <tr className="hover:bg-white/5 transition-colors bg-white/5">
+                      <td className="py-4 px-4 border-l-2 border-emerald-500">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-amber-500"></div>
+                          <div>
+                            <span className="font-bold text-sm text-emerald-400">Base</span>
+                            <span className="block text-[10px] text-emerald-400/80 font-mono">E3 = 0% ({language === "EN" ? "Current P/E" : "P/E Actual"})</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-4 px-4">
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={calc.base.peExit}
+                            onChange={e => setPeExitBaseOverride(Number(e.target.value))}
+                            className="w-16 bg-slate-900/80 border border-slate-700 rounded px-2 py-1 text-sm font-mono focus:outline-none focus:border-emerald-500 text-emerald-400 font-bold"
+                          />
+                          <span className="text-xs font-mono text-slate-400">x</span>
+                        </div>
+                      </td>
+                      <td className="py-4 px-4 font-mono text-sm font-bold text-emerald-400">
+                        {calc.base.contribE3 >= 0 ? "+" : ""}{calc.base.contribE3.toFixed(1)}%
+                      </td>
+                      <td className="py-4 px-4 font-mono text-sm font-bold text-emerald-400">{calc.formatCurrency(calc.EPS_H)}</td>
+                      <td className="py-4 px-4 font-mono text-sm font-bold text-emerald-400">{calc.formatCurrency(calc.base.P_H)}</td>
+                      <td className="py-4 px-4 font-mono text-sm font-bold text-emerald-400">{calc.formatCurrency(calc.base.P_star_ajustado)}</td>
+                      <td className="py-4 px-4 text-right">
+                        <span className={`inline-block px-2.5 py-1 rounded-lg text-xs font-bold font-mono ${calc.base.upside > 0 ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"}`}>
+                          {calc.formatPct(calc.base.upside)}
+                        </span>
+                      </td>
+                    </tr>
+                    {/* Bull */}
+                    <tr className="hover:bg-white/5 transition-colors group">
+                      <td className="py-4 px-4">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                          <div>
+                            <span className="font-bold text-sm">Bull</span>
+                            <span className="block text-[10px] text-blue-400 font-mono">{language === "EN" ? "Mean Reversion to AVG P/E" : "Retorno a AVG P/E"}</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-4 px-4">
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={calc.bull.peExit}
+                            onChange={e => setPeExitBullOverride(Number(e.target.value))}
+                            className="w-16 bg-slate-900/80 border border-slate-700 rounded px-2 py-1 text-sm font-mono focus:outline-none focus:border-emerald-500 text-emerald-300 font-bold"
+                          />
+                          <span className="text-xs font-mono text-slate-400">x</span>
+                        </div>
+                      </td>
+                      <td className={`py-4 px-4 font-mono text-sm font-bold ${calc.bull.contribE3 >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                        <div title={calc.PE0 > 0 ? `Δ total P/E: ${((calc.bull.peExit - calc.PE0) / calc.PE0 * 100) >= 0 ? "+" : ""}${((calc.bull.peExit - calc.PE0) / calc.PE0 * 100).toFixed(1)}% (${calc.PE0.toFixed(1)}× → ${calc.bull.peExit.toFixed(1)}×)` : undefined}>
+                          <span>{calc.bull.contribE3 >= 0 ? "+" : ""}{calc.bull.contribE3.toFixed(1)}%</span>
+                          {calc.PE0 > 0 && calc.bull.peExit !== calc.PE0 && (
+                            <span className="block text-[10px] font-normal text-slate-400">
+                              (Δ {((calc.bull.peExit - calc.PE0) / calc.PE0 * 100) >= 0 ? "+" : ""}{((calc.bull.peExit - calc.PE0) / calc.PE0 * 100).toFixed(0)}%)
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-4 px-4 font-mono text-sm font-bold text-emerald-400">{calc.formatCurrency(calc.EPS_H)}</td>
+                      <td className="py-4 px-4 font-mono text-sm">{calc.formatCurrency(calc.bull.P_H)}</td>
+                      <td className="py-4 px-4 font-mono text-sm">{calc.formatCurrency(calc.bull.P_star_ajustado)}</td>
+                      <td className="py-4 px-4 text-right">
+                        <span className={`inline-block px-2.5 py-1 rounded-lg text-xs font-bold font-mono ${calc.bull.upside > 0 ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"}`}>
+                          {calc.formatPct(calc.bull.upside)}
+                        </span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
 
-            {/* ENGINE 2 */}
-            <div className={`p-5 rounded-2xl border flex flex-col justify-between ${theme === "light" ? "bg-white border-slate-200" : "bg-[#0f111a]/40 border-slate-800"}`}>
-              <div>
-                <div className="w-8 h-8 rounded-lg bg-blue-500/20 flex items-center justify-center text-blue-400 mb-3">
-                  <RefreshCw size={16} />
-                </div>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Engine 2</h3>
-                <h4 className="text-sm font-bold mb-4">{language === "EN" ? "Shareholder Yield" : "Retorno al Accionista"}</h4>
-                
-                <div className="space-y-2 mb-4">
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-slate-500">{language === "EN" ? "Dividend Yield" : "Yield de Div."}</span>
-                    <span className="font-mono">{calc.DY.toFixed(2)}%</span>
-                  </div>
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-slate-500">{language === "EN" ? "Buyback Yield" : "Yield Recompras"}</span>
-                    <span className="font-mono">{calc.BBY.toFixed(2)}%</span>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="pt-4 border-t border-slate-800 flex justify-between items-end">
-                <span className="text-[10px] text-slate-500">{language === "EN" ? "Model Contribution" : "Contribución"}</span>
-                <span className="text-xl font-black font-mono text-blue-400">+{calc.contribE2.toFixed(2)}%</span>
-              </div>
+            <div className="pt-4 mt-6 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-400">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                {language === "EN" ? "Model Formula: Total Return = EPS Growth + Shareholder Yield + Multiple Expansion" : "Fórmula: Retorno Total = Crecimiento EPS + Retorno Accionista + Expansión Múltiplo"}
+              </span>
+              <span className="font-mono text-slate-500">Bogle Model Engine</span>
             </div>
-
-            {/* ENGINE 3 */}
-            <div className={`p-5 rounded-2xl border flex flex-col justify-between ${theme === "light" ? "bg-white border-slate-200" : "bg-[#0f111a]/40 border-slate-800"}`}>
-              <div>
-                <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center text-amber-400 mb-3">
-                  <Scale size={16} />
-                </div>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Engine 3</h3>
-                <h4 className="text-sm font-bold mb-4">{language === "EN" ? "Multiple Expansion" : "Expansión Múltiplo"}</h4>
-                
-                <div className="space-y-2 mb-4">
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-slate-500">{language === "EN" ? "Current P/E" : "P/E Actual"}</span>
-                    <span className="font-mono">{calc.PE0.toFixed(1)}x</span>
-                  </div>
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-slate-500">{language === "EN" ? "Exit P/E (Base)" : "P/E Salida (Base)"}</span>
-                    <span className="font-mono">{calc.base.peExit.toFixed(1)}x</span>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="pt-4 border-t border-slate-800 flex justify-between items-end">
-                <span className="text-[10px] text-slate-500">{language === "EN" ? "Model Contribution" : "Contribución"}</span>
-                <span className={`text-xl font-black font-mono ${calc.base.contribE3 >= 0 ? "text-amber-400" : "text-rose-400"}`}>
-                  {calc.formatPct(calc.base.contribE3)}
-                </span>
-              </div>
-            </div>
-
           </div>
         </div>
       </div>
-
-      {/* Scenario Analysis Matrix */}
-      <div className={`border rounded-2xl p-6 ${theme === "light" ? "bg-white border-slate-200" : "bg-[#0f111a]/40 border-slate-800/80"}`}>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 gap-4">
-          <div>
-            <h3 className="text-lg font-black tracking-tight flex items-center gap-2 mb-1">
-              <BarChart3 size={16} className="text-emerald-400" />
-              {language === "EN" ? "3-SCENARIOS VALUATION & RETURN MATRIX" : "MATRIZ DE VALORACIÓN Y RETORNO (3 ESCENARIOS)"}
-            </h3>
-            <p className="text-xs text-slate-400 mt-0.5">
-              {language === "EN" 
-                ? `Projected performance over ${calc.H} years combining Engine 1 (${calc.contribE1.toFixed(1)}%) + Engine 2 (${calc.contribE2.toFixed(2)}%) + Engine 3.`
-                : `Rendimiento proyectado a ${calc.H} años combinando Motor 1 (${calc.contribE1.toFixed(1)}%) + Motor 2 (${calc.contribE2.toFixed(2)}%) + Motor 3.`}
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3 font-mono text-xs text-slate-400 bg-slate-950/80 px-3.5 py-1.5 rounded-xl border border-slate-800/80 self-start sm:self-auto flex-wrap">
-            <span>{language === "EN" ? "Target IRR" : "Tasa Desc."}: <strong className="text-white">{calc.r * 100}%</strong></span>
-            <span>•</span>
-            <span>Horizon: <strong className="text-white">{calc.H} yr</strong></span>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[600px]">
-            <thead>
-              <tr className="border-b border-slate-800">
-                <th className="pb-3 px-4 font-bold text-xs uppercase tracking-wider text-slate-500 w-1/5">{language === "EN" ? "Scenario" : "Escenario"}</th>
-                <th className="pb-3 px-4 font-bold text-xs uppercase tracking-wider text-slate-500 w-1/5">{language === "EN" ? "Exit P/E" : "P/E Salida"}</th>
-                <th className="pb-3 px-4 font-bold text-xs uppercase tracking-wider text-slate-500 w-1/5">{language === "EN" ? "Total Annual Rtn" : "Retorno Anual"}</th>
-                <th className="pb-3 px-4 font-bold text-xs uppercase tracking-wider text-slate-500 w-1/5">{language === "EN" ? "Target Price" : "Precio Objetivo"}</th>
-                <th className="pb-3 px-4 font-bold text-xs uppercase tracking-wider text-slate-500 text-right w-1/5">Margin of Safety</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/50">
-              {/* Bear */}
-              <tr className="hover:bg-white/5 transition-colors group">
-                <td className="py-4 px-4">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-rose-500"></div>
-                    <span className="font-bold text-sm">Bear</span>
-                  </div>
-                </td>
-                <td className="py-4 px-4 font-mono text-sm">{calc.bear.peExit.toFixed(1)}x</td>
-                <td className="py-4 px-4 font-mono text-sm font-bold text-rose-400">{calc.formatPct(calc.bear.retorno_total)}</td>
-                <td className="py-4 px-4 font-mono text-sm">{calc.formatCurrency(calc.bear.P_star_ajustado)}</td>
-                <td className="py-4 px-4 text-right">
-                  <span className={`inline-block px-2.5 py-1 rounded-lg text-xs font-bold font-mono ${calc.bear.upside > 0 ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"}`}>
-                    {calc.formatPct(calc.bear.upside)}
-                  </span>
-                </td>
-              </tr>
-              {/* Base */}
-              <tr className="hover:bg-white/5 transition-colors bg-white/5">
-                <td className="py-4 px-4 border-l-2 border-emerald-500">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-amber-500"></div>
-                    <span className="font-bold text-sm text-emerald-400">Base</span>
-                  </div>
-                </td>
-                <td className="py-4 px-4 font-mono text-sm font-bold">{calc.base.peExit.toFixed(1)}x</td>
-                <td className="py-4 px-4 font-mono text-sm font-bold text-emerald-400">{calc.formatPct(calc.base.retorno_total)}</td>
-                <td className="py-4 px-4 font-mono text-sm font-bold">{calc.formatCurrency(calc.base.P_star_ajustado)}</td>
-                <td className="py-4 px-4 text-right">
-                  <span className={`inline-block px-2.5 py-1 rounded-lg text-xs font-bold font-mono ${calc.base.upside > 0 ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"}`}>
-                    {calc.formatPct(calc.base.upside)}
-                  </span>
-                </td>
-              </tr>
-              {/* Bull */}
-              <tr className="hover:bg-white/5 transition-colors group">
-                <td className="py-4 px-4">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
-                    <span className="font-bold text-sm">Bull</span>
-                  </div>
-                </td>
-                <td className="py-4 px-4 font-mono text-sm">{calc.bull.peExit.toFixed(1)}x</td>
-                <td className="py-4 px-4 font-mono text-sm font-bold text-emerald-400">{calc.formatPct(calc.bull.retorno_total)}</td>
-                <td className="py-4 px-4 font-mono text-sm">{calc.formatCurrency(calc.bull.P_star_ajustado)}</td>
-                <td className="py-4 px-4 text-right">
-                  <span className={`inline-block px-2.5 py-1 rounded-lg text-xs font-bold font-mono ${calc.bull.upside > 0 ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"}`}>
-                    {calc.formatPct(calc.bull.upside)}
-                  </span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Projection Chart */}
-      <div className={`p-6 rounded-2xl border ${theme === "light" ? "bg-white border-slate-200" : "bg-[#0f111a]/40 border-slate-800/80"}`}>
-        <h3 className="text-sm font-bold tracking-tight mb-6">
-          {language === "EN" ? `10-Year Price Projection (Engines 1 & 3)` : `Proyección de Precio a 10 Años (Motores 1 y 3)`}
-        </h3>
-        <div className="h-72 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={calc.chartData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={theme === "light" ? "#e2e8f0" : "#1e293b"} vertical={false} />
-              <XAxis 
-                dataKey="year" 
-                stroke="#64748b" 
-                fontSize={10} 
-                tickMargin={10}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis 
-                stroke="#64748b" 
-                fontSize={10}
-                tickFormatter={(val) => `$${val}`}
-                axisLine={false}
-                tickLine={false}
-              />
-              <Tooltip 
-                contentStyle={{ 
-                  backgroundColor: theme === "light" ? "#ffffff" : "#020617", 
-                  borderColor: theme === "light" ? "#e2e8f0" : "#1e293b",
-                  borderRadius: "12px",
-                  fontSize: "12px",
-                  fontWeight: "bold",
-                  boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)"
-                }}
-                formatter={(value: any, name: string) => {
-                  return [`$${Number(value).toFixed(2)}`, name.charAt(0).toUpperCase() + name.slice(1)];
-                }}
-              />
-              <Line type="monotone" dataKey="bull" stroke="#10b981" strokeWidth={2} strokeDasharray="5 5" dot={false} />
-              <Line type="monotone" dataKey="base" stroke="#f59e0b" strokeWidth={3} activeDot={{ r: 6 }} />
-              <Line type="monotone" dataKey="bear" stroke="#f43f5e" strokeWidth={2} strokeDasharray="5 5" dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
     </div>
   );
 }

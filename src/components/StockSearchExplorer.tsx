@@ -31,7 +31,8 @@ import {
   X,
   Scale,
   SlidersHorizontal,
-  Flame
+  Flame,
+  FileSpreadsheet
 } from "lucide-react";
 import { 
   ResponsiveContainer, 
@@ -48,6 +49,7 @@ import {
 import { CompanyLogo, getTickerSector, getSectorSpanish, getSectorColor, getTypeBadgeConfig } from "./HoldingsTable";
 import { CompanyFinancials } from "./CompanyFinancials";
 import SingleStockBogleAnalysis from "./SingleStockBogleAnalysis";
+import ThreeStatementModel from "./ThreeStatementModel";
 import { SearchResult } from "../types";
 import { saveUserCloudData, subscribeUserCloudData } from "../lib/firebase";
 import { getRawFeatures, buildScores, overrideFeaturesWithFinancials, ScoredRow } from "../utils/engine";
@@ -236,6 +238,12 @@ export default function StockSearchExplorer({
 }: StockSearchExplorerProps) {
   const [selectedTicker, setSelectedTicker] = useState<string>(initialTicker.toUpperCase());
   const [searchInput, setSearchInput] = useState<string>("");
+
+  useEffect(() => {
+    if (initialTicker && initialTicker.trim().toUpperCase() !== selectedTicker) {
+      setSelectedTicker(initialTicker.trim().toUpperCase());
+    }
+  }, [initialTicker]);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState<boolean>(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
@@ -258,7 +266,7 @@ export default function StockSearchExplorer({
   const [loadingBenchmarkChart, setLoadingBenchmarkChart] = useState<boolean>(false);
 
   // Active sub-tab in Stock View
-  const [activeSubTab, setActiveSubTab] = useState<"overview" | "financials" | "scorecard" | "news" | "bogle">("overview");
+  const [activeSubTab, setActiveSubTab] = useState<"overview" | "financials" | "threestatements" | "bogle">("overview");
 
   // Chart timeframe state
   const [chartRange, setChartRange] = useState<"1W" | "1M" | "6M" | "YTD" | "1Y" | "5Y" | "ALL">("1M");
@@ -716,6 +724,7 @@ export default function StockSearchExplorer({
     const upper = ticker.trim().toUpperCase();
     setSelectedTicker(upper);
     setSearchInput("");
+    setSearchResults([]);
     setIsDropdownOpen(false);
   };
 
@@ -940,12 +949,31 @@ export default function StockSearchExplorer({
       } else if (typeof dateStr === "string" && dateStr.includes("-")) {
         const parts = dateStr.split("T")[0].split("-").map(Number);
         if (parts.length === 3) {
-          date = new Date(parts[0], parts[1] - 1, parts[2]);
+          if (parts[0] > 3000) {
+            // Timestamp was mistakenly multiplied by 1000 before serializing to ISO
+            const rawDate = new Date(dateStr);
+            const corrected = new Date(rawDate.getTime() / 1000);
+            if (corrected.getFullYear() >= 1990 && corrected.getFullYear() <= 2100) {
+              date = corrected;
+            } else {
+              date = new Date(parts[0], parts[1] - 1, parts[2]);
+            }
+          } else {
+            date = new Date(parts[0], parts[1] - 1, parts[2]);
+          }
         } else {
           date = new Date(dateStr);
         }
       } else {
         date = new Date(dateStr);
+      }
+
+      // Check if resulting date has an inflated year (e.g. 58661)
+      if (date.getFullYear() > 3000) {
+        const corrected = new Date(date.getTime() / 1000);
+        if (corrected.getFullYear() >= 1990 && corrected.getFullYear() <= 2100) {
+          date = corrected;
+        }
       }
 
       if (isNaN(date.getTime())) return String(dateStr);
@@ -963,12 +991,14 @@ export default function StockSearchExplorer({
   const isPositive = (stockData?.change ?? 0) >= 0;
 
   return (
-    <div className="space-y-6">
+    <div id="stock-explorer-container" className="space-y-6">
       
       {/* 1. TOP HERO & SEARCH BAR */}
-      <div className="bg-theme-card border border-theme-border p-6 rounded-2xl shadow-lg relative overflow-hidden">
-        {/* Subtle background ambient glow */}
-        <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20" />
+      <div className="bg-theme-card border border-theme-border p-6 rounded-2xl shadow-lg relative z-30">
+        {/* Subtle background ambient glow (contained so it doesn't cause overflow on viewport) */}
+        <div className="absolute inset-0 rounded-2xl overflow-hidden pointer-events-none">
+          <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl -mr-20 -mt-20" />
+        </div>
         
         <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div>
@@ -997,23 +1027,36 @@ export default function StockSearchExplorer({
         </div>
 
         {/* SEARCH INPUT BAR */}
-        <div className="mt-5 relative" ref={searchContainerRef}>
+        <div className="mt-5 relative z-40" ref={searchContainerRef}>
           <div className="relative flex items-center">
             <div className="absolute left-4 text-theme-text-muted pointer-events-none">
               <Search size={18} />
             </div>
             <input
+              id="stock-search-input-field"
               type="text"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               onFocus={() => {
                 if (searchResults.length > 0) setIsDropdownOpen(true);
               }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  if (searchResults.length > 0) {
+                    handleSelectTicker(searchResults[0].symbol);
+                  } else if (searchInput.trim()) {
+                    handleSelectTicker(searchInput.trim());
+                  }
+                } else if (e.key === "Escape") {
+                  setIsDropdownOpen(false);
+                }
+              }}
               placeholder={language === "EN" ? "Search ticker or company name (e.g. NVDA, Apple, MSFT, Amazon, SPY)..." : "Buscar acción o empresa (ej. NVDA, Apple, MSFT, Amazon, SPY)..."}
               className="w-full pl-11 pr-12 py-3.5 bg-theme-input border border-theme-border focus:border-emerald-500 rounded-xl text-sm font-medium text-theme-text-bright placeholder-theme-text-muted/60 outline-none transition-all shadow-inner"
             />
             {searchInput && (
               <button
+                type="button"
                 onClick={() => {
                   setSearchInput("");
                   setSearchResults([]);
@@ -1037,6 +1080,7 @@ export default function StockSearchExplorer({
               {searchResults.map((item) => (
                 <button
                   key={`${item.symbol}-${item.exchange}`}
+                  type="button"
                   onClick={() => handleSelectTicker(item.symbol)}
                   className="w-full px-4 py-3 text-left hover:bg-theme-card-hover flex items-center justify-between transition-colors cursor-pointer group"
                 >
@@ -1502,7 +1546,7 @@ export default function StockSearchExplorer({
             </div>
           </div>
 
-          {/* 5. SUB-TABS NAVIGATION (Overview / Financials / Scorecard / News) */}
+          {/* 5. SUB-TABS NAVIGATION (Overview / Financials / Bogle) */}
           <div className="flex border-b border-theme-border gap-2 overflow-x-auto pb-1">
             <button
               onClick={() => setActiveSubTab("overview")}
@@ -1529,27 +1573,15 @@ export default function StockSearchExplorer({
             </button>
 
             <button
-              onClick={() => setActiveSubTab("scorecard")}
+              onClick={() => setActiveSubTab("threestatements")}
               className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 cursor-pointer transition-all shrink-0 border ${
-                activeSubTab === "scorecard"
+                activeSubTab === "threestatements"
                   ? "bg-emerald-500 text-slate-950 border-emerald-400 font-extrabold shadow-md"
                   : "text-theme-text-muted border-transparent hover:text-theme-text-bright hover:bg-theme-card-hover"
               }`}
             >
-              <Award size={14} />
-              <span>{language === "EN" ? "Factor Scorecard" : "Salud & Factores"}</span>
-            </button>
-
-            <button
-              onClick={() => setActiveSubTab("news")}
-              className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 cursor-pointer transition-all shrink-0 border ${
-                activeSubTab === "news"
-                  ? "bg-emerald-500 text-slate-950 border-emerald-400 font-extrabold shadow-md"
-                  : "text-theme-text-muted border-transparent hover:text-theme-text-bright hover:bg-theme-card-hover"
-              }`}
-            >
-              <Activity size={14} />
-              <span>{language === "EN" ? "News" : "Noticias"}</span>
+              <FileSpreadsheet size={14} />
+              <span>{language === "EN" ? "3-Statement & DCF Model" : "Modelo 3 Estados & DCF"}</span>
             </button>
 
             <button
@@ -1941,7 +1973,7 @@ export default function StockSearchExplorer({
                     {/* SECTOR-NORMALIZED FUNDAMENTAL SCORE HERO */}
                     {scoredRow && typeof scoredRow.scores?.balanced === "number" && (
                       <div className="bg-theme-input p-4 rounded-xl border border-theme-border space-y-3">
-                        <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center justify-between gap-3 flex-wrap">
                           <div className="flex items-center gap-3">
                             {/* Circular Gauge */}
                             <div className="relative w-12 h-12 flex items-center justify-center shrink-0">
@@ -1986,6 +2018,24 @@ export default function StockSearchExplorer({
                               </div>
                             </div>
                           </div>
+
+                          {/* Recommendation Badge at the height of Sector-Relative Score */}
+                          {stockData.recommendationKey && stockData.recommendationKey !== "none" && (
+                            <div className="flex items-center gap-1.5 text-xs shrink-0">
+                              <span className="text-theme-text-muted text-[11px] font-medium">
+                                {language === "EN" ? "Recommendation:" : "Recomendación:"}
+                              </span>
+                              <span className={`font-mono font-bold uppercase px-2 py-0.5 rounded-md text-[11px] border ${
+                                stockData.recommendationKey.includes("buy")
+                                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                                  : stockData.recommendationKey.includes("sell")
+                                  ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                                  : "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                              }`}>
+                                {stockData.recommendationKey.replace(/_/g, " ")}
+                              </span>
+                            </div>
+                          )}
                         </div>
 
                         {/* 4 Factor Sub-Scores in Donut Gauges */}
@@ -2243,16 +2293,6 @@ export default function StockSearchExplorer({
                       </div>
                     </div>
                   </div>
-
-                  {/* Rating Badge */}
-                  {stockData.recommendationKey && stockData.recommendationKey !== "none" && (
-                    <div className="flex items-center gap-2 pt-3 border-t border-theme-border/60 text-xs mt-2">
-                      <span className="text-theme-text-muted">{language === "EN" ? "Recommendation:" : "Recomendación:"}</span>
-                      <span className="font-mono font-bold uppercase px-2.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                        {stockData.recommendationKey.replace(/_/g, " ")}
-                      </span>
-                    </div>
-                  )}
                 </div>
 
                 {/* COMPANY PROFILE & DESCRIPTION */}
@@ -2314,157 +2354,19 @@ export default function StockSearchExplorer({
             </div>
           )}
 
-          {/* 8. TAB CONTENT: SCORECARD */}
-          {activeSubTab === "scorecard" && (
-            <div className="bg-theme-card border border-theme-border p-6 rounded-2xl shadow-md space-y-6">
-              <div className="flex items-center gap-2">
-                <Award size={20} className="text-amber-400" />
-                <div>
-                  <h3 className="text-base font-bold text-theme-text-bright uppercase tracking-wider">
-                    {language === "EN" ? "Fundamental Health Scorecard" : "Tarjeta de Puntuación Fundamental"}
-                  </h3>
-                  <p className="text-xs text-theme-text-muted">
-                    {language === "EN"
-                      ? "Piotroski F-Score and multi-factor evaluation of quality, balance sheet stability, and growth."
-                      : "Evaluación multifactorial de calidad, solvencia de balance y crecimiento mediante el modelo Piotroski F-Score."}
-                  </p>
-                </div>
-              </div>
-
-              {/* Piotroski Gauge Bar */}
-              <div className="bg-theme-input p-6 rounded-xl border border-theme-border space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-sm text-theme-text-bright">
-                    {language === "EN" ? "Piotroski F-Score Rating" : "Calificación Piotroski F-Score"}
-                  </span>
-                  <span className="text-2xl font-mono font-black text-amber-400">
-                    {stockData.piotroskiScore ?? 7} / 9
-                  </span>
-                </div>
-                <div className="w-full h-3 bg-theme-sidebar rounded-full overflow-hidden border border-theme-border">
-                  <div 
-                    className="h-full bg-gradient-to-r from-amber-500 to-emerald-400 rounded-full transition-all duration-500"
-                    style={{ width: `${((stockData.piotroskiScore ?? 7) / 9) * 100}%` }}
-                  />
-                </div>
-                <p className="text-xs text-theme-text-muted">
-                  {(stockData.piotroskiScore ?? 7) >= 7
-                    ? (language === "EN" ? "Strong financial strength: Healthy operational profitability, positive cash flows, and solid leverage." : "Fortaleza financiera sólida: Rentabilidad operativa saludable, flujos de caja positivos y apalancamiento equilibrado.")
-                    : (language === "EN" ? "Moderate financial strength: Meets core operational baseline standards." : "Fortaleza financiera moderada: Cumple con los estándares operativos básicos.")}
-                </p>
-              </div>
-
-              {/* Key Factor Checklist */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="p-4 rounded-xl bg-theme-input border border-theme-border space-y-2">
-                  <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider block">
-                    {language === "EN" ? "Key Drivers & Strengths" : "Puntos Fuertes del Activo"}
-                  </span>
-                  <ul className="text-xs text-theme-text-muted space-y-1.5">
-                    <li className="flex items-center gap-2">
-                      <Check size={14} className="text-emerald-400 flex-shrink-0" />
-                      <span>{language === "EN" ? "Positive Net Profit Margin" : "Margen de Beneficio Neto Positivo"} ({formatPercent(stockData.profitMargins, true)})</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <Check size={14} className="text-emerald-400 flex-shrink-0" />
-                      <span>{language === "EN" ? "Robust Free Cash Flow generation" : "Generación robusta de Flujo Libre de Caja"}</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <Check size={14} className="text-emerald-400 flex-shrink-0" />
-                      <span>{language === "EN" ? "Established Market Position" : "Liderazgo de Mercado Consolidado"} ({formatLargeNumber(stockData.marketCap)})</span>
-                    </li>
-                  </ul>
-                </div>
-
-                <div className="p-4 rounded-xl bg-theme-input border border-theme-border space-y-2">
-                  <span className="text-xs font-bold text-amber-400 uppercase tracking-wider block">
-                    {language === "EN" ? "Risk & Valuation Context" : "Contexto de Riesgo & Valoración"}
-                  </span>
-                  <ul className="text-xs text-theme-text-muted space-y-1.5">
-                    <li className="flex items-center gap-2">
-                      <Info size={14} className="text-amber-400 flex-shrink-0" />
-                      <span>{language === "EN" ? "Valuation Premium P/E Multiple:" : "Múltiplo P/E:"} {formatNumber(stockData.trailingPE)}x</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <Info size={14} className="text-amber-400 flex-shrink-0" />
-                      <span>{language === "EN" ? "Stock Volatility Beta:" : "Beta de Volatilidad:"} {formatNumber(stockData.beta)}</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <Info size={14} className="text-amber-400 flex-shrink-0" />
-                      <span>{language === "EN" ? "Debt to Equity Ratio:" : "Ratio Deuda sobre Capital:"} {formatNumber(stockData.debtToEquity)}%</span>
-                    </li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* 9. TAB CONTENT: NEWS */}
-          {activeSubTab === "news" && (
+          {/* 8. TAB CONTENT: 3-STATEMENT MODEL & DCF VALUATION */}
+          {activeSubTab === "threestatements" && stockData && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Activity size={18} className="text-emerald-400" />
-                  <h3 className="text-base font-bold text-theme-text-bright uppercase tracking-wider">
-                    {language === "EN" ? `Latest News & Reports for ${stockData.symbol}` : `Últimas Noticias & Informes de ${stockData.symbol}`}
-                  </h3>
-                </div>
-                <button
-                  onClick={() => fetchStockNews(stockData.symbol)}
-                  className="p-2 rounded-lg border border-theme-border bg-theme-input hover:bg-theme-card-hover text-theme-text-muted hover:text-theme-text-bright transition-all cursor-pointer"
-                >
-                  <RefreshCw size={14} className={loadingNews ? "animate-spin text-emerald-400" : ""} />
-                </button>
-              </div>
-
-              {loadingNews && newsList.length === 0 ? (
-                <div className="py-16 bg-theme-card border border-theme-border rounded-2xl flex flex-col items-center justify-center gap-3 text-theme-text-muted">
-                  <RefreshCw size={24} className="animate-spin text-emerald-400" />
-                  <span className="text-xs font-bold">{language === "EN" ? "Fetching latest news..." : "Consultando noticias..."}</span>
-                </div>
-              ) : newsList.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {newsList.map((item) => (
-                    <a
-                      key={item.id}
-                      href={item.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="bg-theme-card border border-theme-border p-5 rounded-2xl hover:border-emerald-500/50 hover:shadow-lg transition-all flex flex-col justify-between group cursor-pointer"
-                    >
-                      <div>
-                        <div className="flex items-center justify-between gap-2 mb-2">
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-theme-input text-theme-text-muted border border-theme-border">
-                            {item.source}
-                          </span>
-                          <span className="text-[10px] text-theme-text-muted">
-                            {item.publishedAt}
-                          </span>
-                        </div>
-                        <h4 className="font-bold text-sm text-theme-text-bright group-hover:text-emerald-400 transition-colors line-clamp-2">
-                          {item.title}
-                        </h4>
-                        <p className="text-xs text-theme-text-muted mt-2 line-clamp-3 leading-relaxed">
-                          {item.summary}
-                        </p>
-                      </div>
-
-                      <div className="mt-4 pt-3 border-t border-theme-border/50 flex items-center justify-between text-xs text-emerald-400 font-semibold">
-                        <span>{language === "EN" ? "Read full coverage" : "Leer noticia completa"}</span>
-                        <ExternalLink size={14} />
-                      </div>
-                    </a>
-                  ))}
-                </div>
-              ) : (
-                <div className="p-8 bg-theme-card border border-theme-border rounded-2xl text-center text-xs text-theme-text-muted">
-                  {language === "EN" ? "No recent news headlines available for this ticker." : "No se encontraron titulares de noticias recientes para esta acción."}
-                </div>
-              )}
+              <ThreeStatementModel 
+                initialTicker={stockData.symbol}
+                portfolioTickers={[stockData.symbol]}
+                language={language}
+                theme={theme}
+              />
             </div>
           )}
 
-          {/* 10. TAB CONTENT: BOGLE */}
+          {/* 9. TAB CONTENT: BOGLE */}
           {activeSubTab === "bogle" && stockData && (
             <div className="bg-theme-card border border-theme-border rounded-3xl p-6">
               <SingleStockBogleAnalysis 
@@ -2474,6 +2376,7 @@ export default function StockSearchExplorer({
               />
             </div>
           )}
+
         </>
       ) : null}
 

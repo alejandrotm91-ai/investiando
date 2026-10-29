@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Position, PortfolioData, SearchResult } from "../types";
 import { 
   Sparkles, 
@@ -112,9 +112,10 @@ const TICKER_ANALYST_DATA: Record<string, {
 };
 
 const ScoreDonut = ({ score, label, colorClass }: { score: number; label: string; colorClass: string }) => {
+  const displayScore = Math.ceil(score || 0);
   const radius = 24;
   const circumference = 2 * Math.PI * radius;
-  const strokeDashoffset = circumference - (Math.max(0, Math.min(100, score)) / 100) * circumference;
+  const strokeDashoffset = circumference - (Math.max(0, Math.min(100, displayScore)) / 100) * circumference;
 
   return (
     <div className="flex flex-col items-center gap-2">
@@ -133,7 +134,7 @@ const ScoreDonut = ({ score, label, colorClass }: { score: number; label: string
             strokeLinecap="round"
           />
         </svg>
-        <span className={`text-sm font-bold leading-none ${colorClass} relative z-10`}>{Math.round(score)}</span>
+        <span className={`text-sm font-bold leading-none ${colorClass} relative z-10`}>{displayScore}</span>
       </div>
       <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider text-center">{label}</span>
     </div>
@@ -164,6 +165,7 @@ interface WhatIfSimulatorProps {
 export default function WhatIfSimulator({ portfolio, language = "EN", userEmail }: WhatIfSimulatorProps) {
   const [simPositions, setSimPositions] = useState<Position[]>([]);
   const [marginPositions, setMarginPositions] = useState<Position[]>([]);
+  const [hasCustomMarginSim, setHasCustomMarginSim] = useState(false);
   const [marginCollapsed, setMarginCollapsed] = useState(false);
   const [searchTarget, setSearchTarget] = useState<"sim" | "margin">("sim");
   const [customCagrs, setCustomCagrs] = useState<Record<string, number>>({});
@@ -261,6 +263,13 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
   const [cagr, setCagr] = useState<number>(30.2);
   const [projectionTab, setProjectionTab] = useState<"portfolio" | "margin" | "total">("portfolio");
   const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // If no margin positions exist, ensure projectionTab returns to portfolio (matches HoldingsTable)
+  useEffect(() => {
+    if (marginPositions.length === 0 && projectionTab === "margin") {
+      setProjectionTab("portfolio");
+    }
+  }, [marginPositions.length, projectionTab]);
 
   // Scorecard / Health calculations for simulation positions
   const scoredRowsMap = useMemo(() => {
@@ -369,6 +378,8 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
   const handleSaveMarginPositions = () => {
     try {
       localStorage.setItem("whatif_margin_positions", JSON.stringify(marginPositions));
+      localStorage.setItem("whatif_custom_margin_active", "true");
+      setHasCustomMarginSim(true);
       if (userEmail) {
         saveUserCloudData(userEmail, { marginPositions });
       }
@@ -416,7 +427,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
 
     const subsectors = sortedPositions.reduce((acc, pos) => {
       const sector = getTickerSector(pos.ticker, pos.isCash);
-      const subsector = getTickerSubsector(pos.ticker, pos.isCash);
+      const subsector = getTickerSubsector(pos.ticker, pos.isCash, language);
       if (!acc[sector]) {
         acc[sector] = {};
       }
@@ -456,21 +467,38 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
   }, [simPositions, marginPositions, projectionTab]);
 
   // Initialize simulated positions from portfolio data & sync live quotes
+  // Initialize simulated positions from portfolio data & sync live quotes
   useEffect(() => {
     if (portfolio && portfolio.positions) {
-      const copiedPositions = portfolio.positions.map(p => ({
-        ...p,
-        ticker: p.ticker.toUpperCase()
-      }));
+      const validPortfolioPositions = portfolio.positions.filter(
+        p => p.ticker && p.ticker.toUpperCase() !== "MARGIN_PAID"
+      );
+
+      const portfolioPrincipal = validPortfolioPositions
+        .filter(p => !p.isMargin)
+        .map(p => ({
+          ...p,
+          ticker: p.ticker.toUpperCase(),
+          isMargin: false
+        }));
+
+      const portfolioMargin = validPortfolioPositions
+        .filter(p => p.isMargin && !p.isCash)
+        .map(p => ({
+          ...p,
+          ticker: p.ticker.toUpperCase(),
+          isMargin: true
+        }));
 
       setSimPositions(prev => {
-        if (prev.length === 0) return copiedPositions;
+        const cleanPrev = prev.filter(p => p.ticker && p.ticker.toUpperCase() !== "MARGIN_PAID");
+        if (cleanPrev.length === 0) return recalculateWeights(portfolioPrincipal);
 
         // Build quote map from new portfolio positions
         const quoteMap = new Map<string, Position>();
-        copiedPositions.forEach(p => quoteMap.set(p.ticker.toUpperCase(), p));
+        validPortfolioPositions.forEach(p => quoteMap.set(p.ticker.toUpperCase(), p));
 
-        const updated = prev.map(p => {
+        const updated = cleanPrev.map(p => {
           const live = quoteMap.get(p.ticker.toUpperCase());
           if (!live) return p;
           const newPrice = live.price || p.price;
@@ -494,14 +522,23 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
         return recalculateWeights(updated);
       });
 
-      // Update marginPositions with matching portfolio prices
+      // Update marginPositions: start with original portfolio margin positions
       setMarginPositions(prev => {
-        if (prev.length === 0) return prev;
+        // If user hasn't explicitly customized margin in this simulation session,
+        // keep it strictly synchronized with the portfolio's real margin positions!
+        if (!hasCustomMarginSim) {
+          return recalculateWeights(portfolioMargin);
+        }
+
+        const cleanPrev = prev.filter(p => p.ticker && p.ticker.toUpperCase() !== "MARGIN_PAID");
+        if (cleanPrev.length === 0) {
+          return recalculateWeights(portfolioMargin);
+        }
 
         const quoteMap = new Map<string, Position>();
-        copiedPositions.forEach(p => quoteMap.set(p.ticker.toUpperCase(), p));
+        validPortfolioPositions.forEach(p => quoteMap.set(p.ticker.toUpperCase(), p));
 
-        const updated = prev.map(p => {
+        const updated = cleanPrev.map(p => {
           const live = quoteMap.get(p.ticker.toUpperCase());
           if (!live) return p;
           const newPrice = live.price || p.price;
@@ -527,37 +564,40 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
         } catch (e) {
           console.error(e);
         }
-        return updated;
+        return recalculateWeights(updated);
       });
     }
-  }, [portfolio]);
+  }, [portfolio, hasCustomMarginSim]);
 
-  // Load saved margin positions from localStorage on mount & subscribe to Firestore
+  // Clean up any stray MARGIN_PAID positions from simulation states on mount
+  useEffect(() => {
+    setSimPositions(prev => prev.filter(p => p.ticker && p.ticker.toUpperCase() !== "MARGIN_PAID"));
+    setMarginPositions(prev => prev.filter(p => p.ticker && p.ticker.toUpperCase() !== "MARGIN_PAID"));
+  }, []);
+
+  // Load saved margin positions from localStorage on mount ONLY IF user explicitly saved custom simulation margin
   useEffect(() => {
     try {
-      const saved = localStorage.getItem("whatif_margin_positions");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setMarginPositions(parsed);
+      const isCustomActive = localStorage.getItem("whatif_custom_margin_active") === "true";
+      if (isCustomActive) {
+        const saved = localStorage.getItem("whatif_margin_positions");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const cleanMargin = parsed.filter((p: any) => p.ticker && p.ticker.toUpperCase() !== "MARGIN_PAID");
+            if (cleanMargin.length > 0) {
+              setMarginPositions(recalculateWeights(cleanMargin));
+              setHasCustomMarginSim(true);
+            }
+          }
         }
       }
     } catch (e) {
       console.error("Error loading saved margin positions:", e);
     }
+  }, []);
 
-    if (userEmail) {
-      const unsubscribe = subscribeUserCloudData(userEmail, (cloudData) => {
-        if (cloudData && Array.isArray(cloudData.marginPositions) && cloudData.marginPositions.length > 0) {
-          setMarginPositions(cloudData.marginPositions);
-          localStorage.setItem("whatif_margin_positions", JSON.stringify(cloudData.marginPositions));
-        }
-      });
-      return () => unsubscribe();
-    }
-  }, [userEmail]);
-
-  // Function to sync live quotes directly from Yahoo Finance API for all positions
+  // Function to sync live quotes directly from market API for all positions
   const handleSyncQuotes = async () => {
     const allPositions = [...simPositions, ...marginPositions];
     const tickersToFetch = Array.from(
@@ -591,7 +631,8 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
 
         // Update simPositions
         setSimPositions(prev => {
-          const updated = prev.map(p => {
+          const cleanPrev = prev.filter(p => p.ticker && p.ticker.toUpperCase() !== "MARGIN_PAID");
+          const updated = cleanPrev.map(p => {
             const live = quoteMap.get(p.ticker.toUpperCase());
             if (!live) return p;
             const newPrice = live.price || p.price;
@@ -617,7 +658,8 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
 
         // Update marginPositions
         setMarginPositions(prev => {
-          const updated = prev.map(p => {
+          const cleanPrev = prev.filter(p => p.ticker && p.ticker.toUpperCase() !== "MARGIN_PAID");
+          const updated = cleanPrev.map(p => {
             const live = quoteMap.get(p.ticker.toUpperCase());
             if (!live) return p;
             const newPrice = live.price || p.price;
@@ -656,12 +698,12 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
 
   // Total Simulated Market Value
   const totalSimMktValue = useMemo(() => {
-    return simPositions.reduce((sum, p) => sum + p.mktValue, 0);
+    return simPositions.filter(p => p.ticker && p.ticker.toUpperCase() !== "MARGIN_PAID").reduce((sum, p) => sum + p.mktValue, 0);
   }, [simPositions]);
 
   // Total Margin Market Value
   const totalMarginMktValue = useMemo(() => {
-    return marginPositions.reduce((sum, p) => sum + p.mktValue, 0);
+    return marginPositions.filter(p => p.ticker && p.ticker.toUpperCase() !== "MARGIN_PAID").reduce((sum, p) => sum + p.mktValue, 0);
   }, [marginPositions]);
 
   // Total Combined Market Value
@@ -671,8 +713,9 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
 
   // Recalculates weights of all simulated positions based on their current market value
   const recalculateWeights = (positions: Position[]): Position[] => {
-    const totalVal = positions.reduce((sum, p) => sum + p.mktValue, 0);
-    return positions.map((p) => ({
+    const valid = positions.filter(p => p.ticker && p.ticker.toUpperCase() !== "MARGIN_PAID");
+    const totalVal = valid.reduce((sum, p) => sum + p.mktValue, 0);
+    return valid.map((p) => ({
       ...p,
       weight: totalVal > 0 ? (p.mktValue / totalVal) * 100 : 0,
     }));
@@ -681,12 +724,31 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
   // Restores simulation to active portfolio
   const handleReset = () => {
     if (portfolio && portfolio.positions) {
-      const copiedPositions = portfolio.positions.map(p => ({
-        ...p,
-        ticker: p.ticker.toUpperCase()
-      }));
-      setSimPositions(copiedPositions);
-      setMarginPositions([]);
+      const valid = portfolio.positions.filter(
+        p => p.ticker && p.ticker.toUpperCase() !== "MARGIN_PAID"
+      );
+      const principal = valid
+        .filter(p => !p.isMargin)
+        .map(p => ({
+          ...p,
+          ticker: p.ticker.toUpperCase(),
+          isMargin: false
+        }));
+      const margin = valid
+        .filter(p => p.isMargin && !p.isCash)
+        .map(p => ({
+          ...p,
+          ticker: p.ticker.toUpperCase(),
+          isMargin: true
+        }));
+
+      setSimPositions(recalculateWeights(principal));
+      setMarginPositions(recalculateWeights(margin));
+      setHasCustomMarginSim(false);
+      try {
+        localStorage.removeItem("whatif_margin_positions");
+        localStorage.removeItem("whatif_custom_margin_active");
+      } catch (e) {}
       setCustomCagrs({});
       setError(null);
     }
@@ -787,6 +849,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
   const handleMarginMktValueChange = (index: number, valueStr: string) => {
     const numericValue = valueStr === "" ? 0 : parseFloat(valueStr);
     if (isNaN(numericValue)) return;
+    setHasCustomMarginSim(true);
 
     setMarginPositions((prev) => {
       const copy = [...prev];
@@ -805,6 +868,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
   const handleMarginWeightChange = (index: number, valueStr: string) => {
     const numericValue = valueStr === "" ? 0 : parseFloat(valueStr);
     if (isNaN(numericValue)) return;
+    setHasCustomMarginSim(true);
 
     const targetWeight = Math.max(0, Math.min(100, numericValue));
 
@@ -857,6 +921,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
 
   // Delete margin position
   const handleDeleteMarginPosition = (index: number) => {
+    setHasCustomMarginSim(true);
     setMarginPositions((prev) => {
       const copy = prev.filter((_, i) => i !== index);
       return recalculateWeights(copy);
@@ -928,6 +993,10 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
 
       const fetchedPos = resultData.positions[0];
 
+      if (searchTarget === "margin") {
+        setHasCustomMarginSim(true);
+      }
+
       if (searchMode === "swap" && swapIndex !== null) {
         setTargetPositions((prev) => {
           const copy = [...prev];
@@ -945,6 +1014,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
             mktValue: mktVal,
             shares: shares,
             avgCost: oldPos.isCash ? price : oldPos.avgCost, // set avg cost to current price if old was Cash
+            isMargin: searchTarget === "margin",
           };
 
           return recalculateWeights(copy);
@@ -964,6 +1034,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
           shares: shares,
           mktValue: defaultMktVal,
           avgCost: price, // assume bought at current price
+          isMargin: searchTarget === "margin",
         };
 
         setTargetPositions((prev) => {
@@ -1006,6 +1077,68 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
     setSearchModalOpen(true);
   };
 
+  // Add an existing position from the simulated portfolio into margin positions
+  const handleAddToMargin = (pos: Position) => {
+    if (pos.isCash || pos.ticker === "CASH" || pos.ticker === "USD") return;
+    const symbol = pos.ticker.toUpperCase();
+    setHasCustomMarginSim(true);
+
+    const existingIndex = marginPositions.findIndex(p => p.ticker.toUpperCase() === symbol);
+    if (existingIndex >= 0) {
+      setMarginPositions(prev => {
+        const copy = [...prev];
+        const old = copy[existingIndex];
+        const addMktVal = old.mktValue > 0 ? old.mktValue * 0.5 : (old.price > 0 ? old.price * 5 : 2500);
+        const newMktVal = Math.round(old.mktValue + addMktVal);
+        copy[existingIndex] = {
+          ...old,
+          mktValue: newMktVal,
+          shares: old.price > 0 ? newMktVal / old.price : old.shares,
+          isMargin: true,
+        };
+        return recalculateWeights(copy);
+      });
+    } else {
+      const price = pos.price > 0 ? pos.price : 100;
+      const defaultMktVal = pos.mktValue > 0 ? Math.round(pos.mktValue) : Math.round(price * 10);
+      const shares = price > 0 ? defaultMktVal / price : (pos.shares || 1);
+      const newMarginPos: Position = {
+        ...pos,
+        ticker: symbol,
+        name: pos.name || symbol,
+        price,
+        shares,
+        mktValue: defaultMktVal,
+        avgCost: pos.avgCost || price,
+        isMargin: true,
+      };
+      setMarginPositions(prev => recalculateWeights([...prev, newMarginPos]));
+    }
+
+    setMarginCollapsed(false);
+  };
+
+  const [showPortfolioMarginPicker, setShowPortfolioMarginPicker] = useState(false);
+  const marginPickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (marginPickerRef.current && !marginPickerRef.current.contains(e.target as Node)) {
+        setShowPortfolioMarginPicker(false);
+      }
+    };
+    if (showPortfolioMarginPicker) {
+      document.addEventListener("mousedown", handleOutsideClick);
+    }
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [showPortfolioMarginPicker]);
+
+  const availablePortfolioStocks = useMemo(() => {
+    return simPositions.filter(
+      p => !p.isCash && p.ticker && !marginPositions.some(m => m.ticker.toUpperCase() === p.ticker.toUpperCase())
+    );
+  }, [simPositions, marginPositions]);
+
   // Sorting Handler
   const handleSort = (field: string) => {
     if (sortField === field) {
@@ -1018,9 +1151,10 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
 
   // Sorted and prepared positions
   const processedPositions = useMemo(() => {
+    const validSim = simPositions.filter(p => p.ticker && p.ticker.toUpperCase() !== "MARGIN_PAID");
     // Separate Cash to always pin to the bottom
-    const stocks = simPositions.filter(p => !p.isCash);
-    const cashArr = simPositions.filter(p => p.isCash);
+    const stocks = validSim.filter(p => !p.isCash);
+    const cashArr = validSim.filter(p => p.isCash);
 
     if (sortField) {
       stocks.sort((a: any, b: any) => {
@@ -1068,8 +1202,9 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
   }, [simPositions, sortField, sortDirection, customCagrs]);
 
   const processedMarginPositions = useMemo(() => {
-    const stocks = marginPositions.filter(p => !p.isCash);
-    const cashArr = marginPositions.filter(p => p.isCash);
+    const validMargin = marginPositions.filter(p => p.ticker && p.ticker.toUpperCase() !== "MARGIN_PAID");
+    const stocks = validMargin.filter(p => !p.isCash);
+    const cashArr = validMargin.filter(p => p.isCash);
 
     if (sortField) {
       stocks.sort((a: any, b: any) => {
@@ -1245,6 +1380,196 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
     };
   };
 
+  // --- MARGIN POSITIONS TOTAL ROW SUMMARY METRICS ---
+  const marginTotalCostBasis = useMemo(() => {
+    return processedMarginPositions.reduce((sum, p) => {
+      if (p.isCash) return sum + p.mktValue;
+      return sum + ((p.shares || 0) * (p.avgCost || p.price || 0));
+    }, 0);
+  }, [processedMarginPositions]);
+
+  const marginTotalReturnAmt = useMemo(() => {
+    return processedMarginPositions.reduce((sum, p) => sum + (p.returnAmt || 0), 0);
+  }, [processedMarginPositions]);
+
+  const marginTotalReturnPct = useMemo(() => {
+    return marginTotalCostBasis > 0 ? (marginTotalReturnAmt / marginTotalCostBasis) * 100 : 0;
+  }, [marginTotalCostBasis, marginTotalReturnAmt]);
+
+  const marginWeightedPe = useMemo(() => {
+    const valid = processedMarginPositions.filter(p => p.pe !== null && p.pe !== undefined && p.pe > 0);
+    const totalWeight = valid.reduce((sum, p) => sum + p.weight, 0);
+    return totalWeight > 0 ? valid.reduce((sum, p) => sum + (p.pe! * p.weight), 0) / totalWeight : null;
+  }, [processedMarginPositions]);
+
+  const marginWeightedFwdPe = useMemo(() => {
+    const valid = processedMarginPositions.filter(p => p.fwdPe !== null && p.fwdPe !== undefined && p.fwdPe > 0);
+    const totalWeight = valid.reduce((sum, p) => sum + p.weight, 0);
+    return totalWeight > 0 ? valid.reduce((sum, p) => sum + (p.fwdPe! * p.weight), 0) / totalWeight : null;
+  }, [processedMarginPositions]);
+
+  const marginWeightedPeg = useMemo(() => {
+    const valid = processedMarginPositions.filter(p => p.peg !== null && p.peg !== undefined && p.peg > 0);
+    const totalWeight = valid.reduce((sum, p) => sum + p.weight, 0);
+    return totalWeight > 0 ? valid.reduce((sum, p) => sum + (p.peg! * p.weight), 0) / totalWeight : null;
+  }, [processedMarginPositions]);
+
+  const marginTotal52HighValue = useMemo(() => {
+    return processedMarginPositions.reduce((acc, pos) => {
+      const high52 = pos.fiftyTwoWeekHigh || (pos.price * 1.34668);
+      return acc + ((pos.shares || 0) * high52);
+    }, 0);
+  }, [processedMarginPositions]);
+
+  const marginTotalAvgValue = useMemo(() => {
+    return processedMarginPositions.reduce((acc, pos) => {
+      const analyst = getAnalystData(pos.ticker, pos.price);
+      const targetAvg = pos.targetMeanPrice || analyst.avgTarget || pos.price;
+      return acc + ((pos.shares || 0) * targetAvg);
+    }, 0);
+  }, [processedMarginPositions]);
+
+  const marginTotalHighValue = useMemo(() => {
+    return processedMarginPositions.reduce((acc, pos) => {
+      const analyst = getAnalystData(pos.ticker, pos.price);
+      const targetHigh = pos.targetHighPrice || analyst.highTarget || pos.price;
+      return acc + ((pos.shares || 0) * targetHigh);
+    }, 0);
+  }, [processedMarginPositions]);
+
+  const marginTotalUpside52High = useMemo(() => {
+    return totalMarginMktValue > 0 ? ((marginTotal52HighValue - totalMarginMktValue) / totalMarginMktValue) * 100 : null;
+  }, [marginTotal52HighValue, totalMarginMktValue]);
+
+  const marginTotalUpsideAvg = useMemo(() => {
+    return totalMarginMktValue > 0 ? ((marginTotalAvgValue - totalMarginMktValue) / totalMarginMktValue) * 100 : null;
+  }, [marginTotalAvgValue, totalMarginMktValue]);
+
+  const marginTotalUpsideHigh = useMemo(() => {
+    return totalMarginMktValue > 0 ? ((marginTotalHighValue - totalMarginMktValue) / totalMarginMktValue) * 100 : null;
+  }, [marginTotalHighValue, totalMarginMktValue]);
+
+  const marginPiotroskiScoreAvg = useMemo(() => {
+    const valid = processedMarginPositions.filter(p => !p.isCash && p.ticker && p.ticker.toUpperCase() !== "MARGIN_PAID");
+    if (valid.length === 0) return "—";
+    const sum = valid.reduce((acc, p) => acc + (p.piotroskiScore ?? 7), 0);
+    return (sum / valid.length).toFixed(1);
+  }, [processedMarginPositions]);
+
+  const marginWeightedScore = useMemo(() => {
+    const stockPositions = processedMarginPositions.filter((p) => !p.isCash && p.ticker && p.ticker.toUpperCase() !== "MARGIN_PAID");
+    const totalVal = stockPositions.reduce((sum, p) => sum + p.mktValue, 0);
+    if (totalVal === 0) return 0;
+
+    let sumScore = 0;
+    stockPositions.forEach((pos) => {
+      const row = scoredRowsMap.get(pos.ticker.toUpperCase());
+      if (row) {
+        sumScore += (row.scores?.balanced || 50) * pos.mktValue;
+      }
+    });
+    return sumScore / totalVal;
+  }, [processedMarginPositions, scoredRowsMap]);
+
+  const marginWeightedFactors = useMemo(() => {
+    const stockPositions = processedMarginPositions.filter((p) => !p.isCash && p.ticker && p.ticker.toUpperCase() !== "MARGIN_PAID");
+    const totalVal = stockPositions.reduce((sum, p) => sum + p.mktValue, 0);
+    const result = { growth: 0, quality: 0, stability: 0, valuation: 0 };
+    if (totalVal === 0) return result;
+
+    stockPositions.forEach((pos) => {
+      const row = scoredRowsMap.get(pos.ticker.toUpperCase());
+      if (row && row.factors) {
+        result.growth += (row.factors.growth || 50) * pos.mktValue;
+        result.quality += (row.factors.quality || 50) * pos.mktValue;
+        result.stability += (row.factors.stability || 50) * pos.mktValue;
+        result.valuation += (row.factors.valuation || 50) * pos.mktValue;
+      }
+    });
+
+    result.growth /= totalVal;
+    result.quality /= totalVal;
+    result.stability /= totalVal;
+    result.valuation /= totalVal;
+    return result;
+  }, [processedMarginPositions, scoredRowsMap]);
+
+  // --- SIMULATED POSITIONS TOTAL ROW SUMMARY METRICS ---
+  const simTotalCostBasis = useMemo(() => {
+    return processedPositions.reduce((sum, p) => {
+      if (p.isCash) return sum + p.mktValue;
+      return sum + ((p.shares || 0) * (p.avgCost || p.price || 0));
+    }, 0);
+  }, [processedPositions]);
+
+  const simTotalReturnAmt = useMemo(() => {
+    return processedPositions.reduce((sum, p) => sum + (p.returnAmt || 0), 0);
+  }, [processedPositions]);
+
+  const simTotalReturnPct = useMemo(() => {
+    return simTotalCostBasis > 0 ? (simTotalReturnAmt / simTotalCostBasis) * 100 : 0;
+  }, [simTotalCostBasis, simTotalReturnAmt]);
+
+  const simWeightedPe = useMemo(() => {
+    const valid = processedPositions.filter(p => p.pe !== null && p.pe !== undefined && p.pe > 0);
+    const totalWeight = valid.reduce((sum, p) => sum + p.weight, 0);
+    return totalWeight > 0 ? valid.reduce((sum, p) => sum + (p.pe! * p.weight), 0) / totalWeight : null;
+  }, [processedPositions]);
+
+  const simWeightedFwdPe = useMemo(() => {
+    const valid = processedPositions.filter(p => p.fwdPe !== null && p.fwdPe !== undefined && p.fwdPe > 0);
+    const totalWeight = valid.reduce((sum, p) => sum + p.weight, 0);
+    return totalWeight > 0 ? valid.reduce((sum, p) => sum + (p.fwdPe! * p.weight), 0) / totalWeight : null;
+  }, [processedPositions]);
+
+  const simWeightedPeg = useMemo(() => {
+    const valid = processedPositions.filter(p => p.peg !== null && p.peg !== undefined && p.peg > 0);
+    const totalWeight = valid.reduce((sum, p) => sum + p.weight, 0);
+    return totalWeight > 0 ? valid.reduce((sum, p) => sum + (p.peg! * p.weight), 0) / totalWeight : null;
+  }, [processedPositions]);
+
+  const simTotal52HighValue = useMemo(() => {
+    return processedPositions.reduce((acc, pos) => {
+      const high52 = pos.fiftyTwoWeekHigh || (pos.price * 1.34668);
+      return acc + ((pos.shares || 0) * high52);
+    }, 0);
+  }, [processedPositions]);
+
+  const simTotalAvgValue = useMemo(() => {
+    return processedPositions.reduce((acc, pos) => {
+      const analyst = getAnalystData(pos.ticker, pos.price);
+      const targetAvg = pos.targetMeanPrice || analyst.avgTarget || pos.price;
+      return acc + ((pos.shares || 0) * targetAvg);
+    }, 0);
+  }, [processedPositions]);
+
+  const simTotalHighValue = useMemo(() => {
+    return processedPositions.reduce((acc, pos) => {
+      const analyst = getAnalystData(pos.ticker, pos.price);
+      const targetHigh = pos.targetHighPrice || analyst.highTarget || pos.price;
+      return acc + ((pos.shares || 0) * targetHigh);
+    }, 0);
+  }, [processedPositions]);
+
+  const simTotalUpside52High = useMemo(() => {
+    return totalSimMktValue > 0 ? ((simTotal52HighValue - totalSimMktValue) / totalSimMktValue) * 100 : null;
+  }, [simTotal52HighValue, totalSimMktValue]);
+
+  const simTotalUpsideAvg = useMemo(() => {
+    return totalSimMktValue > 0 ? ((simTotalAvgValue - totalSimMktValue) / totalSimMktValue) * 100 : null;
+  }, [simTotalAvgValue, totalSimMktValue]);
+
+  const simTotalUpsideHigh = useMemo(() => {
+    return totalSimMktValue > 0 ? ((simTotalHighValue - totalSimMktValue) / totalSimMktValue) * 100 : null;
+  }, [simTotalHighValue, totalSimMktValue]);
+
+  const simPiotroskiScoreAvg = useMemo(() => {
+    const valid = processedPositions.filter(p => !p.isCash && p.ticker && p.ticker.toUpperCase() !== "MARGIN_PAID");
+    if (valid.length === 0) return "—";
+    const sum = valid.reduce((acc, p) => acc + (p.piotroskiScore ?? 7), 0);
+    return (sum / valid.length).toFixed(1);
+  }, [processedPositions]);
+
   const t = {
     EN: {
       portfolioProjection: "PORTFOLIO PROJECTION",
@@ -1284,9 +1609,11 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
 
   // 1. Dynamic future value calculations based on selected positions (simulated or margin)
   const selectedPositions = useMemo(() => {
-    if (projectionTab === "portfolio") return simPositions;
-    if (projectionTab === "margin") return marginPositions;
-    return [...simPositions, ...marginPositions];
+    const validSim = simPositions.filter(p => p.ticker && p.ticker.toUpperCase() !== "MARGIN_PAID");
+    const validMargin = marginPositions.filter(p => p.ticker && p.ticker.toUpperCase() !== "MARGIN_PAID");
+    if (projectionTab === "portfolio") return validSim;
+    if (projectionTab === "margin") return validMargin;
+    return [...validSim, ...validMargin];
   }, [projectionTab, simPositions, marginPositions]);
 
   const selectedTotalMktValue = useMemo(() => {
@@ -1330,7 +1657,8 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
     }, 0);
     const netFutureVal = Math.max(0, grossFutureVal - marginFinancedPrincipal);
     const gain = grossFutureVal - currentVal;
-    const gainPct = currentVal > 0 ? (gain / currentVal) * 100 : 0;
+    const debtBase = marginFinancedPrincipal > 0 ? marginFinancedPrincipal : currentVal;
+    const gainPct = debtBase > 0 ? (gain / debtBase) * 100 : 0;
     return { currentVal, grossFutureVal, netFutureVal, gain, gainPct };
   }, [selectedPositions, projectionTab, marginFinancedPrincipal]);
 
@@ -1369,7 +1697,8 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
     }, 0);
     const netFutureVal = Math.max(0, grossFutureVal - marginFinancedPrincipal);
     const gain = grossFutureVal - currentVal;
-    const gainPct = currentVal > 0 ? (gain / currentVal) * 100 : 0;
+    const debtBase = marginFinancedPrincipal > 0 ? marginFinancedPrincipal : currentVal;
+    const gainPct = debtBase > 0 ? (gain / debtBase) * 100 : 0;
     return { currentVal, grossFutureVal, netFutureVal, gain, gainPct };
   }, [selectedPositions, projectionTab, marginFinancedPrincipal]);
 
@@ -1408,7 +1737,8 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
     }, 0);
     const netFutureVal = Math.max(0, grossFutureVal - marginFinancedPrincipal);
     const gain = grossFutureVal - currentVal;
-    const gainPct = currentVal > 0 ? (gain / currentVal) * 100 : 0;
+    const debtBase = marginFinancedPrincipal > 0 ? marginFinancedPrincipal : currentVal;
+    const gainPct = debtBase > 0 ? (gain / debtBase) * 100 : 0;
     return { currentVal, grossFutureVal, netFutureVal, gain, gainPct };
   }, [selectedPositions, projectionTab, marginFinancedPrincipal]);
 
@@ -1418,7 +1748,12 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
 
   const totalHighTargetGain = highTargetValueTotal - netSelectedMktValue;
 
-  const baseValueForUpside = netSelectedMktValue > 0 ? netSelectedMktValue : selectedTotalMktValue;
+  const baseValueForUpside = useMemo(() => {
+    if (projectionTab === "margin") {
+      return marginFinancedPrincipal > 0 ? marginFinancedPrincipal : (netSelectedMktValue > 0 ? netSelectedMktValue : selectedTotalMktValue);
+    }
+    return netSelectedMktValue > 0 ? netSelectedMktValue : selectedTotalMktValue;
+  }, [projectionTab, marginFinancedPrincipal, netSelectedMktValue, selectedTotalMktValue]);
 
   const high52wkUpside = useMemo(() => {
     if (baseValueForUpside <= 0) return 0;
@@ -1470,8 +1805,12 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
     return chartData[chartData.length - 1].value;
   }, [chartData]);
 
-  const totalInvested = selectedTotalMktValue + (projectionTab === "margin" ? 0 : (monthlyAddition * years * 12));
-  const totalGrowth = Math.max(0, projectedTotalValue - selectedTotalMktValue);
+  const totalAdditions = projectionTab === "margin" ? 0 : (monthlyAddition * years * 12);
+
+  const totalInvested = projectionTab === "margin"
+    ? (marginFinancedPrincipal > 0 ? marginFinancedPrincipal : selectedTotalMktValue)
+    : (selectedTotalMktValue + totalAdditions);
+  const totalGrowth = Math.max(0, projectedTotalValue - totalInvested);
   const interestGains = totalGrowth;
 
   const percentageReturnOnInvested = totalInvested > 0 
@@ -1490,19 +1829,31 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
           <div>
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
               <h2 className="text-sm font-display font-bold text-white tracking-wider uppercase">
-                SIMULACIÓN DE PORTAFOLIO ACTIVO
+                {language === "EN" ? "SIMULATION PORTFOLIO" : "SIMULACIÓN DE PORTAFOLIO ACTIVO"}
               </h2>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-lg">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-lg" title={language === "EN" ? "Simulated Principal Value" : "Valor Principal Simulado"}>
                   {formatCurrency(totalSimMktValue)}
                 </span>
+                {totalMarginMktValue > 0 && (
+                  <span className="text-xs font-mono font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded-lg" title={language === "EN" ? "Current Margin Financed" : "Margen Actual Financiado"}>
+                    {language === "EN" ? "Margin:" : "Margen:"} {formatCurrency(totalMarginMktValue)}
+                  </span>
+                )}
+                {totalMarginMktValue > 0 && (
+                  <span className="text-xs font-mono font-bold text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-0.5 rounded-lg" title={language === "EN" ? "Combined Total Exposure" : "Exposición Total Combinada"}>
+                    Total: {formatCurrency(totalCombinedMktValue)}
+                  </span>
+                )}
                 <span className="text-xs font-mono font-bold text-slate-900 bg-[#e2e8f0] border border-slate-300 px-2 py-0.5 rounded-lg">
-                  {simPositions.length} activos
+                  {simPositions.filter(p => p.ticker && p.ticker.toUpperCase() !== "MARGIN_PAID").length} {language === "EN" ? "active" : "activos"}
                 </span>
               </div>
             </div>
             <p className="text-xs text-slate-500 mt-1 leading-none">
-              Edita valores, pesos o CAGR para recalcular • CAGR Ponderado: <span className="font-semibold text-emerald-400 font-mono">+{weightedCagr.toFixed(2)}%</span>
+              {language === "EN"
+                ? <>Edit values, weights or CAGR to recalculate • Weighted CAGR: <span className="font-semibold text-emerald-400 font-mono">+{weightedCagr.toFixed(2)}%</span></>
+                : <>Edita valores, pesos o CAGR para recalcular • CAGR Ponderado: <span className="font-semibold text-emerald-400 font-mono">+{weightedCagr.toFixed(2)}%</span></>}
             </p>
           </div>
         </div>
@@ -1542,7 +1893,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
       {loading && (
         <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 px-4 py-3 rounded-2xl flex items-center gap-3 text-xs animate-pulse">
           <Loader2 size={16} className="shrink-0 animate-spin" />
-          <span>Buscando y sincronizando cotización en tiempo real desde Yahoo Finance...</span>
+          <span>Buscando y sincronizando cotización en tiempo real...</span>
         </div>
       )}
 
@@ -1965,9 +2316,9 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                           <HealthMetricsTooltip 
                             title={language === "ES" ? "Crecimiento" : "Growth"}
                             metrics={[
-                              {key: "revenue_cagr", label: "Revenue AGR", suffix: "%"},
-                              {key: "eps_cagr", label: "EPS AGR", suffix: "%"},
-                              {key: "fcf_cagr", label: "FCF AGR", suffix: "%"},
+                              {key: "revenue_cagr", label: "Revenue CAGR", suffix: "%"},
+                              {key: "eps_cagr", label: "EPS CAGR", suffix: "%"},
+                              {key: "fcf_cagr", label: "Operating Cash Flow CAGR", suffix: "%"},
                             ]}
                             raw={scoredRow?.raw}
                             language={language}
@@ -2051,20 +2402,180 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                       </>
                     )}
 
-                    {/* Delete Icon */}
+                    {/* Actions Column */}
                     <td className="py-3 px-2 text-center">
-                      <button
-                        onClick={() => handleDeletePosition(index)}
-                        className="text-slate-500 hover:text-rose-400 transition-colors p-1 hover:bg-slate-800 rounded-lg cursor-pointer"
-                        title="Eliminar posición"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      <div className="flex items-center justify-center gap-1.5">
+                        {!pos.isCash && (
+                          <button
+                            type="button"
+                            onClick={() => handleAddToMargin(pos)}
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-mono font-bold transition-all cursor-pointer bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:border-amber-500/50"
+                            title={language === "EN" ? "Add position to Margin (Leverage)" : "Apalancar / Entrar posición en Margen"}
+                          >
+                            <span>⚡</span>
+                            <span>{language === "EN" ? "+Margin" : "+Margen"}</span>
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleDeletePosition(index)}
+                          className="text-slate-500 hover:text-rose-400 transition-colors p-1 hover:bg-slate-800 rounded-lg cursor-pointer"
+                          title={language === "EN" ? "Delete position" : "Eliminar posición"}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
               })}
             </tbody>
+            {simPositions.length > 0 && (
+              <tfoot>
+                <tr className="border-t-2 border-slate-800 bg-[#0a0d18]/60 text-slate-100 font-bold text-xs md:text-sm">
+                  <td className="py-3 px-2 font-display tracking-wider font-extrabold uppercase text-emerald-400">
+                    <div className="flex items-center gap-1.5">
+                      <span>💼</span>
+                      <span>{language === "EN" ? "TOTAL PORTFOLIO" : "TOTAL GENERAL"}</span>
+                    </div>
+                  </td>
+                  <td className="py-3 px-2 text-right font-mono text-slate-500">—</td>
+                  <td className="py-3 px-2 text-center font-mono text-emerald-400 font-extrabold">
+                    100.0%
+                  </td>
+                  <td className="py-3 px-2 text-center font-mono text-white font-extrabold">
+                    {formatCurrency(totalSimMktValue)}
+                  </td>
+
+                  {simTabMode === "basis" && (
+                    <>
+                      <td className="py-3 px-2 text-center font-mono text-slate-300 font-bold">
+                        {weightedCagr.toFixed(2)}%
+                      </td>
+                      <td className="py-3 px-2 text-right font-mono text-slate-500">—</td>
+                      <td className="py-3 px-2 text-right font-mono text-slate-500">—</td>
+                      <td className="py-3 px-2 text-right font-mono text-slate-200 font-bold">
+                        {formatCurrency(simTotalCostBasis)}
+                      </td>
+                      <td className="py-3 px-2 text-right font-mono">
+                        <div className="flex flex-col items-end">
+                          <span className={`font-bold ${simTotalReturnAmt >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                            {simTotalReturnAmt >= 0 ? "+" : ""}{formatCurrency(simTotalReturnAmt)}
+                          </span>
+                          <span className={`text-[10px] font-semibold ${simTotalReturnPct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                            {simTotalReturnPct >= 0 ? "+" : ""}{simTotalReturnPct.toFixed(2)}%
+                          </span>
+                        </div>
+                      </td>
+                    </>
+                  )}
+
+                  {simTabMode === "valuation" && (
+                    <>
+                      <td className="py-3 px-2 text-center font-mono text-slate-300 font-bold">
+                        {weightedCagr.toFixed(2)}%
+                      </td>
+                      <td className="py-3 px-2 text-right font-mono text-slate-300">
+                        {simWeightedPe !== null ? simWeightedPe.toFixed(1) : "—"}
+                      </td>
+                      <td className="py-3 px-2 text-right font-mono text-slate-300">
+                        {simWeightedFwdPe !== null ? simWeightedFwdPe.toFixed(1) : "—"}
+                      </td>
+                      <td className="py-3 px-2 text-right font-mono text-slate-300">
+                        {simWeightedPeg !== null ? simWeightedPeg.toFixed(2) : "—"}
+                      </td>
+                      <td className="py-3 px-2 text-center">
+                        {simTotalUpside52High !== null ? (
+                          <span className="inline-flex items-center gap-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded font-bold font-mono text-xs">
+                            <TrendingUp size={11} className="shrink-0" />
+                            {simTotalUpside52High.toFixed(1)}%
+                          </span>
+                        ) : (
+                          <span className="text-slate-500">—</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-2 text-center">
+                        {simTotalUpsideAvg !== null ? (
+                          <span className="inline-flex items-center gap-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded font-bold font-mono text-xs">
+                            <TrendingUp size={11} className="shrink-0" />
+                            {simTotalUpsideAvg.toFixed(1)}%
+                          </span>
+                        ) : (
+                          <span className="text-slate-500">—</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-2 text-center">
+                        {simTotalUpsideHigh !== null ? (
+                          <span className="inline-flex items-center gap-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded font-bold font-mono text-xs">
+                            <TrendingUp size={11} className="shrink-0" />
+                            {simTotalUpsideHigh.toFixed(1)}%
+                          </span>
+                        ) : (
+                          <span className="text-slate-500">—</span>
+                        )}
+                      </td>
+                    </>
+                  )}
+
+                  {simTabMode === "health" && (
+                    <>
+                      <td className="py-3 px-2 text-center font-mono">
+                        <span className="inline-flex items-center gap-1 font-bold px-2 py-0.5 rounded text-xs bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                          {simPiotroskiScoreAvg} / 9
+                        </span>
+                      </td>
+                      <td className="py-3 px-2 text-center font-mono">
+                        <span className={`inline-block px-2 py-1 rounded text-xs font-black ${getScoreBgClass(portfolioWeightedScore)}`}>
+                          {portfolioWeightedScore.toFixed(0)}
+                        </span>
+                      </td>
+                      <td className="py-3 px-2 text-center font-mono">
+                        <div className="flex flex-col items-center">
+                          <span className={`text-xs font-bold ${getScoreColorClass(portfolioWeightedFactors.growth)}`}>
+                            {portfolioWeightedFactors.growth.toFixed(0)}
+                          </span>
+                          <div className="w-12 h-1 bg-slate-950 rounded-full overflow-hidden mt-1">
+                            <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${portfolioWeightedFactors.growth}%` }} />
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3 px-2 text-center font-mono">
+                        <div className="flex flex-col items-center">
+                          <span className={`text-xs font-bold ${getScoreColorClass(portfolioWeightedFactors.quality)}`}>
+                            {portfolioWeightedFactors.quality.toFixed(0)}
+                          </span>
+                          <div className="w-12 h-1 bg-slate-950 rounded-full overflow-hidden mt-1">
+                            <div className="bg-blue-500 h-full rounded-full" style={{ width: `${portfolioWeightedFactors.quality}%` }} />
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3 px-2 text-center font-mono">
+                        <div className="flex flex-col items-center">
+                          <span className={`text-xs font-bold ${getScoreColorClass(portfolioWeightedFactors.stability)}`}>
+                            {portfolioWeightedFactors.stability.toFixed(0)}
+                          </span>
+                          <div className="w-12 h-1 bg-slate-950 rounded-full overflow-hidden mt-1">
+                            <div className="bg-amber-500 h-full rounded-full" style={{ width: `${portfolioWeightedFactors.stability}%` }} />
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3 px-2 text-center font-mono">
+                        <div className="flex flex-col items-center">
+                          <span className={`text-xs font-bold ${getScoreColorClass(portfolioWeightedFactors.valuation)}`}>
+                            {portfolioWeightedFactors.valuation.toFixed(0)}
+                          </span>
+                          <div className="w-12 h-1 bg-slate-950 rounded-full overflow-hidden mt-1">
+                            <div className="bg-rose-500 h-full rounded-full" style={{ width: `${portfolioWeightedFactors.valuation}%` }} />
+                          </div>
+                        </div>
+                      </td>
+                    </>
+                  )}
+
+                  <td className="py-3 px-2 text-center font-mono text-slate-500">—</td>
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
         )}
@@ -2122,6 +2633,51 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                 </>
               )}
             </button>
+
+            {/* Add from Portfolio dropdown picker */}
+            {availablePortfolioStocks.length > 0 && (
+              <div className="relative flex-1 sm:flex-none" ref={marginPickerRef}>
+                <button
+                  type="button"
+                  onClick={() => setShowPortfolioMarginPicker(prev => !prev)}
+                  className="w-full flex items-center gap-1.5 bg-[#121420] hover:bg-slate-800 text-amber-400 px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-wider border border-amber-500/30 transition-all cursor-pointer justify-center"
+                >
+                  <span>⚡</span>
+                  {language === "EN" ? "From Portfolio" : "Desde Portafolio"}
+                  <ChevronDown size={12} className={`transition-transform duration-200 ${showPortfolioMarginPicker ? "rotate-180" : ""}`} />
+                </button>
+
+                {showPortfolioMarginPicker && (
+                  <div className="absolute right-0 top-full mt-2 w-64 bg-[#0f111a] border border-slate-800 rounded-2xl shadow-2xl p-2 z-50 animate-fade-in backdrop-blur-xl">
+                    <div className="px-2.5 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-800 mb-1 font-mono">
+                      {language === "EN" ? "Add to Margin from Portfolio" : "Entrar a Margen desde Portafolio"}
+                    </div>
+                    <div className="max-h-56 overflow-y-auto space-y-1">
+                      {availablePortfolioStocks.map(stock => (
+                        <button
+                          key={`pick-margin-${stock.ticker}`}
+                          type="button"
+                          onClick={() => {
+                            handleAddToMargin(stock);
+                            setShowPortfolioMarginPicker(false);
+                          }}
+                          className="w-full flex items-center justify-between p-2 rounded-xl hover:bg-amber-500/10 text-left transition-colors cursor-pointer group"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <CompanyLogo ticker={stock.ticker} name={stock.name} isCash={stock.isCash} size="sm" />
+                            <div className="min-w-0">
+                              <span className="text-xs font-bold text-white group-hover:text-amber-400 block truncate">{stock.ticker}</span>
+                              <span className="text-[10px] text-slate-400 block truncate max-w-[110px]">{stock.name}</span>
+                            </div>
+                          </div>
+                          <span className="text-xs font-mono font-bold text-amber-400 shrink-0">+{formatCurrency(stock.mktValue)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             <button
               onClick={handleOpenMarginAdd}
@@ -2419,9 +2975,9 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                               <HealthMetricsTooltip 
                                 title={language === "ES" ? "Crecimiento" : "Growth"}
                                 metrics={[
-                                  {key: "revenue_cagr", label: "Revenue AGR", suffix: "%"},
-                                  {key: "eps_cagr", label: "EPS AGR", suffix: "%"},
-                                  {key: "fcf_cagr", label: "FCF AGR", suffix: "%"},
+                                  {key: "revenue_cagr", label: "Revenue CAGR", suffix: "%"},
+                                  {key: "eps_cagr", label: "EPS CAGR", suffix: "%"},
+                                  {key: "fcf_cagr", label: "Operating Cash Flow CAGR", suffix: "%"},
                                 ]}
                                 raw={scoredRow?.raw}
                                 language={language}
@@ -2519,6 +3075,150 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                     );
                   })}
                 </tbody>
+                {processedMarginPositions.length > 0 && (
+                  <tfoot>
+                    <tr className="border-t-2 border-slate-800 bg-[#0a0d18]/60 text-slate-100 font-bold text-xs md:text-sm">
+                      <td className="py-3 px-2 font-display tracking-wider font-extrabold uppercase text-amber-400">
+                        <div className="flex items-center gap-1.5">
+                          <span>⚡</span>
+                          <span>{language === "EN" ? "TOTAL MARGIN" : "TOTAL GENERAL"}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-2 text-right font-mono text-slate-500">—</td>
+                      <td className="py-3 px-2 text-center font-mono text-amber-400 font-extrabold">
+                        100.0%
+                      </td>
+                      <td className="py-3 px-2 text-center font-mono text-white font-extrabold">
+                        {formatCurrency(totalMarginMktValue)}
+                      </td>
+
+                      {simTabMode === "basis" && (
+                        <>
+                          <td className="py-3 px-2 text-center font-mono text-slate-300 font-bold">
+                            {weightedMarginCagr.toFixed(2)}%
+                          </td>
+                          <td className="py-3 px-2 text-right font-mono text-slate-500">—</td>
+                          <td className="py-3 px-2 text-right font-mono text-slate-500">—</td>
+                          <td className="py-3 px-2 text-right font-mono text-slate-200 font-bold">
+                            {formatCurrency(marginTotalCostBasis)}
+                          </td>
+                          <td className="py-3 px-2 text-right font-mono">
+                            <div className="flex flex-col items-end">
+                              <span className={`font-bold ${marginTotalReturnAmt >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                                {marginTotalReturnAmt >= 0 ? "+" : ""}{formatCurrency(marginTotalReturnAmt)}
+                              </span>
+                              <span className={`text-[10px] font-semibold ${marginTotalReturnPct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                                {marginTotalReturnPct >= 0 ? "+" : ""}{marginTotalReturnPct.toFixed(2)}%
+                              </span>
+                            </div>
+                          </td>
+                        </>
+                      )}
+
+                      {simTabMode === "valuation" && (
+                        <>
+                          <td className="py-3 px-2 text-center font-mono text-slate-300 font-bold">
+                            {weightedMarginCagr.toFixed(2)}%
+                          </td>
+                          <td className="py-3 px-2 text-right font-mono text-slate-300">
+                            {marginWeightedPe !== null ? marginWeightedPe.toFixed(1) : "—"}
+                          </td>
+                          <td className="py-3 px-2 text-right font-mono text-slate-300">
+                            {marginWeightedFwdPe !== null ? marginWeightedFwdPe.toFixed(1) : "—"}
+                          </td>
+                          <td className="py-3 px-2 text-right font-mono text-slate-300">
+                            {marginWeightedPeg !== null ? marginWeightedPeg.toFixed(2) : "—"}
+                          </td>
+                          <td className="py-3 px-2 text-center">
+                            {marginTotalUpside52High !== null ? (
+                              <span className="inline-flex items-center gap-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded font-bold font-mono text-xs">
+                                <TrendingUp size={11} className="shrink-0" />
+                                {marginTotalUpside52High.toFixed(1)}%
+                              </span>
+                            ) : (
+                              <span className="text-slate-500">—</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-2 text-center">
+                            {marginTotalUpsideAvg !== null ? (
+                              <span className="inline-flex items-center gap-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded font-bold font-mono text-xs">
+                                <TrendingUp size={11} className="shrink-0" />
+                                {marginTotalUpsideAvg.toFixed(1)}%
+                              </span>
+                            ) : (
+                              <span className="text-slate-500">—</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-2 text-center">
+                            {marginTotalUpsideHigh !== null ? (
+                              <span className="inline-flex items-center gap-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded font-bold font-mono text-xs">
+                                <TrendingUp size={11} className="shrink-0" />
+                                {marginTotalUpsideHigh.toFixed(1)}%
+                              </span>
+                            ) : (
+                              <span className="text-slate-500">—</span>
+                            )}
+                          </td>
+                        </>
+                      )}
+
+                      {simTabMode === "health" && (
+                        <>
+                          <td className="py-3 px-2 text-center font-mono">
+                            <span className="inline-flex items-center gap-1 font-bold px-2 py-0.5 rounded text-xs bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                              {marginPiotroskiScoreAvg} / 9
+                            </span>
+                          </td>
+                          <td className="py-3 px-2 text-center font-mono">
+                            <span className={`inline-block px-2 py-1 rounded text-xs font-black ${getScoreBgClass(marginWeightedScore)}`}>
+                              {marginWeightedScore.toFixed(0)}
+                            </span>
+                          </td>
+                          <td className="py-3 px-2 text-center font-mono">
+                            <div className="flex flex-col items-center">
+                              <span className={`text-xs font-bold ${getScoreColorClass(marginWeightedFactors.growth)}`}>
+                                {marginWeightedFactors.growth.toFixed(0)}
+                              </span>
+                              <div className="w-12 h-1 bg-slate-950 rounded-full overflow-hidden mt-1">
+                                <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${marginWeightedFactors.growth}%` }} />
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3 px-2 text-center font-mono">
+                            <div className="flex flex-col items-center">
+                              <span className={`text-xs font-bold ${getScoreColorClass(marginWeightedFactors.quality)}`}>
+                                {marginWeightedFactors.quality.toFixed(0)}
+                              </span>
+                              <div className="w-12 h-1 bg-blue-500 h-full rounded-full" style={{ width: `${marginWeightedFactors.quality}%` }} />
+                            </div>
+                          </td>
+                          <td className="py-3 px-2 text-center font-mono">
+                            <div className="flex flex-col items-center">
+                              <span className={`text-xs font-bold ${getScoreColorClass(marginWeightedFactors.stability)}`}>
+                                {marginWeightedFactors.stability.toFixed(0)}
+                              </span>
+                              <div className="w-12 h-1 bg-slate-950 rounded-full overflow-hidden mt-1">
+                                <div className="bg-amber-500 h-full rounded-full" style={{ width: `${marginWeightedFactors.stability}%` }} />
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3 px-2 text-center font-mono">
+                            <div className="flex flex-col items-center">
+                              <span className={`text-xs font-bold ${getScoreColorClass(marginWeightedFactors.valuation)}`}>
+                                {marginWeightedFactors.valuation.toFixed(0)}
+                              </span>
+                              <div className="w-12 h-1 bg-slate-950 rounded-full overflow-hidden mt-1">
+                                <div className="bg-rose-500 h-full rounded-full" style={{ width: `${marginWeightedFactors.valuation}%` }} />
+                              </div>
+                            </div>
+                          </td>
+                        </>
+                      )}
+
+                      <td className="py-3 px-2 text-center font-mono text-slate-500">—</td>
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             )}
           </div>
@@ -2529,39 +3229,44 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
       {/* 2.5 PORTFOLIO FUTURE PROJECTIONS & BREAKDOWN PANEL */}
       {(simPositions.length > 0 || marginPositions.length > 0) && (
         <div className="space-y-6" id="portfolio-projections-section">
-          {/* Projection Selector Tabs */}
-          <div className="flex bg-[#0a0c14]/80 border border-slate-900/60 p-1.5 rounded-2xl w-full sm:max-w-sm shadow-inner">
-            <button
-              onClick={() => setProjectionTab("portfolio")}
-              className={`flex-1 py-2 text-center text-xs font-bold uppercase tracking-wider rounded-xl transition-all cursor-pointer ${
-                projectionTab === "portfolio"
-                  ? "bg-emerald-500 text-slate-950 shadow-md font-extrabold"
-                  : "text-slate-400 hover:text-white"
-              }`}
-            >
-              Portafolio
-            </button>
-            <button
-              onClick={() => setProjectionTab("margin")}
-              className={`flex-1 py-2 text-center text-xs font-bold uppercase tracking-wider rounded-xl transition-all cursor-pointer ${
-                projectionTab === "margin"
-                  ? "bg-amber-500 text-slate-950 shadow-md font-extrabold"
-                  : "text-slate-400 hover:text-white"
-              }`}
-            >
-              Margen
-            </button>
-            <button
-              onClick={() => setProjectionTab("total")}
-              className={`flex-1 py-2 text-center text-xs font-bold uppercase tracking-wider rounded-xl transition-all cursor-pointer ${
-                projectionTab === "total"
-                  ? "bg-indigo-500 text-white shadow-md font-extrabold"
-                  : "text-slate-400 hover:text-white"
-              }`}
-            >
-              Total
-            </button>
-          </div>
+          {/* Tabs Selector: Portfolio / Margin / Total (only show selector if margin positions exist, identical to Holdings) */}
+          {marginPositions.length > 0 && (
+            <div className="flex bg-[#121420] p-1 rounded-2xl border border-slate-800/80 w-fit text-xs font-bold font-mono">
+              <button
+                type="button"
+                onClick={() => setProjectionTab("portfolio")}
+                className={`px-4 py-1.5 rounded-xl transition-all cursor-pointer ${
+                  projectionTab === "portfolio"
+                    ? "bg-emerald-500 text-slate-950 font-black shadow-lg shadow-emerald-500/10"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                {language === "EN" ? "Portfolio" : "Portafolio"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setProjectionTab("margin")}
+                className={`px-4 py-1.5 rounded-xl transition-all cursor-pointer ${
+                  projectionTab === "margin"
+                    ? "bg-amber-500 text-slate-950 font-black shadow-lg shadow-amber-500/10"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                {language === "EN" ? "Margin" : "Margen"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setProjectionTab("total")}
+                className={`px-4 py-1.5 rounded-xl transition-all cursor-pointer ${
+                  projectionTab === "total"
+                    ? "bg-indigo-500 text-slate-950 font-black shadow-lg shadow-indigo-500/10"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                Total
+              </button>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           
@@ -3013,6 +3718,12 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                       </span>
                     </div>
                     <div className="flex justify-between items-center text-slate-400">
+                      <span>{t.additions} ({years}Y)</span>
+                      <span className="font-mono font-semibold text-slate-300">
+                        +{formatCurrency(totalAdditions)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-slate-400">
                       <span className="flex items-center gap-1">
                         {t.interestGains}
                         <ChevronDown size={12} className="text-slate-500" />
@@ -3035,7 +3746,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                     {projectionTab === "margin"
                       ? (language === "EN" ? "DEBT & MARGIN INTEREST ANALYSIS" : "ANÁLISIS DE DEUDA E INTERESES DE MARGEN")
                       : (language === "EN" ? "COMBINED DEBT & INTEREST ANALYSIS" : "ANÁLISIS COMBINADO DE DEUDA E INTERESES")
-                    } ({years}Y · Tasa 6.25%)
+                    } ({years}Y · {language === "EN" ? "Rate 6.25%" : "Tasa 6.25%"})
                   </span>
                   
                   <div className="space-y-2.5 text-xs">
@@ -3056,28 +3767,28 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                         {language === "EN" ? "Margin Loan (Debt)" : "Préstamo de Margen (Deuda)"}
                       </span>
                       <span className="font-mono font-semibold text-rose-400">
-                        -{formatCurrency(totalMarginMktValue)}
+                        -{formatCurrency(marginFinancedPrincipal)}
                       </span>
                     </div>
 
                     <div className="flex justify-between items-center text-slate-400">
                       <span>{language === "EN" ? "Margin Interest (1 Year)" : "Interés de Margen (1 Año)"}</span>
                       <span className="font-mono text-slate-300">
-                        {formatCurrency(totalMarginMktValue * 0.0625)}
+                        {formatCurrency(marginFinancedPrincipal * 0.0625)}
                       </span>
                     </div>
 
                     <div className="flex justify-between items-center text-slate-400 border-b border-slate-900 pb-2">
                       <span className="text-rose-400 font-medium">{language === "EN" ? "Total Interest" : "Intereses Totales"} ({years} {language === "EN" ? "Years" : "Años"})</span>
                       <span className="font-mono font-semibold text-rose-400">
-                        -{formatCurrency(totalMarginMktValue * 0.0625 * years)}
+                        -{formatCurrency(marginFinancedPrincipal * 0.0625 * years)}
                       </span>
                     </div>
 
                     <div className="flex justify-between items-center text-slate-400 pt-1">
                       <span>{language === "EN" ? "Net Value (Minus Loan)" : "Valor Neto (Menos Deuda)"}</span>
                       <span className="font-mono font-bold text-emerald-400">
-                        {formatCurrency(Math.max(0, projectedTotalValue - totalMarginMktValue))}
+                        {formatCurrency(Math.max(0, projectedTotalValue - marginFinancedPrincipal))}
                       </span>
                     </div>
 
@@ -3092,7 +3803,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                         <span className="text-[10px] text-slate-500 block leading-none">{language === "EN" ? "(Minus Loan & Interest)" : "(Menos Deuda e Intereses)"}</span>
                       </div>
                       <span className="font-mono font-extrabold text-lg text-emerald-400">
-                        {formatCurrency(Math.max(0, projectedTotalValue - totalMarginMktValue - (totalMarginMktValue * 0.0625 * years)))}
+                        {formatCurrency(Math.max(0, projectedTotalValue - marginFinancedPrincipal - (marginFinancedPrincipal * 0.0625 * years)))}
                       </span>
                     </div>
                   </div>
@@ -3150,8 +3861,8 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                             {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                           </span>
                           <span className={`w-2 h-2 rounded-full shrink-0 ${getSectorColor(sector.name)}`} />
-                          <span className="font-semibold text-slate-300 group-hover:text-white truncate text-xs" title={getSectorSpanish(sector.name)}>
-                            {getSectorSpanish(sector.name)}
+                          <span className="font-semibold text-slate-300 group-hover:text-white truncate text-xs" title={language === "EN" ? sector.name : getSectorSpanish(sector.name)}>
+                            {language === "EN" ? sector.name : getSectorSpanish(sector.name)}
                           </span>
                         </div>
                         <div className="flex items-center gap-2.5 font-mono shrink-0 text-xs">
@@ -3211,7 +3922,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                   {searchMode === "swap" ? "Reemplazar Posición" : "Adicionar Acción"}
                 </h3>
                 <p className="text-[10px] text-slate-400 mt-0.5">
-                  Busca e integra cotizaciones de Yahoo Finance en tiempo real.
+                  Busca e integra cotizaciones de mercado en tiempo real.
                 </p>
               </div>
               <button

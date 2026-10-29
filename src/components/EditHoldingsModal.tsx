@@ -1,54 +1,145 @@
 import React, { useState, useEffect } from "react";
 import { Holding, Position, SearchResult } from "../types";
-import { X, Search, Trash2, Plus, Loader2, DollarSign, RefreshCw, ShieldAlert, Percent } from "lucide-react";
+import { X, Search, Trash2, Plus, Loader2, DollarSign, RefreshCw, ShieldAlert, Percent, UploadCloud, Camera, Check } from "lucide-react";
 
 interface EditHoldingsModalProps {
   holdings: Holding[];
   positions?: Position[];
   onClose: () => void;
-  onSave: (newHoldings: Holding[]) => void;
+  onSave: (newHoldings: Holding[]) => Promise<void> | void;
   language?: "EN" | "ES";
 }
 
+interface LocalHolding {
+  ticker: string;
+  shares: number | string;
+  avgCost: number;
+  isCash?: boolean;
+  isMargin?: boolean;
+  inputCurrency?: string;
+  originalCost?: number | string;
+}
+
 export default function EditHoldingsModal({ holdings, positions, onClose, onSave, language = "EN" }: EditHoldingsModalProps) {
-  const [localHoldings, setLocalHoldings] = useState<Holding[]>([]);
+  const [localHoldings, setLocalHoldings] = useState<LocalHolding[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
-  const [cashAmount, setCashAmount] = useState<number>(14000);
+  const [cashAmount, setCashAmount] = useState<number>(0);
+  const [marginPaidAmount, setMarginPaidAmount] = useState<number>(0);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [fxRates, setFxRates] = useState<Record<string, number>>({ USD: 1 });
+
+  // Fetch FX rates on mount
+  useEffect(() => {
+    const fetchRates = async () => {
+      try {
+        const [eurRes, copRes] = await Promise.all([
+          fetch("/api/fx?from=EUR&to=USD").then(r => r.json()),
+          fetch("/api/fx?from=COP&to=USD").then(r => r.json())
+        ]);
+        setFxRates(prev => ({
+          ...prev,
+          EUR: eurRes.rate || 1.1,
+          COP: copRes.rate || 0.00025
+        }));
+      } catch (err) {
+        console.error("Error fetching FX:", err);
+      }
+    };
+    fetchRates();
+  }, []);
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsExtracting(true);
+    try {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64 = reader.result as string;
+        const res = await fetch("/api/portfolio/extract-from-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageBase64: base64 })
+        });
+        
+        if (!res.ok) throw new Error("Failed to extract");
+        const data = await res.json();
+        
+        if (Array.isArray(data)) {
+          const newHoldings: LocalHolding[] = data.map((item: any) => ({
+            ticker: item.ticker.toUpperCase(),
+            shares: Number(item.shares) || 1,
+            avgCost: 0,
+            originalCost: "",
+            inputCurrency: "USD",
+            isMargin: false
+          }));
+          
+          setLocalHoldings(prev => [...prev, ...newHoldings]);
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      console.error(err);
+      alert(language === "EN" ? "Failed to extract portfolio from image." : "Error al extraer el portafolio de la imagen.");
+    } finally {
+      setIsExtracting(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
 
   // Popup states for asking shares and avgCost on addition
   const [pendingAdd, setPendingAdd] = useState<{ symbol: string; name: string } | null>(null);
-  const [pendingShares, setPendingShares] = useState<number | "">("");
-  const [pendingAvgCost, setPendingAvgCost] = useState<number | "">("");
+  const [pendingShares, setPendingShares] = useState<string>("");
+  const [pendingAvgCost, setPendingAvgCost] = useState<string>("");
+  const [pendingCurrency, setPendingCurrency] = useState<string>("USD");
   const [pendingIsMargin, setPendingIsMargin] = useState<boolean>(false);
 
   // Helper to calculate or lookup position market value
-  const getMktValue = (h: Holding): number => {
+  const getMktValue = (h: LocalHolding): number => {
+    const sharesNum = typeof h.shares === "string" ? parseFloat(h.shares) || 0 : Number(h.shares) || 0;
     if (h.isCash || h.ticker.toUpperCase() === "CASH") {
-      return h.shares;
+      return sharesNum;
     }
     const pos = positions?.find((p) => p.ticker.toUpperCase() === h.ticker.toUpperCase());
     if (pos && typeof pos.mktValue === "number" && !isNaN(pos.mktValue) && pos.mktValue > 0) {
+      if (pos.shares > 0 && sharesNum > 0) {
+        return (pos.mktValue / pos.shares) * sharesNum;
+      }
       return pos.mktValue;
     }
     if (pos && typeof pos.price === "number" && !isNaN(pos.price) && pos.price > 0) {
-      return pos.price * h.shares;
+      return pos.price * sharesNum;
     }
-    return (h.avgCost || 0) * (h.shares || 0);
+    const costNum = typeof h.avgCost === "string" ? parseFloat(h.avgCost) || 0 : Number(h.avgCost) || 0;
+    return costNum * sharesNum;
   };
 
   // Initialize and sort positions by Market Value descending
   useEffect(() => {
-    const stocksOnly = holdings.filter((h) => h.ticker.toUpperCase() !== "CASH");
     const cashPos = holdings.find((h) => h.ticker.toUpperCase() === "CASH");
+    const marginPaidPos = holdings.find((h) => h.ticker.toUpperCase() === "MARGIN_PAID");
+    const stocksOnly = holdings.filter((h) => h.ticker.toUpperCase() !== "CASH" && h.ticker.toUpperCase() !== "MARGIN_PAID");
     
-    const stocksCopy: Holding[] = JSON.parse(JSON.stringify(stocksOnly));
+    const stocksCopy: LocalHolding[] = JSON.parse(JSON.stringify(stocksOnly)).map((h: any) => ({
+      ...h,
+      inputCurrency: "USD",
+      originalCost: h.avgCost || 0
+    }));
     stocksCopy.sort((a, b) => getMktValue(b) - getMktValue(a));
 
     setLocalHoldings(stocksCopy);
     if (cashPos) {
       setCashAmount(cashPos.shares);
+    }
+    if (marginPaidPos) {
+      setMarginPaidAmount(marginPaidPos.shares);
     }
   }, [holdings, positions]);
 
@@ -75,13 +166,23 @@ export default function EditHoldingsModal({ holdings, positions, onClose, onSave
     return () => clearTimeout(delayDebounce);
   }, [searchQuery]);
 
-  const handleUpdateField = (index: number, field: keyof Holding, value: any) => {
+  const handleUpdateField = (index: number, field: keyof LocalHolding, value: any) => {
     setLocalHoldings((prev) => {
       const copy = [...prev];
       copy[index] = {
         ...copy[index],
         [field]: value,
       };
+      
+      // If we are updating originalCost or inputCurrency, recalculate avgCost
+      if (field === "originalCost" || field === "inputCurrency") {
+        const item = copy[index];
+        const cost = typeof item.originalCost === "string" ? parseFloat(item.originalCost) || 0 : Number(item.originalCost) || 0;
+        const currency = item.inputCurrency || "USD";
+        const rate = fxRates[currency] || 1;
+        item.avgCost = cost * rate;
+      }
+      
       return copy;
     });
   };
@@ -118,6 +219,7 @@ export default function EditHoldingsModal({ holdings, positions, onClose, onSave
     });
     setPendingShares("");
     setPendingAvgCost("");
+    setPendingCurrency("USD");
     setPendingIsMargin(false);
     
     setSearchQuery("");
@@ -128,15 +230,21 @@ export default function EditHoldingsModal({ holdings, positions, onClose, onSave
     if (e) e.preventDefault();
     if (!pendingAdd) return;
 
-    const shares = Number(pendingShares) || 0;
-    const avgCost = Number(pendingAvgCost) || 0;
+    const parsedShares = typeof pendingShares === "string" ? parseFloat(pendingShares) : Number(pendingShares);
+    const shares = !isNaN(parsedShares) && parsedShares > 0 ? parsedShares : 1;
+    const parsedCost = typeof pendingAvgCost === "string" ? parseFloat(pendingAvgCost) : Number(pendingAvgCost);
+    const costInput = !isNaN(parsedCost) && parsedCost > 0 ? parsedCost : 1;
+    const rate = fxRates[pendingCurrency] || 1;
+    const avgCostUSD = costInput * rate;
 
     setLocalHoldings((prev) => [
       ...prev,
       {
         ticker: pendingAdd.symbol,
-        shares: shares > 0 ? shares : 1,
-        avgCost: avgCost > 0 ? avgCost : 1,
+        shares: shares,
+        avgCost: avgCostUSD > 0 ? avgCostUSD : 1,
+        originalCost: costInput > 0 ? costInput : 1,
+        inputCurrency: pendingCurrency,
         isMargin: pendingIsMargin,
       },
     ]);
@@ -147,29 +255,57 @@ export default function EditHoldingsModal({ holdings, positions, onClose, onSave
     setPendingIsMargin(false);
   };
 
-  const handleSaveAndSubmit = () => {
-    // Reconstruct list with cash included
-    const finalHoldings: Holding[] = [
-      ...localHoldings.map((h) => ({
-        ticker: h.ticker.toUpperCase(),
-        shares: Number(h.shares) || 0,
-        avgCost: Number(h.avgCost) || 0,
-        isMargin: Boolean(h.isMargin),
-      })),
-      {
-        ticker: "CASH",
-        shares: Number(cashAmount) || 0,
-        avgCost: 1,
-        isCash: true,
-      },
-    ];
+  const handleSaveAndSubmit = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    setSaveSuccess(false);
 
-    onSave(finalHoldings);
+    try {
+      // Reconstruct list - only add CASH if explicitly provided (> 0)
+      const finalHoldings: Holding[] = [
+        ...localHoldings.map((h) => ({
+          ticker: h.ticker.toUpperCase(),
+          shares: typeof h.shares === "string" ? parseFloat(h.shares) || 0 : Number(h.shares) || 0,
+          avgCost: typeof h.avgCost === "string" ? parseFloat(h.avgCost) || 0 : Number(h.avgCost) || 0,
+          isMargin: Boolean(h.isMargin),
+        })),
+      ];
+
+      if (Number(cashAmount) > 0) {
+        finalHoldings.push({
+          ticker: "CASH",
+          shares: Number(cashAmount),
+          avgCost: 1,
+          isCash: true,
+        });
+      }
+      if (Number(marginPaidAmount) > 0) {
+        finalHoldings.push({
+          ticker: "MARGIN_PAID",
+          shares: Number(marginPaidAmount),
+          avgCost: 1,
+          isCash: true,
+        });
+      }
+
+      await onSave(finalHoldings);
+      setSaveSuccess(true);
+      setTimeout(() => {
+        onClose();
+      }, 600);
+    } catch (err) {
+      console.error("Error saving holdings:", err);
+      setIsSaving(false);
+    }
   };
 
   // Margin metrics calculations
   const marginHoldings = localHoldings.filter((h) => h.isMargin);
-  const marginCostBasis = marginHoldings.reduce((sum, h) => sum + ((Number(h.shares) || 0) * (Number(h.avgCost) || 0)), 0);
+  const marginCostBasis = marginHoldings.reduce((sum, h) => {
+    const s = typeof h.shares === "string" ? parseFloat(h.shares) || 0 : Number(h.shares) || 0;
+    const c = typeof h.avgCost === "string" ? parseFloat(h.avgCost) || 0 : Number(h.avgCost) || 0;
+    return sum + (s * c);
+  }, 0);
   const marginAnnualCost = marginCostBasis * 0.0625;
   const marginMonthlyCost = marginCostBasis * (Math.pow(1 + 0.0625, 1 / 12) - 1);
 
@@ -200,10 +336,95 @@ export default function EditHoldingsModal({ holdings, positions, onClose, onSave
         {/* BODY (SCROLLABLE) */}
         <div className="p-6 overflow-y-auto space-y-5 flex-1">
           
-          {/* SEARCH BOX */}
-          <div className="space-y-2 relative">
+          {/* SEARCH BOX & UPLOAD */}
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div className="flex-1 space-y-2 relative">
+              <label className="text-[11px] text-emerald-400 font-bold uppercase tracking-wider block">
+                {language === "EN" ? "Add New Asset" : "Agregar Nuevo Activo"}
+              </label>
+              <div className="relative">
+                <Search className="absolute left-3.5 top-3 text-slate-400" size={16} />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder={language === "EN" ? "e.g. NU, UBER, NKE, AAPL..." : "Ej: NU, UBER, NKE, AAPL..."}
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl py-2.5 pl-10 pr-4 text-sm text-white outline-none transition-all font-medium"
+                />
+                {searching && (
+                  <Loader2 className="absolute right-3.5 top-3 text-emerald-500 animate-spin" size={16} />
+                )}
+              </div>
+              
+              {/* Dropdown Results */}
+              {searchQuery.trim() !== "" && (
+                <div className="absolute left-0 right-0 top-full mt-1.5 bg-slate-950 border border-slate-800 rounded-xl overflow-hidden max-h-[260px] overflow-y-auto z-50 shadow-2xl divide-y divide-slate-800">
+                  <button
+                    onClick={() => handleAddTicker({
+                      symbol: searchQuery.toUpperCase().trim(),
+                      name: `${searchQuery.toUpperCase().trim()} (${language === "EN" ? "Custom Ticker" : "Ticker personalizado"})`,
+                      exchange: "US",
+                      type: "EQUITY"
+                    })}
+                    className="w-full text-left px-4 py-3 hover:bg-emerald-500/10 text-emerald-400 font-semibold border-b border-slate-800 transition-colors flex items-center justify-between text-xs cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Plus size={14} className="text-emerald-400 animate-pulse" />
+                      <span>{language === "EN" ? `Add "${searchQuery.toUpperCase().trim()}" directly` : `Agregar "${searchQuery.toUpperCase().trim()}" directamente`}</span>
+                    </div>
+                    <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded font-mono font-bold uppercase">
+                      {language === "EN" ? "Add" : "Incorporar"}
+                    </span>
+                  </button>
+
+                  {searchResults.map((res, idx) => (
+                    <button
+                      key={`${res.symbol}-${idx}`}
+                      onClick={() => handleAddTicker(res)}
+                      className="w-full text-left px-4 py-3 hover:bg-slate-800 transition-colors flex items-center justify-between text-xs cursor-pointer"
+                    >
+                      <div>
+                        <span className="font-mono font-bold text-white text-sm block">{res.symbol}</span>
+                        <span className="text-slate-400 truncate max-w-[280px] block mt-0.5">{res.name}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-semibold uppercase text-[10px]">
+                          {res.exchange}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            
+            <div className="flex-shrink-0 self-end">
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                onChange={handleImageUpload} 
+                accept="image/*" 
+                className="hidden" 
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isExtracting}
+                className="flex items-center gap-2 bg-slate-900 border border-slate-700 hover:border-emerald-500 text-emerald-400 px-4 py-2.5 rounded-xl font-bold text-xs transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                title={language === "EN" ? "Import portfolio from a screenshot" : "Importar portafolio de una captura"}
+              >
+                {isExtracting ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <Camera size={16} />
+                )}
+                <span className="hidden sm:inline">{language === "EN" ? "AI Import" : "Importar (IA)"}</span>
+              </button>
+            </div>
+          </div>
+          <div className="hidden">
             <label className="text-[11px] text-emerald-400 font-bold uppercase tracking-wider block">
-              {language === "EN" ? "Add New Asset (Search Yahoo Finance)" : "Agregar Nuevo Activo (Buscar en Yahoo Finance)"}
+              {language === "EN" ? "Add New Asset (Search Market)" : "Agregar Nuevo Activo (Buscar en Mercado)"}
             </label>
             <div className="relative">
               <Search className="absolute left-3.5 top-3 text-slate-400" size={16} />
@@ -301,6 +522,75 @@ export default function EditHoldingsModal({ holdings, positions, onClose, onSave
             </div>
           )}
 
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Cash Field */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 md:p-5 flex flex-col justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center border border-emerald-500/30 flex-shrink-0">
+                  <DollarSign className="text-emerald-400" size={20} />
+                </div>
+                <div>
+                  <h3 className="text-white font-bold text-sm">{language === "EN" ? "Cash Balance" : "Efectivo"}</h3>
+                  <p className="text-slate-400 text-xs mt-0.5 max-w-sm">
+                    {language === "EN" 
+                      ? "Enter your total uninvested USD cash balance." 
+                      : "Ingresa tu saldo total en efectivo sin invertir (en USD)."}
+                  </p>
+                </div>
+              </div>
+              <div className="relative mt-2">
+                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={cashAmount === 0 ? "0" : (cashAmount ?? "")}
+                  placeholder="0.00"
+                  onChange={(e) => {
+                    const val = e.target.value.replace(",", ".");
+                    if (val === "" || /^[0-9]*\.?[0-9]*$/.test(val)) {
+                      setCashAmount(val === "" ? 0 : parseFloat(val));
+                    }
+                  }}
+                  className="w-full bg-[#0a0c14] border border-slate-700 focus:border-emerald-500 rounded-lg pl-8 pr-4 py-2.5 text-sm text-white outline-none font-mono font-semibold"
+                />
+              </div>
+            </div>
+
+            {/* Margin Paid Field */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 md:p-5 flex flex-col justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-rose-500/20 flex items-center justify-center border border-rose-500/30 flex-shrink-0">
+                  <ShieldAlert className="text-rose-400" size={20} />
+                </div>
+                <div>
+                  <h3 className="text-white font-bold text-sm">{language === "EN" ? "Margin Repaid" : "Margen Pagado"}</h3>
+                  <p className="text-slate-400 text-xs mt-0.5 max-w-sm">
+                    {language === "EN" 
+                      ? "Enter the amount of cash used to pay down margin." 
+                      : "Ingresa el monto de efectivo usado para pagar deuda."}
+                  </p>
+                </div>
+              </div>
+              <div className="relative mt-2">
+                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={marginPaidAmount === 0 ? "0" : (marginPaidAmount ?? "")}
+                  placeholder="0.00"
+                  onChange={(e) => {
+                    const val = e.target.value.replace(",", ".");
+                    if (val === "" || /^[0-9]*\.?[0-9]*$/.test(val)) {
+                      setMarginPaidAmount(val === "" ? 0 : parseFloat(val));
+                    }
+                  }}
+                  className="w-full bg-[#0a0c14] border border-slate-700 focus:border-rose-500 rounded-lg pl-8 pr-4 py-2.5 text-sm text-white outline-none font-mono font-semibold"
+                />
+              </div>
+            </div>
+          </div>
+
           {/* POSITIONS LIST */}
           <div className="space-y-3">
             <div className="flex items-center justify-between border-b border-slate-800 pb-2 flex-wrap gap-2">
@@ -310,15 +600,33 @@ export default function EditHoldingsModal({ holdings, positions, onClose, onSave
               <div className="flex items-center gap-2">
                 <button
                   onClick={onClose}
-                  className="px-3 py-1 text-slate-400 hover:text-white text-xs font-semibold hover:bg-slate-800 rounded-lg transition-all cursor-pointer"
+                  disabled={isSaving}
+                  className="px-3 py-1 text-slate-400 hover:text-white text-xs font-semibold hover:bg-slate-800 rounded-lg transition-all cursor-pointer disabled:opacity-50"
                 >
                   {language === "EN" ? "Cancel" : "Cancelar"}
                 </button>
                 <button
                   onClick={handleSaveAndSubmit}
-                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 text-xs font-bold rounded-lg transition-all shadow-md hover:shadow-emerald-500/10 cursor-pointer flex items-center gap-1.5"
+                  disabled={isSaving}
+                  className={`px-3.5 py-1.5 ${
+                    saveSuccess
+                      ? "bg-emerald-400 text-slate-950 font-bold"
+                      : "bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold"
+                  } text-xs rounded-lg transition-all shadow-md hover:shadow-emerald-500/10 cursor-pointer flex items-center gap-1.5 disabled:opacity-75`}
                 >
-                  {language === "EN" ? "Save Changes" : "Guardar Cambios"}
+                  {isSaving ? (
+                    <>
+                      <Loader2 size={13} className="animate-spin" />
+                      <span>{language === "EN" ? "Saving..." : "Guardando..."}</span>
+                    </>
+                  ) : saveSuccess ? (
+                    <>
+                      <Check size={13} className="stroke-[3]" />
+                      <span>{language === "EN" ? "Saved!" : "¡Guardado!"}</span>
+                    </>
+                  ) : (
+                    <span>{language === "EN" ? "Save Changes" : "Guardar Cambios"}</span>
+                  )}
                 </button>
               </div>
             </div>
@@ -328,10 +636,12 @@ export default function EditHoldingsModal({ holdings, positions, onClose, onSave
                 {language === "EN" ? "No stocks in your portfolio. Search above to add one." : "No tienes acciones en la lista. Busca una arriba para agregarla."}
               </p>
             ) : (
-              <div className="bg-slate-950/40 border border-slate-800 rounded-2xl divide-y divide-slate-800/60 max-h-[500px] overflow-y-auto">
+              <div className="bg-slate-950/40 border border-slate-800 rounded-2xl divide-y divide-slate-800/60">
                 {localHoldings.map((hold, index) => {
                   const isMarginPos = Boolean(hold.isMargin);
-                  const posCost = (Number(hold.shares) || 0) * (Number(hold.avgCost) || 0);
+                  const sharesNum = typeof hold.shares === "string" ? parseFloat(hold.shares) || 0 : Number(hold.shares) || 0;
+                  const costNum = typeof hold.avgCost === "string" ? parseFloat(hold.avgCost) || 0 : Number(hold.avgCost) || 0;
+                  const posCost = sharesNum * costNum;
                   const posMonthlyInterest = posCost * (Math.pow(1 + 0.0625, 1 / 12) - 1);
 
                   return (
@@ -383,10 +693,16 @@ export default function EditHoldingsModal({ holdings, positions, onClose, onSave
                             {language === "EN" ? "Qty:" : "Cant:"}
                           </span>
                           <input
-                            type="number"
-                            value={hold.shares || ""}
-                            step="any"
-                            onChange={(e) => handleUpdateField(index, "shares", Number(e.target.value))}
+                            type="text"
+                            inputMode="decimal"
+                            value={hold.shares === 0 ? "0" : (hold.shares ?? "")}
+                            placeholder="0"
+                            onChange={(e) => {
+                              const val = e.target.value.replace(",", ".");
+                              if (val === "" || /^[0-9]*\.?[0-9]*$/.test(val)) {
+                                handleUpdateField(index, "shares", val);
+                              }
+                            }}
                             className="w-full bg-slate-900 border border-slate-800 focus:border-emerald-500 rounded px-2 py-1 text-xs text-white outline-none font-mono font-semibold"
                           />
                         </div>
@@ -396,13 +712,30 @@ export default function EditHoldingsModal({ holdings, positions, onClose, onSave
                           <span className="text-[10px] text-slate-500 font-bold uppercase whitespace-nowrap">
                             {language === "EN" ? "Cost:" : "Costo:"}
                           </span>
-                          <input
-                            type="number"
-                            value={hold.avgCost || ""}
-                            step="any"
-                            onChange={(e) => handleUpdateField(index, "avgCost", Number(e.target.value))}
-                            className="w-full bg-slate-900 border border-slate-800 focus:border-emerald-500 rounded px-2 py-1 text-xs text-white outline-none font-mono font-semibold"
-                          />
+                          <div className="flex w-full">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={hold.originalCost === 0 ? "0" : (hold.originalCost ?? hold.avgCost ?? "")}
+                              placeholder="0.00"
+                              onChange={(e) => {
+                                const val = e.target.value.replace(",", ".");
+                                if (val === "" || /^[0-9]*\.?[0-9]*$/.test(val)) {
+                                  handleUpdateField(index, "originalCost", val);
+                                }
+                              }}
+                              className="w-full bg-slate-900 border-y border-l border-slate-800 focus:border-emerald-500 rounded-l px-2 py-1 text-xs text-white outline-none font-mono font-semibold min-w-[50px]"
+                            />
+                            <select
+                              value={hold.inputCurrency || "USD"}
+                              onChange={(e) => handleUpdateField(index, "inputCurrency", e.target.value)}
+                              className="bg-slate-900 border-y border-r border-slate-800 focus:border-emerald-500 rounded-r px-1 py-1 text-[10px] text-slate-300 outline-none font-bold cursor-pointer"
+                            >
+                              <option value="USD">USD</option>
+                              <option value="EUR">EUR</option>
+                              <option value="COP">COP</option>
+                            </select>
+                          </div>
                         </div>
 
                         {/* Margin Checkbox toggle */}
@@ -444,6 +777,43 @@ export default function EditHoldingsModal({ holdings, positions, onClose, onSave
                 })}
               </div>
             )}
+
+            {localHoldings.length > 0 && (
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-800/80">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  disabled={isSaving}
+                  className="px-3.5 py-1.5 text-slate-400 hover:text-white text-xs font-semibold hover:bg-slate-800 rounded-lg transition-all cursor-pointer disabled:opacity-50"
+                >
+                  {language === "EN" ? "Cancel" : "Cancelar"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveAndSubmit}
+                  disabled={isSaving}
+                  className={`px-4 py-2 ${
+                    saveSuccess
+                      ? "bg-emerald-400 text-slate-950 font-bold"
+                      : "bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold"
+                  } text-xs rounded-lg transition-all shadow-md hover:shadow-emerald-500/10 cursor-pointer flex items-center gap-1.5 disabled:opacity-75`}
+                >
+                  {isSaving ? (
+                    <>
+                      <Loader2 size={13} className="animate-spin" />
+                      <span>{language === "EN" ? "Saving..." : "Guardando..."}</span>
+                    </>
+                  ) : saveSuccess ? (
+                    <>
+                      <Check size={13} className="stroke-[3]" />
+                      <span>{language === "EN" ? "Saved!" : "¡Guardado!"}</span>
+                    </>
+                  ) : (
+                    <span>{language === "EN" ? "Save Changes" : "Guardar Cambios"}</span>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
 
         </div>
@@ -476,13 +846,17 @@ export default function EditHoldingsModal({ holdings, positions, onClose, onSave
                   {language === "EN" ? "Number of Shares" : "Cantidad de Acciones"}
                 </label>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   required
-                  placeholder={language === "EN" ? "e.g. 10, 25.5" : "Ej: 10, 25.5"}
+                  placeholder={language === "EN" ? "e.g. 10, 0.92, 25.5" : "Ej: 10, 0.92, 25.5"}
                   value={pendingShares}
-                  step="any"
-                  min="0.0001"
-                  onChange={(e) => setPendingShares(e.target.value === "" ? "" : Number(e.target.value))}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(",", ".");
+                    if (val === "" || /^[0-9]*\.?[0-9]*$/.test(val)) {
+                      setPendingShares(val);
+                    }
+                  }}
                   className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl py-2 px-3 text-sm text-white font-mono outline-none transition-all"
                 />
               </div>
@@ -492,18 +866,33 @@ export default function EditHoldingsModal({ holdings, positions, onClose, onSave
                 <label className="text-[10px] text-slate-400 font-bold uppercase block">
                   {language === "EN" ? "Average Purchase Price ($)" : "Precio Promedio de Compra ($)"}
                 </label>
-                <div className="relative">
-                  <span className="absolute left-3.5 top-2 text-slate-500 font-mono text-sm">$</span>
-                  <input
-                    type="number"
-                    required
-                    placeholder={language === "EN" ? "e.g. 115.40" : "Ej: 115.40"}
-                    value={pendingAvgCost}
-                    step="any"
-                    min="0.01"
-                    onChange={(e) => setPendingAvgCost(e.target.value === "" ? "" : Number(e.target.value))}
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl py-2 pl-7 pr-3 text-sm text-white font-mono outline-none transition-all"
-                  />
+                <div className="flex w-full">
+                  <div className="relative flex-1">
+                    <span className="absolute left-3.5 top-2 text-slate-500 font-mono text-sm">$</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      required
+                      placeholder={language === "EN" ? "e.g. 115.40" : "Ej: 115.40"}
+                      value={pendingAvgCost}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(",", ".");
+                        if (val === "" || /^[0-9]*\.?[0-9]*$/.test(val)) {
+                          setPendingAvgCost(val);
+                        }
+                      }}
+                      className="w-full bg-slate-950 border-y border-l border-slate-800 focus:border-emerald-500 rounded-l-xl py-2 pl-7 pr-3 text-sm text-white font-mono outline-none transition-all"
+                    />
+                  </div>
+                  <select
+                    value={pendingCurrency}
+                    onChange={(e) => setPendingCurrency(e.target.value)}
+                    className="bg-slate-900 border-y border-r border-slate-800 focus:border-emerald-500 rounded-r-xl px-2 py-2 text-xs text-slate-300 outline-none font-bold cursor-pointer"
+                  >
+                    <option value="USD">USD</option>
+                    <option value="EUR">EUR</option>
+                    <option value="COP">COP</option>
+                  </select>
                 </div>
               </div>
 
@@ -538,6 +927,7 @@ export default function EditHoldingsModal({ holdings, positions, onClose, onSave
                   setPendingAdd(null);
                   setPendingShares("");
                   setPendingAvgCost("");
+                  setPendingCurrency("USD");
                   setPendingIsMargin(false);
                 }}
                 className="px-3.5 py-1.5 text-slate-400 hover:text-white text-xs font-semibold hover:bg-slate-800 rounded-xl transition-all cursor-pointer"

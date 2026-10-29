@@ -258,7 +258,7 @@ export default function StockScorecard({ positions }: StockScorecardProps) {
               SISTEMA DE FACTOR SCORING (SECTOR-RELATIVO)
             </h2>
             <p className="text-xs text-slate-500 mt-0.5 leading-none">
-              Análisis cuantitativo de activos comparados exclusivamente contra sus pares de sector • Valores en tiempo real de Yahoo Finance
+              Análisis cuantitativo de activos comparados exclusivamente contra sus pares de sector • Valores en tiempo real
             </p>
           </div>
         </div>
@@ -536,7 +536,7 @@ export default function StockScorecard({ positions }: StockScorecardProps) {
                                   </span>
                                   <div className="space-y-2 text-xs">
                                     <div className="flex justify-between items-center py-0.5">
-                                      <span className="text-slate-400 font-medium">Revenue AGR:</span>
+                                      <span className="text-slate-400 font-medium">Revenue CAGR:</span>
                                       <div className="text-right">
                                         <span className="font-mono text-white font-bold block">
                                           {(getDisplayFeatures(row.symbol, row.name, row.sector).revenue_cagr ?? 0).toFixed(1)}%
@@ -547,7 +547,7 @@ export default function StockScorecard({ positions }: StockScorecardProps) {
                                       </div>
                                     </div>
                                     <div className="flex justify-between items-center py-0.5 border-t border-slate-800/30">
-                                      <span className="text-slate-400 font-medium">EPS AGR:</span>
+                                      <span className="text-slate-400 font-medium">EPS CAGR:</span>
                                       <div className="text-right">
                                         <span className="font-mono text-white font-bold block">
                                           {(getDisplayFeatures(row.symbol, row.name, row.sector).eps_cagr ?? 0).toFixed(1)}%
@@ -558,7 +558,7 @@ export default function StockScorecard({ positions }: StockScorecardProps) {
                                       </div>
                                     </div>
                                     <div className="flex justify-between items-center py-0.5 border-t border-slate-800/30">
-                                      <span className="text-slate-400 font-medium">FCF AGR:</span>
+                                      <span className="text-slate-400 font-medium">Operating Cash Flow CAGR:</span>
                                       <div className="text-right">
                                         <span className="font-mono text-white font-bold block">
                                           {(getDisplayFeatures(row.symbol, row.name, row.sector).fcf_cagr ?? 0).toFixed(1)}%

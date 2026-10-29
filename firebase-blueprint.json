@@ -1,29 +1,75 @@
 {
   "entities": {
     "users": {
-      "title": "User Portfolios",
-      "description": "User portfolio holdings, watchlists, and simulator positions synchronized across devices",
+      "title": "User Profiles & Accounts",
+      "description": "User profile state, subscription status, trial consumption, and security metadata",
       "type": "object",
       "properties": {
-        "email": {
-          "type": "string"
-        },
-        "holdings": {
-          "type": "array"
-        },
-        "watchlist": {
-          "type": "array"
-        },
-        "marginPositions": {
-          "type": "array"
-        },
-        "updatedAt": {
-          "type": "string"
-        }
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "clave": { "type": "string", "description": "Contraseña o clave de acceso del usuario para autenticación y recordación" },
+        "password": { "type": "string", "description": "Clave del usuario (compatibilidad)" },
+        "passwordHash": { "type": "string", "description": "Hash o valor de contraseña para validación" },
+        "status": { "type": "string" },
+        "is_subscribed": { "type": "boolean" },
+        "trial_start": { "type": "string" },
+        "trial_used": { "type": "boolean" },
+        "stripe_customer_id": { "type": "string" },
+        "emailVerified": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "lastLogin": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "portfolios": { "type": "array" },
+        "activePortfolioId": { "type": "string" },
+        "holdings": { "type": "array" },
+        "watchlist": { "type": "array" },
+        "marginPositions": { "type": "array" }
       },
-      "required": [
-        "email"
-      ]
+      "required": ["email"]
+    },
+    "portfolios": {
+      "title": "Portfolios & Holdings",
+      "description": "Portfolio entities and child holdings containing ticker, shares, and USD average cost",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_email": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "sector": { "type": "string" },
+        "ai_generated": { "type": "boolean" },
+        "holdings": { "type": "array" },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" }
+      },
+      "required": ["id", "user_email", "name"]
+    },
+    "ai_analyses": {
+      "title": "AI Analyses Cache",
+      "description": "Cached AI generated analysis responses (SWOT, Hedge Fund Reports, Chat) to avoid token re-generation costs",
+      "type": "object",
+      "properties": {
+        "user_email": { "type": "string" },
+        "portfolio_id": { "type": "string" },
+        "mode": { "type": "string" },
+        "lang": { "type": "string" },
+        "content": { "type": "string" },
+        "tickers_snapshot": { "type": "array" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["user_email", "mode", "content"]
+    },
+    "superinvestor_insights": {
+      "title": "Superinvestor 13F Shared Insights",
+      "description": "Shared pre-calculated 13F quarterly metrics accessible across all users",
+      "type": "object",
+      "properties": {
+        "investor_id": { "type": "string" },
+        "period": { "type": "string" },
+        "insights": { "type": "object" },
+        "updated_at": { "type": "string" }
+      },
+      "required": ["investor_id", "period"]
     }
   }
 }

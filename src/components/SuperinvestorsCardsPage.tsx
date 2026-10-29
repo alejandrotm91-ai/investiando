@@ -54,21 +54,22 @@ function ScoreDonut({
   strokeWidth?: number;
   title?: string;
 }) {
+  const roundedScore = Math.ceil(score || 0);
   const radius = (size - strokeWidth * 2) / 2;
   const circumference = 2 * Math.PI * radius;
-  const safeScore = Math.min(100, Math.max(0, score));
+  const safeScore = Math.min(100, Math.max(0, roundedScore));
   const strokeDashoffset = circumference - (safeScore / 100) * circumference;
   const color =
     colorHex ||
-    (score >= 80
+    (roundedScore >= 80
       ? "#34d399"
-      : score >= 72
+      : roundedScore >= 72
       ? "#10b981"
-      : score >= 64
+      : roundedScore >= 64
       ? "#14b8a6"
-      : score >= 55
+      : roundedScore >= 55
       ? "#38bdf8"
-      : score >= 45
+      : roundedScore >= 45
       ? "#fbbf24"
       : "#f43f5e");
 
@@ -76,7 +77,7 @@ function ScoreDonut({
     <div
       className="relative inline-flex items-center justify-center shrink-0 cursor-help"
       style={{ width: size, height: size }}
-      title={title || `Score: ${score}/100`}
+      title={title || `Score: ${roundedScore}/100`}
     >
       <svg width={size} height={size} className="transform -rotate-90">
         <circle
@@ -106,7 +107,7 @@ function ScoreDonut({
           className="font-mono font-black text-white score-donut-text tracking-tighter" 
           style={{ fontSize: size <= 28 ? "9px" : "11px", lineHeight: 1 }}
         >
-          {score}
+          {roundedScore}
         </span>
       </div>
     </div>
@@ -217,9 +218,12 @@ export default function SuperinvestorsCardsPage({ onSelect, language, theme }: S
   }, []);
 
   return (
-    <div className="space-y-6">
+    <div id="superinvestors-view-container" className="space-y-6">
       {/* Intro Banner */}
-      <div className="bg-[#0f111a]/60 border border-slate-900/60 p-6 sm:p-8 rounded-2xl flex flex-col md:flex-row md:items-center md:justify-between gap-6 shadow-xl backdrop-blur-md relative overflow-hidden">
+      <div 
+        id="superinvestors-header-banner"
+        className="bg-[#0f111a]/60 border border-slate-900/60 p-6 sm:p-8 rounded-2xl flex flex-col md:flex-row md:items-center md:justify-between gap-6 shadow-xl backdrop-blur-md relative overflow-hidden"
+      >
         <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-emerald-500/20 via-emerald-500/60 to-emerald-500/20" />
         
         <div className="space-y-3 max-w-3xl">
@@ -471,7 +475,7 @@ export default function SuperinvestorsCardsPage({ onSelect, language, theme }: S
                     
                     {/* Circle initial placeholder avatar */}
                     <div className="w-10 h-10 rounded-xl bg-[#121420] border border-slate-900 flex items-center justify-center font-mono font-bold text-sm text-slate-300 shadow-md flex-shrink-0 group-hover:border-emerald-500/30 transition-all">
-                      {si.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
+                      {(si?.name || "SI").split(" ").map(n => n ? n[0] : "").filter(Boolean).join("").substring(0, 2).toUpperCase() || "SI"}
                     </div>
                   </div>
 
@@ -662,7 +666,7 @@ export default function SuperinvestorsCardsPage({ onSelect, language, theme }: S
                       strokeWidth={3}
                     />
                     <span className="font-mono text-sm font-bold text-emerald-400">
-                      {COMBINED_SUPERINVESTOR_SCORE.score}
+                      {Math.ceil(COMBINED_SUPERINVESTOR_SCORE.score)}
                     </span>
                   </div>
                 </td>
@@ -736,7 +740,7 @@ export default function SuperinvestorsCardsPage({ onSelect, language, theme }: S
                     <td className="py-4 px-5">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-lg bg-[#121420] border border-slate-900 flex items-center justify-center font-mono font-bold text-xs text-slate-300 shadow-md group-hover:border-emerald-500/30 transition-all flex-shrink-0">
-                          {si.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
+                          {(si?.name || "SI").split(" ").map(n => n ? n[0] : "").filter(Boolean).join("").substring(0, 2).toUpperCase() || "SI"}
                         </div>
                         <div>
                           <div className="flex items-center gap-2 flex-wrap">
@@ -782,7 +786,7 @@ export default function SuperinvestorsCardsPage({ onSelect, language, theme }: S
                           size={26}
                           strokeWidth={3}
                         />
-                        <span className="font-mono text-sm font-bold text-slate-100">{scoreInfo.score}</span>
+                        <span className="font-mono text-sm font-bold text-slate-100">{Math.ceil(scoreInfo.score)}</span>
                       </div>
                     </td>
 

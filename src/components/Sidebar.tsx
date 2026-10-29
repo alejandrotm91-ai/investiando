@@ -22,7 +22,7 @@ function InvestiandoLogo({ theme = "dark" }: { theme?: "dark" | "light" }) {
 
   return (
     <div 
-      className={`relative w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-xl p-1.5 transition-all duration-300 group hover:scale-105 ${
+      className={`relative w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-xl p-0.5 transition-all duration-300 group hover:scale-105 ${
         isLight 
           ? "bg-gradient-to-br from-emerald-50 via-teal-50 to-emerald-100/80 border border-emerald-300/80 shadow-md shadow-emerald-700/10 hover:border-emerald-500/80" 
           : "bg-gradient-to-br from-slate-900 via-[#131927] to-[#0a0f1d] border border-emerald-500/30 shadow-lg shadow-emerald-500/10 hover:border-emerald-400/60"
@@ -35,51 +35,21 @@ function InvestiandoLogo({ theme = "dark" }: { theme?: "dark" | "light" }) {
         }`} 
       />
       
-      <svg 
-        viewBox="0 0 36 36" 
-        fill="none" 
-        xmlns="http://www.w3.org/2000/svg"
-        className="w-full h-full relative z-10"
-      >
-        <defs>
-          <linearGradient id={`invGradPrimary-${theme}`} x1="0%" y1="100%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor={isLight ? "#047857" : "#059669"} />
-            <stop offset="50%" stopColor={isLight ? "#0f766e" : "#10b981"} />
-            <stop offset="100%" stopColor={isLight ? "#0284c7" : "#06b6d4"} />
-          </linearGradient>
-          <linearGradient id={`invGradBar-${theme}`} x1="0%" y1="100%" x2="0%" y2="0%">
-            <stop offset="0%" stopColor={isLight ? "#6ee7b7" : "#064e3b"} stopOpacity={isLight ? "0.5" : "0.4"} />
-            <stop offset="100%" stopColor={isLight ? "#059669" : "#10b981"} />
-          </linearGradient>
-          <linearGradient id={`invLineGlow-${theme}`} x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor={isLight ? "#047857" : "#34d399"} />
-            <stop offset="100%" stopColor={isLight ? "#0284c7" : "#38bdf8"} />
-          </linearGradient>
-        </defs>
-
-        {/* Financial Chart Bar 1 */}
-        <rect x="6" y="18" width="4.5" height="12" rx="2" fill={`url(#invGradBar-${theme})`} />
-        {/* Financial Chart Bar 2 */}
-        <rect x="13.5" y="12" width="4.5" height="18" rx="2" fill={`url(#invGradBar-${theme})`} />
-        {/* Financial Chart Bar 3 */}
-        <rect x="21" y="6" width="4.5" height="24" rx="2" fill={`url(#invGradPrimary-${theme})`} />
-
-        {/* Dynamic Ascending Trendline */}
-        <path 
-          d="M 5 23 Q 12 21 16 13 T 29 6" 
-          stroke={`url(#invLineGlow-${theme})`} 
-          strokeWidth="2.8" 
-          strokeLinecap="round" 
-          strokeLinejoin="round" 
-        />
-
-        {/* Sparkle Node at peak */}
-        <circle cx="29" cy="6" r="3" fill={isLight ? "#047857" : "#ffffff"} />
-        <circle cx="29" cy="6" r="1.5" fill={isLight ? "#ffffff" : "#10b981"} />
-        
-        {/* Intelligence dot */}
-        <circle cx="8" cy="8" r="1.8" fill={isLight ? "#0284c7" : "#34d399"} />
-      </svg>
+      <img 
+        src="/mascot.png" 
+        onError={(e) => {
+          const target = e.currentTarget;
+          if (target.src.endsWith('/mascot.png')) {
+            target.src = '/logo.png';
+          } else if (target.src.endsWith('/logo.png')) {
+            target.src = '/image.png';
+          } else if (target.src.endsWith('/image.png')) {
+            target.src = '/favicon.svg';
+          }
+        }}
+        alt="investiando logo" 
+        className="w-full h-full relative z-10 rounded-lg object-cover" 
+      />
     </div>
   );
 }
@@ -94,6 +64,7 @@ interface SidebarProps {
   onCloseMobile?: () => void;
   selectedPortfolioId?: string;
   onPortfolioSelect?: (id: string) => void;
+  onStartWalkthrough?: () => void;
 }
 
 export default function Sidebar({
@@ -105,7 +76,8 @@ export default function Sidebar({
   onThemeChange,
   onCloseMobile,
   selectedPortfolioId = "user",
-  onPortfolioSelect
+  onPortfolioSelect,
+  onStartWalkthrough
 }: SidebarProps) {
 
   // Dictionary of labels in EN and ES

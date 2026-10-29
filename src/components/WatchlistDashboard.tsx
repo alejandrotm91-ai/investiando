@@ -4,7 +4,6 @@ import { buildScores, getRawFeatures, overrideFeaturesWithFinancials } from "../
 import { getStockScore } from "../utils/stockScoresMatrix";
 import { getTickerSector, CompanyLogo, HealthMetricsTooltip } from "./HoldingsTable";
 import { CompanyFinancials } from "./CompanyFinancials";
-import { WatchlistSectorScanner } from "./WatchlistSectorScanner";
 import { SearchResult } from "../types";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from "recharts";
 import { saveUserCloudData, subscribeUserCloudData } from "../lib/firebase";
@@ -514,17 +513,6 @@ export default function WatchlistDashboard({
     }
   };
 
-  const handleDirectAddWatchlist = (symbol: string) => {
-    const upper = symbol.toUpperCase().trim();
-    if (watchlist.includes(upper)) return;
-    const updated = [...watchlist, upper];
-    setWatchlist(updated);
-    localStorage.setItem(storageKey, JSON.stringify(updated));
-    if (userEmail) {
-      saveUserCloudData(userEmail, { watchlist: updated });
-    }
-  };
-
   return (
     <div className="space-y-6">
       {/* Header card */}
@@ -600,14 +588,6 @@ export default function WatchlistDashboard({
           <span>{errorMsg}</span>
         </div>
       )}
-
-      {/* AI S&P 500 Sector Scanner */}
-      <WatchlistSectorScanner
-        language={language}
-        watchlist={watchlist}
-        financialsMap={financialsMap}
-        onAddToWatchlist={handleDirectAddWatchlist}
-      />
 
       {/* Main Watchlist Table */}
       <div className="bg-[#0f111a]/85 backdrop-blur-md border border-slate-900/60 rounded-2xl shadow-xl overflow-hidden">
@@ -777,9 +757,9 @@ export default function WatchlistDashboard({
                               <HealthMetricsTooltip 
                                 title={language === "ES" ? "Crecimiento" : "Growth"}
                                 metrics={[
-                                  {key: "revenue_cagr", label: "Revenue AGR", suffix: "%"},
-                                  {key: "eps_cagr", label: "EPS AGR", suffix: "%"},
-                                  {key: "fcf_cagr", label: "FCF AGR", suffix: "%"},
+                                  {key: "revenue_cagr", label: "Revenue CAGR", suffix: "%"},
+                                  {key: "eps_cagr", label: "EPS CAGR", suffix: "%"},
+                                  {key: "fcf_cagr", label: "Operating Cash Flow CAGR", suffix: "%"},
                                 ]}
                                 raw={scoredRow?.raw}
                                 language={language}

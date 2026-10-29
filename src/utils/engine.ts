@@ -277,8 +277,75 @@ export function rankInSector(rows: ScoredRow[], symbol: string, strat: StrategyI
   return { rank: peers.findIndex(x => x.symbol === symbol) + 1, total: peers.length };
 }
 
+export const SECTOR_CAPS: Record<string, number> = {
+  "semis_ai":               40,  // NVDA, AVGO cuando el negocio principal es IA/datacenter
+  "tech_mature":            35,  // MSFT, GOOGL, AAPL, ADBE
+  "fintech":                50,  // NU, SOFI — negocio en inflexión desde base negativa
+  "payments":               20,  // V, MA — crecimiento estable de red, sin saltos estructurales
+  "ecommerce":              40,  // AMZN, MELI — ciclos de margen
+  "healthcare_managed":     25,  // UNH y similares — cap más bajo por regulación/reversión a la media
+  "financials_diversified": 20,  // SCHW y bancos/brokers maduros
+  "default":                35,
+};
+
+export function resolveSectorCap(symbol?: string, sector?: string, industry?: string): { capKey: string; cap: number; inferred: boolean } {
+  const sym = (symbol || "").toUpperCase().trim();
+  const sec = (sector || "").toLowerCase().trim();
+  const ind = (industry || "").toLowerCase().trim();
+
+  // 1. Ticker mappings for clear archetype matches
+  const mapping: Record<string, string> = {
+    NVDA: "semis_ai", AVGO: "semis_ai", TSM: "semis_ai", AMD: "semis_ai", MRVL: "semis_ai",
+    ASML: "semis_ai", ARM: "semis_ai", MU: "semis_ai", INTC: "semis_ai", QCOM: "semis_ai",
+    TXN: "semis_ai", LRCX: "semis_ai", AMAT: "semis_ai", KLAC: "semis_ai", ADI: "semis_ai",
+    MSFT: "tech_mature", GOOGL: "tech_mature", GOOG: "tech_mature", AAPL: "tech_mature",
+    ADBE: "tech_mature", ORCL: "tech_mature", CSCO: "tech_mature", IBM: "tech_mature",
+    CRM: "tech_mature", SAP: "tech_mature", INTU: "tech_mature", NOW: "tech_mature",
+    NU: "fintech", SOFI: "fintech", HOOD: "fintech", UPST: "fintech", AFRM: "fintech", COIN: "fintech",
+    V: "payments", MA: "payments", AXP: "payments", DFS: "payments", FIS: "payments", FISV: "payments",
+    AMZN: "ecommerce", MELI: "ecommerce", BABA: "ecommerce", JD: "ecommerce", PDD: "ecommerce",
+    EBAY: "ecommerce", SHOP: "ecommerce", SE: "ecommerce", CPNG: "ecommerce",
+    UNH: "healthcare_managed", ELV: "healthcare_managed", CI: "healthcare_managed",
+    HUM: "healthcare_managed", CVS: "healthcare_managed", CNC: "healthcare_managed",
+    SCHW: "financials_diversified", JPM: "financials_diversified", BAC: "financials_diversified",
+    MS: "financials_diversified", GS: "financials_diversified", C: "financials_diversified",
+    WFC: "financials_diversified", BLK: "financials_diversified", BK: "financials_diversified"
+  };
+
+  if (sym && mapping[sym]) {
+    const key = mapping[sym];
+    return { capKey: key, cap: SECTOR_CAPS[key] ?? SECTOR_CAPS.default, inferred: false };
+  }
+
+  // 2. Sector / Industry string mappings
+  if (sec.includes("semiconductor") || ind.includes("semiconductor") || ind.includes("artificial intelligence") || ind.includes("ai")) {
+    return { capKey: "semis_ai", cap: SECTOR_CAPS.semis_ai, inferred: false };
+  }
+  if (sec.includes("fintech") || ind.includes("fintech") || ind.includes("consumer finance")) {
+    return { capKey: "fintech", cap: SECTOR_CAPS.fintech, inferred: false };
+  }
+  if (sec.includes("payment") || ind.includes("payment") || ind.includes("transaction processing")) {
+    return { capKey: "payments", cap: SECTOR_CAPS.payments, inferred: false };
+  }
+  if (sec.includes("ecommerce") || sec.includes("e-commerce") || sec.includes("internet retail") || ind.includes("e-commerce") || ind.includes("internet retail")) {
+    return { capKey: "ecommerce", cap: SECTOR_CAPS.ecommerce, inferred: false };
+  }
+  if ((sec.includes("health") || ind.includes("health")) && (sec.includes("managed") || ind.includes("insurance") || ind.includes("plan") || ind.includes("managed care"))) {
+    return { capKey: "healthcare_managed", cap: SECTOR_CAPS.healthcare_managed, inferred: false };
+  }
+  if (sec.includes("financial") || sec.includes("bank") || ind.includes("bank") || ind.includes("broker") || ind.includes("capital market")) {
+    return { capKey: "financials_diversified", cap: SECTOR_CAPS.financials_diversified, inferred: false };
+  }
+  if (sec.includes("tech") || sec.includes("software") || sec.includes("information technology") || ind.includes("software") || ind.includes("hardware")) {
+    return { capKey: "tech_mature", cap: SECTOR_CAPS.tech_mature, inferred: false };
+  }
+
+  // 3. Fallback to default
+  return { capKey: "default", cap: SECTOR_CAPS.default, inferred: true };
+}
+
 // ---------- generador determinista de metricas -------------------------------
-export function overrideFeaturesWithFinancials(raw: RawFeatures, fin: { annual: any[]; quarterly: any[] } | null): RawFeatures {
+export function overrideFeaturesWithFinancials(raw: RawFeatures, fin: { annual: any[]; quarterly: any[]; [key: string]: any } | null): RawFeatures {
   if (!fin) return raw;
 
   let sortedAnnual: any[] = [];
@@ -329,19 +396,151 @@ export function overrideFeaturesWithFinancials(raw: RawFeatures, fin: { annual: 
     return null;
   };
 
-  const revCagr = calculateGrowth("totalRevenue");
+  // --- Annual Historical CAGR (3-Year / Multi-Year) ---
+  const calculateAnnualCagr = (key: string): number | null => {
+    const validAnnual = sortedAnnual
+      .map(col => ({ val: col[key] }))
+      .filter(item => typeof item.val === "number" && !isNaN(item.val));
+
+    if (validAnnual.length >= 4) {
+      const latest = validAnnual[0].val;
+      const base   = validAnnual[3].val;
+      if (base <= 0 && latest > 0) {
+        const prior = validAnnual[1].val;
+        if (prior !== 0) return ((latest - prior) / Math.abs(prior)) * 100;
+      }
+      if (base > 0) return (Math.pow(latest / base, 1 / 3) - 1) * 100;
+    }
+    if (validAnnual.length >= 2) {
+      const latest = validAnnual[0].val;
+      const prior  = validAnnual[1].val;
+      if (prior !== 0 && latest !== undefined)
+        return ((latest - prior) / Math.abs(prior)) * 100;
+    }
+    return null;
+  };
+
+  const revCagr = calculateAnnualCagr("totalRevenue") ?? calculateGrowth("totalRevenue");
   if (revCagr !== null) {
-    raw.revenue_cagr = revCagr;
+    raw.revenue_cagr = Number(revCagr.toFixed(2));
   }
 
-  const epsCagr = calculateGrowth("dilutedEPS") ?? calculateGrowth("basicEPS");
-  if (epsCagr !== null) {
-    raw.eps_cagr = epsCagr;
+  // --- EPS CAGR (3-Year Historical with negative base handling + Forward Blend + Sector Cap) ---
+
+  const calculateAnnualEpsCagr = (): number | null => {
+    const validAnnual = sortedAnnual
+      .map(col => ({ val: col.dilutedEPS ?? col.basicEPS }))
+      .filter(item => typeof item.val === "number" && !isNaN(item.val));
+
+    if (validAnnual.length >= 4) {
+      const latest = validAnnual[0].val;
+      const base   = validAnnual[3].val;
+      if (base <= 0 && latest > 0) {
+        const prior = validAnnual[1].val;
+        if (prior !== 0) return ((latest - prior) / Math.abs(prior)) * 100;
+      }
+      if (base > 0) return (Math.pow(latest / base, 1 / 3) - 1) * 100;
+    }
+    if (validAnnual.length >= 2) {
+      const latest = validAnnual[0].val;
+      const prior  = validAnnual[1].val;
+      if (prior !== 0 && latest !== undefined)
+        return ((latest - prior) / Math.abs(prior)) * 100;
+    }
+    return null;
+  };
+
+  const validEpsAnnual = sortedAnnual
+    .map(col => ({ val: col.dilutedEPS ?? col.basicEPS }))
+    .filter(item => typeof item.val === "number" && !isNaN(item.val));
+
+  if (validEpsAnnual.length < 4) {
+    raw.epsCagrLowConfidence = true;
   }
 
-  const fcfCagr = calculateGrowth("freeCashFlow");
-  if (fcfCagr !== null) {
-    raw.fcf_cagr = fcfCagr;
+  let historicCagr: number | null = calculateAnnualEpsCagr() ?? calculateAnnualCagr("dilutedEPS") ?? calculateAnnualCagr("basicEPS");
+  if (historicCagr === null) {
+    historicCagr = calculateGrowth("dilutedEPS") ?? calculateGrowth("basicEPS");
+  }
+
+  // Forward CAGR from consensus
+  const epsNow: number | null =
+    (typeof fin?.epsNow === "number" && !isNaN(fin.epsNow)) ? fin.epsNow :
+    (typeof fin?.trailingEps === "number" && !isNaN(fin.trailingEps)) ? fin.trailingEps :
+    (typeof fin?.stockData?.trailingEps === "number" && !isNaN(fin.stockData.trailingEps)) ? fin.stockData.trailingEps :
+    (typeof raw.trailing_eps === "number" && !isNaN(raw.trailing_eps)) ? raw.trailing_eps :
+    (typeof raw.epsNow === "number" && !isNaN(raw.epsNow)) ? raw.epsNow :
+    (validEpsAnnual.length > 0 && typeof validEpsAnnual[0].val === "number" && validEpsAnnual[0].val !== 0) ? validEpsAnnual[0].val : null;
+
+  const forwardEps: number | null =
+    (typeof fin?.forwardEps === "number" && !isNaN(fin.forwardEps)) ? fin.forwardEps :
+    (typeof fin?.stockData?.forwardEps === "number" && !isNaN(fin.stockData.forwardEps)) ? fin.stockData.forwardEps :
+    (typeof raw.forwardEps === "number" && !isNaN(raw.forwardEps)) ? raw.forwardEps :
+    (typeof raw.forward_eps === "number" && !isNaN(raw.forward_eps)) ? raw.forward_eps : null;
+
+  const forwardCagr = (epsNow !== null && epsNow !== 0 && forwardEps !== null && !isNaN(forwardEps))
+    ? ((forwardEps / epsNow) - 1) * 100
+    : null;
+
+  // Blend (40% histórico / 60% forward)
+  let blended: number | null = null;
+  if (historicCagr !== null && forwardCagr !== null) {
+    blended = historicCagr * 0.4 + forwardCagr * 0.6;
+  } else if (forwardCagr !== null) {
+    blended = forwardCagr;
+    raw.epsCagrLowConfidence = true;
+  } else if (historicCagr !== null) {
+    blended = historicCagr;
+    raw.epsCagrLowConfidence = true;
+  } else {
+    blended = null;
+  }
+
+  if (historicCagr !== null) raw.historicEpsCagr = Number(historicCagr.toFixed(2));
+  if (forwardCagr !== null) raw.forwardEpsCagr = Number(forwardCagr.toFixed(2));
+
+  // Cap por sector
+  if (blended !== null) {
+    const sectorCapResult = resolveSectorCap(raw.symbol, raw.sector);
+    if (sectorCapResult.inferred) {
+      raw.sectorCapInferred = true;
+    }
+    if (blended > sectorCapResult.cap) {
+      raw.eps_cagr = sectorCapResult.cap;
+      raw.epsCagrCapped = true;
+    } else {
+      raw.eps_cagr = Number(blended.toFixed(2));
+    }
+  }
+
+  // --- Operating Cash Flow CAGR (Annual Historical 3-Year / Multi-Year CAGR) ---
+  const calculateAnnualOcfCagr = (): number | null => {
+    const validAnnual = sortedAnnual
+      .map(col => ({ val: col.operatingCashFlow }))
+      .filter(item => typeof item.val === "number" && !isNaN(item.val));
+
+    if (validAnnual.length >= 4) {
+      const latest = validAnnual[0].val;
+      const base   = validAnnual[3].val;
+      if (base <= 0 && latest > 0) {
+        const prior = validAnnual[1].val;
+        if (prior !== 0) return ((latest - prior) / Math.abs(prior)) * 100;
+      }
+      if (base > 0) return (Math.pow(latest / base, 1 / 3) - 1) * 100;
+    }
+    if (validAnnual.length >= 2) {
+      const latest = validAnnual[0].val;
+      const prior  = validAnnual[1].val;
+      if (prior !== 0 && latest !== undefined)
+        return ((latest - prior) / Math.abs(prior)) * 100;
+    }
+    return null;
+  };
+
+  const ocfCagr = calculateAnnualOcfCagr() ?? calculateAnnualCagr("operatingCashFlow") ?? calculateGrowth("operatingCashFlow");
+  if (ocfCagr !== null) {
+    raw.fcf_cagr = Number(ocfCagr.toFixed(2));
+    raw.ocf_cagr = Number(ocfCagr.toFixed(2));
   }
 
   const latest = sortedAnnual[0];

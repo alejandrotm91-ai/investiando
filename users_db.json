@@ -1,0 +1,514 @@
+[
+  {
+    "id": "demo-user-123",
+    "name": "Demo Investor",
+    "email": "demo@investiando.ai",
+    "clave": "demo123",
+    "password": "demo123",
+    "passwordHash": "demo123",
+    "emailVerified": true,
+    "verificationCode": "000000",
+    "status": "active",
+    "createdAt": "2026-08-23T13:47:17.661Z",
+    "holdings": [
+      {
+        "shares": 48.12,
+        "ticker": "MSFT",
+        "avgCost": 422.32
+      },
+      {
+        "avgCost": 622.48,
+        "shares": 31.62,
+        "ticker": "META"
+      },
+      {
+        "avgCost": 185.6,
+        "ticker": "NVDA",
+        "shares": 124.82
+      },
+      {
+        "shares": 60.31,
+        "ticker": "AVGO",
+        "avgCost": 325.3
+      },
+      {
+        "avgCost": 259.7,
+        "shares": 63.5,
+        "ticker": "AMZN"
+      },
+      {
+        "avgCost": 57.92,
+        "shares": 22.65,
+        "ticker": "MAGS"
+      },
+      {
+        "avgCost": 350.49,
+        "shares": 41.62,
+        "ticker": "GOOGL"
+      },
+      {
+        "shares": 204.92,
+        "avgCost": 59.49,
+        "ticker": "IREN"
+      },
+      {
+        "avgCost": 103.81,
+        "shares": 111.11,
+        "ticker": "CRWV"
+      },
+      {
+        "shares": 14000,
+        "ticker": "CASH",
+        "avgCost": 1,
+        "isCash": true
+      }
+    ],
+    "lastUpdated": "2026-08-23T20:46:18.476Z",
+    "updatedAt": "2026-08-23T20:46:18.476Z",
+    "lastLogin": "2026-09-04T00:45:58.825Z",
+    "activePortfolioId": "portfolio-1",
+    "portfolios": [
+      {
+        "id": "portfolio-1",
+        "name": "Compounders de Alta Calidad",
+        "holdings": [
+          {
+            "ticker": "MSFT",
+            "shares": 31.82,
+            "avgCost": 440
+          },
+          {
+            "ticker": "AAPL",
+            "shares": 53.33,
+            "avgCost": 225
+          },
+          {
+            "ticker": "NVDA",
+            "shares": 88,
+            "avgCost": 125
+          },
+          {
+            "ticker": "GOOGL",
+            "shares": 55.56,
+            "avgCost": 180
+          },
+          {
+            "ticker": "META",
+            "shares": 19.23,
+            "avgCost": 520
+          },
+          {
+            "ticker": "MA",
+            "shares": 16.49,
+            "avgCost": 485
+          },
+          {
+            "ticker": "COST",
+            "shares": 9.04,
+            "avgCost": 885
+          },
+          {
+            "ticker": "NFLX",
+            "shares": 10.29,
+            "avgCost": 680
+          },
+          {
+            "ticker": "LLY",
+            "shares": 6.67,
+            "avgCost": 900
+          },
+          {
+            "ticker": "MELI",
+            "shares": 2.56,
+            "avgCost": 1950
+          },
+          {
+            "ticker": "UBER",
+            "shares": 66.67,
+            "avgCost": 75
+          },
+          {
+            "ticker": "NU",
+            "shares": 275.86,
+            "avgCost": 14.5
+          }
+        ],
+        "createdAt": "2026-09-13T21:58:27.154Z",
+        "updatedAt": "2026-09-14T13:37:15.202Z"
+      }
+    ],
+    "watchlist": [
+      "MSFT",
+      "AAPL",
+      "NVDA",
+      "GOOGL",
+      "META",
+      "MA",
+      "COST",
+      "NFLX",
+      "LLY",
+      "MELI",
+      "UBER",
+      "NU"
+    ]
+  },
+  {
+    "id": "alejandro-tm-91",
+    "name": "Alejandro",
+    "email": "alejandrotm91@gmail.com",
+    "clave": "Calvin123",
+    "password": "Calvin123",
+    "passwordHash": "Calvin123",
+    "emailVerified": true,
+    "verificationCode": "000000",
+    "status": "active",
+    "createdAt": "2026-08-29T23:08:45.425Z",
+    "holdings": [
+      {
+        "shares": 110.82,
+        "ticker": "NVDA",
+        "avgCost": 185.6,
+        "isMargin": false
+      },
+      {
+        "isMargin": false,
+        "shares": 44.18,
+        "ticker": "MSFT",
+        "avgCost": 422.32
+      },
+      {
+        "isMargin": false,
+        "avgCost": 622.48,
+        "ticker": "META",
+        "shares": 26.63
+      },
+      {
+        "avgCost": 325.3,
+        "isMargin": false,
+        "shares": 55.39,
+        "ticker": "AVGO"
+      },
+      {
+        "isMargin": false,
+        "ticker": "AMZN",
+        "avgCost": 258.86,
+        "shares": 72.99
+      },
+      {
+        "avgCost": 350.89,
+        "ticker": "GOOGL",
+        "shares": 51.85,
+        "isMargin": false
+      },
+      {
+        "ticker": "TSM",
+        "isMargin": false,
+        "shares": 41.86,
+        "avgCost": 468.12
+      },
+      {
+        "isMargin": true,
+        "ticker": "MA",
+        "avgCost": 578.93,
+        "shares": 15.54
+      },
+      {
+        "isMargin": false,
+        "shares": 134.8,
+        "avgCost": 73.88,
+        "ticker": "NFLX"
+      },
+      {
+        "avgCost": 14.03,
+        "shares": 606.35,
+        "ticker": "NU",
+        "isMargin": true
+      },
+      {
+        "ticker": "UBER",
+        "avgCost": 70.65,
+        "shares": 113.22,
+        "isMargin": true
+      },
+      {
+        "isMargin": true,
+        "ticker": "MELI",
+        "avgCost": 1903.1,
+        "shares": 2.47
+      },
+      {
+        "shares": 15.64,
+        "isMargin": false,
+        "ticker": "BE",
+        "avgCost": 237.08
+      },
+      {
+        "isMargin": false,
+        "shares": 22.65,
+        "avgCost": 57.92,
+        "ticker": "MAGS"
+      },
+      {
+        "ticker": "CASH",
+        "avgCost": 1,
+        "shares": 14000,
+        "isCash": true
+      },
+      {
+        "isCash": true,
+        "ticker": "MARGIN_PAID",
+        "avgCost": 1,
+        "shares": 2172
+      }
+    ],
+    "resetCodeExpires": 1787456152792,
+    "watchlist": [
+      "MA",
+      "V",
+      "MELI",
+      "SOFI",
+      "COP",
+      "HOOD",
+      "MRVL"
+    ],
+    "lastUpdated": "2026-08-30T21:50:27.166Z",
+    "updatedAt": "2026-10-15T21:37:58.456Z",
+    "marginPositions": [],
+    "activePortfolioId": "portfolio-1",
+    "lastLogin": "2026-10-04T03:45:35.471Z",
+    "resetCode": "294309",
+    "portfolios": [
+      {
+        "holdings": [
+          {
+            "shares": 110.82,
+            "avgCost": 185.6,
+            "ticker": "NVDA",
+            "isMargin": false
+          },
+          {
+            "isMargin": false,
+            "avgCost": 422.32,
+            "shares": 44.18,
+            "ticker": "MSFT"
+          },
+          {
+            "shares": 26.63,
+            "isMargin": false,
+            "ticker": "META",
+            "avgCost": 622.48
+          },
+          {
+            "avgCost": 325.3,
+            "isMargin": false,
+            "shares": 55.39,
+            "ticker": "AVGO"
+          },
+          {
+            "ticker": "AMZN",
+            "shares": 72.99,
+            "isMargin": false,
+            "avgCost": 258.86
+          },
+          {
+            "isMargin": false,
+            "avgCost": 350.89,
+            "ticker": "GOOGL",
+            "shares": 51.85
+          },
+          {
+            "avgCost": 468.12,
+            "ticker": "TSM",
+            "isMargin": false,
+            "shares": 41.86
+          },
+          {
+            "ticker": "MA",
+            "isMargin": true,
+            "avgCost": 578.93,
+            "shares": 15.54
+          },
+          {
+            "shares": 134.8,
+            "avgCost": 73.88,
+            "ticker": "NFLX",
+            "isMargin": false
+          },
+          {
+            "shares": 606.35,
+            "avgCost": 14.03,
+            "ticker": "NU",
+            "isMargin": true
+          },
+          {
+            "avgCost": 70.65,
+            "isMargin": true,
+            "shares": 113.22,
+            "ticker": "UBER"
+          },
+          {
+            "ticker": "MELI",
+            "shares": 2.47,
+            "isMargin": true,
+            "avgCost": 1903.1
+          },
+          {
+            "avgCost": 237.08,
+            "isMargin": false,
+            "shares": 15.64,
+            "ticker": "BE"
+          },
+          {
+            "shares": 22.65,
+            "ticker": "MAGS",
+            "avgCost": 57.92,
+            "isMargin": false
+          },
+          {
+            "shares": 14000,
+            "ticker": "CASH",
+            "isCash": true,
+            "avgCost": 1
+          },
+          {
+            "shares": 2172,
+            "ticker": "MARGIN_PAID",
+            "avgCost": 1,
+            "isCash": true
+          }
+        ],
+        "createdAt": "2026-09-12T19:42:04.757Z",
+        "id": "portfolio-1",
+        "name": "Porty",
+        "updatedAt": "2026-10-15T21:37:58.455Z"
+      }
+    ],
+    "test": "ping"
+  },
+  {
+    "id": "user_plbfbh1n0",
+    "name": "Altemu",
+    "email": "altemu11@icloud.com",
+    "clave": "Calvin123",
+    "password": "Calvin123",
+    "passwordHash": "Calvin123",
+    "emailVerified": true,
+    "verificationCode": "579912",
+    "status": "active",
+    "createdAt": "2026-08-30T23:38:25.797Z",
+    "updatedAt": "2026-09-14T02:22:31.848Z",
+    "activePortfolioId": "portfolio-1",
+    "portfolios": [
+      {
+        "createdAt": "2026-09-14T02:22:31.848Z",
+        "name": "High-Quality Compounders",
+        "updatedAt": "2026-09-14T02:22:31.848Z",
+        "holdings": [
+          {
+            "shares": 40.91,
+            "avgCost": 440,
+            "ticker": "MSFT"
+          },
+          {
+            "avgCost": 225,
+            "shares": 71.11,
+            "ticker": "AAPL"
+          },
+          {
+            "ticker": "GOOGL",
+            "shares": 83.33,
+            "avgCost": 180
+          },
+          {
+            "avgCost": 125,
+            "shares": 104,
+            "ticker": "NVDA"
+          },
+          {
+            "shares": 37.29,
+            "avgCost": 295,
+            "ticker": "V"
+          },
+          {
+            "avgCost": 885,
+            "shares": 11.3,
+            "ticker": "COST"
+          },
+          {
+            "shares": 10,
+            "ticker": "LLY",
+            "avgCost": 900
+          },
+          {
+            "avgCost": 530,
+            "ticker": "UNH",
+            "shares": 15.09
+          }
+        ],
+        "id": "portfolio-1"
+      }
+    ],
+    "holdings": [
+      {
+        "ticker": "MSFT",
+        "avgCost": 440,
+        "shares": 40.91
+      },
+      {
+        "avgCost": 225,
+        "ticker": "AAPL",
+        "shares": 71.11
+      },
+      {
+        "avgCost": 180,
+        "ticker": "GOOGL",
+        "shares": 83.33
+      },
+      {
+        "ticker": "NVDA",
+        "shares": 104,
+        "avgCost": 125
+      },
+      {
+        "avgCost": 295,
+        "ticker": "V",
+        "shares": 37.29
+      },
+      {
+        "avgCost": 885,
+        "shares": 11.3,
+        "ticker": "COST"
+      },
+      {
+        "ticker": "LLY",
+        "shares": 10,
+        "avgCost": 900
+      },
+      {
+        "avgCost": 530,
+        "shares": 15.09,
+        "ticker": "UNH"
+      }
+    ],
+    "watchlist": [
+      "MSFT",
+      "AAPL",
+      "NVDA",
+      "GOOGL",
+      "META",
+      "MA",
+      "COST",
+      "NFLX",
+      "LLY",
+      "MELI",
+      "UBER",
+      "NU"
+    ],
+    "marginPositions": [],
+    "lastUpdated": "2026-08-30T23:38:25.798Z",
+    "verifiedAt": "2026-08-30T23:38:29.997Z",
+    "resetCode": "228347",
+    "lastLogin": "2026-09-14T02:22:31.529Z",
+    "resetCodeExpires": 1788226390529
+  }
+]

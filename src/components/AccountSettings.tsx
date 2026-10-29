@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { User, Shield, Key, Bell, Database, Check, ToggleLeft, ToggleRight, Mail, Server, Send, RefreshCw, Eye, EyeOff, CheckCircle2, AlertTriangle, Users, Megaphone, Sparkles } from "lucide-react";
+import { User, Shield, Key, Bell, Database, Check, ToggleLeft, ToggleRight, Mail, Server, Send, RefreshCw, Eye, EyeOff, CheckCircle2, AlertTriangle, Users, Megaphone, Sparkles, Trash2, UserX, UserCheck, Search, ShieldAlert, CreditCard, Lock, Unlock, Clock, Ban, UserMinus, X, Copy, CheckCheck } from "lucide-react";
 
 export default function AccountSettings({ language, user }: { language: "EN" | "ES"; user: { id: string; name: string; email: string } }) {
+  const isAdmin = user?.email?.toLowerCase().trim() === "alejandrotm91@gmail.com";
   const [currency, setCurrency] = useState("USD");
   const [timeframe, setTimeframe] = useState("1M");
   const [saved, setSaved] = useState(false);
@@ -39,40 +40,137 @@ export default function AccountSettings({ language, user }: { language: "EN" | "
   const [broadcastSuccess, setBroadcastSuccess] = useState<string | null>(null);
   const [broadcastError, setBroadcastError] = useState<string | null>(null);
 
-  // Fetch SMTP config & registered users on mount
+  // Admin User Management State
+  const [userSearchQuery, setUserSearchQuery] = useState("");
+  const [userStatusFilter, setUserStatusFilter] = useState<"ALL" | "ACTIVE" | "SUSPENDED" | "VERIFIED" | "PENDING">("ALL");
+  const [userActionLoading, setUserActionLoading] = useState<string | null>(null);
+  const [userActionFeedback, setUserActionFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [userToDelete, setUserToDelete] = useState<{ id: string; name: string; email: string } | null>(null);
+  const [isRefreshingUsers, setIsRefreshingUsers] = useState(false);
+  const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
+
+  const fetchUsers = async () => {
+    setIsRefreshingUsers(true);
+    try {
+      const res = await fetch("/api/admin/users");
+      if (res.ok) {
+        const data = await res.json();
+        setRegisteredUsers(data || []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch registered users", err);
+    } finally {
+      setIsRefreshingUsers(false);
+    }
+  };
+
+  // Fetch registered users and SMTP config on mount
   React.useEffect(() => {
-    const fetchSmtpConfig = async () => {
-      try {
-        const res = await fetch("/api/smtp/config");
-        if (res.ok) {
-          const data = await res.json();
-          setSmtpHost(data.host || "");
-          setSmtpPort(data.port || "587");
-          setSmtpSecure(!!data.secure);
-          setSmtpUser(data.user || "");
-          setSmtpPass(data.pass || "");
-          setSmtpFrom(data.from || "");
-        }
-      } catch (err) {
-        console.error("Failed to load SMTP config", err);
-      }
-    };
-
-    const fetchUsers = async () => {
-      try {
-        const res = await fetch("/api/admin/users");
-        if (res.ok) {
-          const data = await res.json();
-          setRegisteredUsers(data || []);
-        }
-      } catch (err) {
-        console.error("Failed to fetch registered users", err);
-      }
-    };
-
-    fetchSmtpConfig();
     fetchUsers();
-  }, []);
+
+    if (isAdmin) {
+      const fetchSmtpConfig = async () => {
+        try {
+          const res = await fetch("/api/smtp/config");
+          if (res.ok) {
+            const data = await res.json();
+            setSmtpHost(data.host || "");
+            setSmtpPort(data.port || "587");
+            setSmtpSecure(!!data.secure);
+            setSmtpUser(data.user || "");
+            setSmtpPass(data.pass || "");
+            setSmtpFrom(data.from || "");
+          }
+        } catch (err) {
+          console.error("Failed to load SMTP config", err);
+        }
+      };
+
+      fetchSmtpConfig();
+    }
+  }, [isAdmin]);
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard?.writeText(text);
+    setCopiedEmail(text);
+    setTimeout(() => setCopiedEmail(null), 2000);
+  };
+
+  const handleToggleUserStatus = async (targetUser: { id: string; name: string; email: string; status?: "active" | "suspended" }) => {
+    setUserActionLoading(targetUser.id);
+    setUserActionFeedback(null);
+    try {
+      const nextStatus = targetUser.status === "suspended" ? "active" : "suspended";
+      const res = await fetch("/api/admin/toggle-user-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          adminEmail: user.email,
+          targetEmail: targetUser.email,
+          status: nextStatus,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Error al modificar estado");
+
+      setRegisteredUsers((prev) =>
+        prev.map((u) => (u.email.toLowerCase() === targetUser.email.toLowerCase() ? { ...u, status: nextStatus } : u))
+      );
+      setUserActionFeedback({
+        type: "success",
+        message: language === "ES"
+          ? (nextStatus === "suspended" 
+              ? `Acceso revocado/suspendido para ${targetUser.name} (${targetUser.email}). El usuario no podrá iniciar sesión.` 
+              : `Acceso reactivado exitosamente para ${targetUser.name}.`)
+          : (nextStatus === "suspended" 
+              ? `Access suspended for ${targetUser.name} (${targetUser.email}). User won't be able to sign in.` 
+              : `Access reactivated for ${targetUser.name}.`),
+      });
+    } catch (err: any) {
+      setUserActionFeedback({ type: "error", message: err.message || "Error al actualizar estado del usuario" });
+    } finally {
+      setUserActionLoading(null);
+    }
+  };
+
+  const handleDeleteUser = async () => {
+    if (!userToDelete) return;
+    setUserActionLoading(userToDelete.id);
+    setUserActionFeedback(null);
+    try {
+      const res = await fetch("/api/admin/delete-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          adminEmail: user.email,
+          targetEmail: userToDelete.email,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Error al eliminar usuario");
+
+      setRegisteredUsers((prev) => prev.filter((u) => u.email.toLowerCase() !== userToDelete.email.toLowerCase()));
+      setUserActionFeedback({
+        type: "success",
+        message: language === "ES"
+          ? `El usuario ${userToDelete.name} (${userToDelete.email}) ha sido eliminado definitivamente del sistema.`
+          : `User ${userToDelete.name} (${userToDelete.email}) was deleted permanently.`,
+      });
+      setUserToDelete(null);
+    } catch (err: any) {
+      setUserActionFeedback({ type: "error", message: err.message || "Error al eliminar usuario" });
+    } finally {
+      setUserActionLoading(null);
+    }
+  };
+
+  const handleSelectUserForEmail = (targetEmail: string) => {
+    setBroadcastRecipient(targetEmail);
+    const broadcastSection = document.getElementById("admin-broadcast-section");
+    if (broadcastSection) {
+      broadcastSection.scrollIntoView({ behavior: "smooth" });
+    }
+  };
 
   const handleApplyGmailPreset = () => {
     setSmtpHost("smtp.gmail.com");
@@ -212,9 +310,9 @@ export default function AccountSettings({ language, user }: { language: "EN" | "
       pTierVal: "PRO Terminal User",
       pJoined: "Member Since",
       pJoinedVal: "January 2024",
-      lblApi: "Live Yahoo Finance Feed",
+      lblApi: "Live Market Feed",
       lblSound: "Interactive Audio Alerts",
-      descApi: "Fetch live ticker closing ticks directly from external servers",
+      descApi: "Fetch live ticker closing ticks directly from financial servers",
       descSound: "Play ambient sound notes on positive/negative earnings updates"
     },
     ES: {
@@ -231,7 +329,7 @@ export default function AccountSettings({ language, user }: { language: "EN" | "
       pTierVal: "Usuario Terminal PRO",
       pJoined: "Miembro Desde",
       pJoinedVal: "Enero de 2024",
-      lblApi: "Feed en vivo Yahoo Finance",
+      lblApi: "Feed de mercado en vivo",
       lblSound: "Alertas de Sonido Interactivas",
       descApi: "Obtener cotizaciones de cierre en tiempo real de servidores externos",
       descSound: "Reproducir tonos ambientales ante actualizaciones de mercado"
@@ -385,8 +483,10 @@ export default function AccountSettings({ language, user }: { language: "EN" | "
         </div>
       </div>
 
-      {/* Real SMTP Configuration & Testing Block */}
-      <div className="bg-[#0f111a]/80 backdrop-blur-md border border-slate-900/60 p-6 rounded-2xl">
+      {/* Real SMTP Configuration & Testing Block (Admin only) */}
+      {isAdmin && (
+        <>
+          <div className="bg-[#0f111a]/80 backdrop-blur-md border border-slate-900/60 p-6 rounded-2xl">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-900/60 pb-4 mb-6">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-full bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
@@ -608,8 +708,454 @@ export default function AccountSettings({ language, user }: { language: "EN" | "
         </div>
       </div>
 
-      {/* Admin Broadcast Communicator Section */}
+      {/* Admin User Management & Access Control Table */}
       <div className="bg-[#0f111a]/80 backdrop-blur-md border border-slate-900/60 p-6 rounded-2xl mt-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-900/60 pb-4 mb-6">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-full bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20">
+              <Users className="text-indigo-400" size={18} />
+            </div>
+            <div>
+              <h3 className="font-display font-bold text-sm text-white tracking-wide uppercase">
+                {language === "ES" ? "Gestión de Usuarios y Control de Acceso" : "User Management & Access Control"}
+              </h3>
+              <p className="text-[10px] text-slate-400 mt-0.5">
+                {language === "ES" 
+                  ? "Monitorea cuentas registradas, suspende usuarios morosos o elimina cuentas que no hayan pagado." 
+                  : "Monitor registered accounts, suspend delinquent users or delete unpaid accounts."}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={fetchUsers}
+              disabled={isRefreshingUsers}
+              className="text-[11px] font-semibold px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw size={12} className={isRefreshingUsers ? "animate-spin text-indigo-400" : "text-slate-400"} />
+              {language === "ES" ? "Actualizar Lista" : "Refresh List"}
+            </button>
+            <span className="text-[10px] font-mono font-semibold px-2.5 py-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 flex items-center gap-1.5">
+              <ShieldAlert size={12} className="text-indigo-400" />
+              Admin Master Control
+            </span>
+          </div>
+        </div>
+
+        {/* User Stats Overview */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div className="bg-slate-950/60 border border-slate-900 p-3.5 rounded-xl flex items-center justify-between">
+            <div>
+              <div className="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-semibold">
+                {language === "ES" ? "Total Registrados" : "Total Registered"}
+              </div>
+              <div className="text-xl font-bold font-mono text-white mt-0.5">
+                {registeredUsers.length}
+              </div>
+            </div>
+            <div className="w-8 h-8 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400">
+              <Users size={16} />
+            </div>
+          </div>
+
+          <div className="bg-emerald-950/10 border border-emerald-900/30 p-3.5 rounded-xl flex items-center justify-between">
+            <div>
+              <div className="text-[10px] font-mono uppercase tracking-wider text-emerald-500/80 font-semibold">
+                {language === "ES" ? "Activos (Con Acceso)" : "Active (Full Access)"}
+              </div>
+              <div className="text-xl font-bold font-mono text-emerald-400 mt-0.5">
+                {registeredUsers.filter((u) => u.status !== "suspended").length}
+              </div>
+            </div>
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+              <UserCheck size={16} />
+            </div>
+          </div>
+
+          <div className="bg-rose-950/10 border border-rose-900/30 p-3.5 rounded-xl flex items-center justify-between">
+            <div>
+              <div className="text-[10px] font-mono uppercase tracking-wider text-rose-500/80 font-semibold">
+                {language === "ES" ? "Suspendidos (Sin Pago)" : "Suspended (Unpaid)"}
+              </div>
+              <div className="text-xl font-bold font-mono text-rose-400 mt-0.5">
+                {registeredUsers.filter((u) => u.status === "suspended").length}
+              </div>
+            </div>
+            <div className="w-8 h-8 rounded-lg bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
+              <UserX size={16} />
+            </div>
+          </div>
+
+          <div className="bg-blue-950/10 border border-blue-900/30 p-3.5 rounded-xl flex items-center justify-between">
+            <div>
+              <div className="text-[10px] font-mono uppercase tracking-wider text-blue-500/80 font-semibold">
+                {language === "ES" ? "Emails Verificados" : "Verified Inboxes"}
+              </div>
+              <div className="text-xl font-bold font-mono text-blue-400 mt-0.5">
+                {registeredUsers.filter((u) => u.emailVerified).length}
+              </div>
+            </div>
+            <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+              <CheckCircle2 size={16} />
+            </div>
+          </div>
+        </div>
+
+        {/* Search & Filter Toolbar */}
+        <div className="flex flex-col sm:flex-row gap-3 items-center justify-between mb-4">
+          <div className="relative w-full sm:w-80">
+            <Search size={14} className="absolute left-3 top-2.5 text-slate-500" />
+            <input
+              type="text"
+              value={userSearchQuery}
+              onChange={(e) => setUserSearchQuery(e.target.value)}
+              placeholder={language === "ES" ? "Buscar por nombre o correo..." : "Search by name or email..."}
+              className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500/50 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none transition-colors font-mono"
+            />
+            {userSearchQuery && (
+              <button
+                type="button"
+                onClick={() => setUserSearchQuery("")}
+                className="absolute right-2.5 top-2 text-slate-500 hover:text-slate-300"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5 self-start sm:self-auto bg-slate-950 p-1 rounded-xl border border-slate-900">
+            <button
+              type="button"
+              onClick={() => setUserStatusFilter("ALL")}
+              className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-all ${
+                userStatusFilter === "ALL"
+                  ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-semibold"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              {language === "ES" ? "Todos" : "All"} ({registeredUsers.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setUserStatusFilter("ACTIVE")}
+              className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-all ${
+                userStatusFilter === "ACTIVE"
+                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              {language === "ES" ? "Activos" : "Active"} ({registeredUsers.filter((u) => u.status !== "suspended").length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setUserStatusFilter("SUSPENDED")}
+              className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-all ${
+                userStatusFilter === "SUSPENDED"
+                  ? "bg-rose-500/20 text-rose-300 border border-rose-500/30 font-semibold"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              {language === "ES" ? "Suspendidos" : "Suspended"} ({registeredUsers.filter((u) => u.status === "suspended").length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setUserStatusFilter("VERIFIED")}
+              className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-all ${
+                userStatusFilter === "VERIFIED"
+                  ? "bg-blue-500/20 text-blue-300 border border-blue-500/30 font-semibold"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              {language === "ES" ? "Verificados" : "Verified"} ({registeredUsers.filter((u) => u.emailVerified).length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setUserStatusFilter("PENDING")}
+              className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-all ${
+                userStatusFilter === "PENDING"
+                  ? "bg-amber-500/20 text-amber-300 border border-amber-500/30 font-semibold"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              {language === "ES" ? "Pendientes" : "Pending"} ({registeredUsers.filter((u) => !u.emailVerified).length})
+            </button>
+          </div>
+        </div>
+
+        {/* Feedback Alert */}
+        {userActionFeedback && (
+          <div
+            className={`p-3 rounded-xl mb-4 flex items-center justify-between text-xs font-medium ${
+              userActionFeedback.type === "success"
+                ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400"
+                : "bg-rose-500/10 border border-rose-500/20 text-rose-400"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              {userActionFeedback.type === "success" ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}
+              <span>{userActionFeedback.message}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setUserActionFeedback(null)}
+              className="text-slate-400 hover:text-white"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
+
+        {/* Users Table */}
+        <div className="overflow-x-auto rounded-xl border border-slate-900 bg-slate-950/40">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-slate-900 bg-slate-950/80 text-[10px] uppercase font-mono tracking-wider text-slate-500">
+                <th className="py-3 px-4">{language === "ES" ? "Usuario" : "User"}</th>
+                <th className="py-3 px-4">{language === "ES" ? "Estado de Email" : "Email Status"}</th>
+                <th className="py-3 px-4">{language === "ES" ? "Acceso / Pago" : "Access / Payment"}</th>
+                <th className="py-3 px-4">{language === "ES" ? "Portafolios / Activos" : "Portfolios / Assets"}</th>
+                <th className="py-3 px-4">{language === "ES" ? "Registro / Último Login" : "Registered / Last Login"}</th>
+                <th className="py-3 px-4 text-right">{language === "ES" ? "Acciones" : "Actions"}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-900/60 font-sans">
+              {registeredUsers
+                .filter((u) => {
+                  const matchesSearch =
+                    u.name?.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
+                    u.email?.toLowerCase().includes(userSearchQuery.toLowerCase());
+                  if (!matchesSearch) return false;
+                  if (userStatusFilter === "ACTIVE") return u.status !== "suspended";
+                  if (userStatusFilter === "SUSPENDED") return u.status === "suspended";
+                  if (userStatusFilter === "VERIFIED") return !!u.emailVerified;
+                  if (userStatusFilter === "PENDING") return !u.emailVerified;
+                  return true;
+                })
+                .map((u) => {
+                  const isMainAdmin = u.email?.toLowerCase().trim() === "alejandrotm91@gmail.com";
+                  const isSuspended = u.status === "suspended";
+                  const isLoadingThis = userActionLoading === u.id;
+                  const isCopied = copiedEmail === u.email;
+
+                  return (
+                    <tr key={u.id || u.email} className="hover:bg-slate-900/30 transition-colors">
+                      {/* User Info */}
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center font-bold text-xs text-slate-300 uppercase">
+                            {u.name ? u.name.charAt(0) : "U"}
+                          </div>
+                          <div>
+                            <div className="font-semibold text-slate-200 flex items-center gap-1.5">
+                              {u.name || "Usuario"}
+                              {isMainAdmin && (
+                                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                                  ADMIN
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="text-[11px] font-mono text-slate-400">{u.email}</span>
+                              <button
+                                type="button"
+                                onClick={() => copyToClipboard(u.email)}
+                                title={language === "ES" ? "Copiar correo" : "Copy email"}
+                                className="text-slate-500 hover:text-slate-300 transition-colors p-0.5"
+                              >
+                                {isCopied ? <CheckCheck size={11} className="text-emerald-400" /> : <Copy size={11} />}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Email Status */}
+                      <td className="py-3 px-4">
+                        {u.emailVerified ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-mono font-semibold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            <CheckCircle2 size={11} />
+                            {language === "ES" ? "Verificado" : "Verified"}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-mono font-semibold px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                            <Clock size={11} />
+                            {language === "ES" ? "Pendiente" : "Pending"}
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Access / Payment Status */}
+                      <td className="py-3 px-4">
+                        {isSuspended ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold px-2 py-1 rounded-md bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                            <Ban size={11} />
+                            {language === "ES" ? "Suspendido (Falta de Pago)" : "Suspended (Unpaid)"}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold px-2 py-1 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            <Check size={11} />
+                            {language === "ES" ? "Activo (Acceso Total)" : "Active (Full Access)"}
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Portfolios & Holdings */}
+                      <td className="py-3 px-4 font-mono text-[11px] text-slate-300">
+                        <div className="flex items-center gap-1.5">
+                          <span className="bg-slate-900 border border-slate-800 px-2 py-0.5 rounded text-[10px] font-semibold text-slate-300">
+                            {u.portfoliosCount || 1} {language === "ES" ? "Portafolio(s)" : "Portfolio(s)"}
+                          </span>
+                          <span className="text-slate-500 text-[10px]">
+                            • {u.holdingsCount || 0} {language === "ES" ? "activos" : "holdings"}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Dates */}
+                      <td className="py-3 px-4 font-mono text-[10px] text-slate-400">
+                        <div>
+                          <span className="text-slate-500">Reg: </span>
+                          {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : "—"}
+                        </div>
+                        {u.lastLogin && (
+                          <div className="text-[9px] text-slate-500">
+                            <span>Login: </span>
+                            {new Date(u.lastLogin).toLocaleDateString()}
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Actions */}
+                      <td className="py-3 px-4 text-right">
+                        {isMainAdmin ? (
+                          <span className="text-[10px] font-mono text-slate-600 italic">
+                            {language === "ES" ? "Cuenta Protegida" : "Protected"}
+                          </span>
+                        ) : (
+                          <div className="flex items-center justify-end gap-1.5">
+                            {/* Toggle Suspend / Reactivate */}
+                            <button
+                              type="button"
+                              disabled={isLoadingThis}
+                              onClick={() => handleToggleUserStatus(u)}
+                              title={
+                                isSuspended
+                                  ? (language === "ES" ? "Reactivar acceso al usuario" : "Reactivate access")
+                                  : (language === "ES" ? "Suspender acceso por falta de pago" : "Suspend access (Unpaid)")
+                              }
+                              className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                                isSuspended
+                                  ? "bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-400"
+                                  : "bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/30 text-amber-400"
+                              }`}
+                            >
+                              {isLoadingThis ? (
+                                <RefreshCw size={14} className="animate-spin" />
+                              ) : isSuspended ? (
+                                <Unlock size={14} />
+                              ) : (
+                                <Lock size={14} />
+                              )}
+                            </button>
+
+                            {/* Email Broadcast trigger */}
+                            <button
+                              type="button"
+                              onClick={() => handleSelectUserForEmail(u.email)}
+                              title={language === "ES" ? "Enviar correo personalizado / aviso de cobro" : "Send email / payment notice"}
+                              className="p-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 text-blue-400 transition-all cursor-pointer"
+                            >
+                              <Mail size={14} />
+                            </button>
+
+                            {/* Delete User */}
+                            <button
+                              type="button"
+                              disabled={isLoadingThis}
+                              onClick={() => setUserToDelete(u)}
+                              title={language === "ES" ? "Eliminar usuario definitivamente" : "Delete user permanently"}
+                              className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 transition-all cursor-pointer"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+
+              {registeredUsers.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="py-8 text-center text-slate-500 font-mono">
+                    {language === "ES" ? "No hay usuarios registrados aún." : "No registered users found."}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Delete Confirmation Modal */}
+      {userToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-[#0f111a] border border-rose-500/30 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center flex-shrink-0">
+                <Trash2 className="text-rose-400" size={20} />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-white font-display">
+                  {language === "ES" ? "¿Eliminar Usuario Definitivamente?" : "Delete User Permanently?"}
+                </h4>
+                <p className="text-[11px] text-slate-400">
+                  {language === "ES" ? "Esta acción es irreversible y bloqueará el acceso por completo." : "This action is irreversible and revokes all access."}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-900 text-xs font-mono space-y-1">
+              <div className="text-slate-300 font-semibold">{userToDelete.name}</div>
+              <div className="text-rose-400">{userToDelete.email}</div>
+            </div>
+
+            <p className="text-xs text-slate-400 leading-relaxed">
+              {language === "ES"
+                ? "El usuario será borrado del registro del sistema. No podrá volver a iniciar sesión con sus credenciales ni acceder a la plataforma a menos que se registre nuevamente."
+                : "The user will be removed from the system registry. They will not be able to log in unless they register again."}
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setUserToDelete(null)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-800 transition-colors cursor-pointer"
+              >
+                {language === "ES" ? "Cancelar" : "Cancel"}
+              </button>
+              <button
+                type="button"
+                disabled={userActionLoading === userToDelete.id}
+                onClick={handleDeleteUser}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 disabled:opacity-50 transition-colors flex items-center gap-2 cursor-pointer shadow-lg shadow-rose-600/20"
+              >
+                {userActionLoading === userToDelete.id ? (
+                  <RefreshCw size={13} className="animate-spin" />
+                ) : (
+                  <Trash2 size={13} />
+                )}
+                {language === "ES" ? "Sí, Eliminar Usuario" : "Yes, Delete User"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Broadcast Communicator Section */}
+      <div id="admin-broadcast-section" className="bg-[#0f111a]/80 backdrop-blur-md border border-slate-900/60 p-6 rounded-2xl mt-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-900/60 pb-4 mb-6">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-full bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
@@ -710,6 +1256,8 @@ export default function AccountSettings({ language, user }: { language: "EN" | "
           </div>
         </form>
       </div>
-    </div>
+    </>
+  )}
+</div>
   );
 }

@@ -412,7 +412,7 @@ export default function HedgeFundReport({
       let currentY = 82;
 
       // PARSING REPORT TEXT
-      const lines = reportText.split("\n");
+      const lines = (reportText || "").split("\n");
       doc.setFont("helvetica", "normal");
       doc.setFontSize(9.5);
       doc.setTextColor(30, 41, 59); // slate-800

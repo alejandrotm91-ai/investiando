@@ -37,7 +37,7 @@ export default function AskAIAnalyst({ portfolio }: AskAIAnalystProps) {
           role: "model",
           content: `¡Hola! Soy tu **Analista de Inversiones de Inteligencia Artificial** 🤖📈. 
 
-He cargado todos los datos en tiempo real de tu cartera (valores de mercado, ponderaciones, múltiplos de Yahoo Finance, retornos, efectivo, etc.). 
+He cargado todos los datos en tiempo real de tu cartera (valores de mercado, ponderaciones, múltiplos de valuación, retornos, efectivo, etc.). 
 
 Puedo ayudarte a:
 - Evaluar la **diversificación y balance** de tus activos.
@@ -109,8 +109,9 @@ Puedo ayudarte a:
 
   // Render basic markdown (bold, bullet points, headers, tables) in an elegant react wrapper
   const renderMessageContent = (text: string) => {
+    if (!text) return null;
     // Very lightweight formatter for standard markdown conventions
-    const lines = text.split("\n");
+    const lines = (text || "").split("\n");
     return lines.map((line, lineIndex) => {
       // Bullet list
       if (line.trim().startsWith("- ")) {
@@ -158,14 +159,15 @@ Puedo ayudarte a:
   };
  
   const formatInlineBoldAndCode = (text: string) => {
+    if (!text) return [""];
     // Split by ** for bold
-    const parts = text.split("**");
+    const parts = (text || "").split("**");
     return parts.map((part, i) => {
       if (i % 2 === 1) {
         return <strong key={i} className="text-white font-bold">{part}</strong>;
       }
       // Check for inline code `
-      const codeParts = part.split("`");
+      const codeParts = (part || "").split("`");
       return codeParts.map((subPart, j) => {
         if (j % 2 === 1) {
           return <code key={j} className="bg-slate-800 px-1.5 py-0.5 rounded text-xs font-mono text-emerald-400">{subPart}</code>;

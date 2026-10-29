@@ -68,9 +68,12 @@ export const TopTickersMarquee: React.FC = () => {
       try {
         const res = await fetch("/api/market/top50");
         if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data) && data.length > 0 && isMounted) {
-            setTickers(data);
+          const contentType = res.headers.get("content-type");
+          if (contentType && contentType.includes("application/json")) {
+            const data = await res.json();
+            if (Array.isArray(data) && data.length > 0 && isMounted) {
+              setTickers(data);
+            }
           }
         }
       } catch {

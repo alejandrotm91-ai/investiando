@@ -17,7 +17,9 @@ import {
   Sliders,
   Calendar,
   X,
-  Sparkles
+  Sparkles,
+  Eye,
+  EyeOff
 } from "lucide-react";
 
 interface LandingPageProps {
@@ -43,6 +45,11 @@ export default function LandingPage({ onAuthSuccess, language }: LandingPageProp
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
 
   // Lock background scroll when modal is open
   useEffect(() => {
@@ -82,14 +89,35 @@ export default function LandingPage({ onAuthSuccess, language }: LandingPageProp
       const data = await res.json();
 
       if (!res.ok) {
-        if (res.status === 403 && data.email) {
-          // Unverified email, redirect to verify screen
-          setEmailToVerify(data.email);
-          setMode("verify");
-          setError(language === "EN" ? "Please verify your email address to continue" : "Por favor, verifica tu correo electrónico para continuar");
-        } else {
-          setError(data.error || (language === "EN" ? "Invalid email or password" : "Correo o contraseña incorrectos"));
+        if (res.status === 404) {
+          setError(language === "EN"
+            ? "No account found with that email. Would you like to register?"
+            : "No encontramos una cuenta con ese correo. ¿Quieres registrarte?");
+          setMode("signup");
+          return;
         }
+        if (res.status === 403 && data.code === "EMAIL_NOT_VERIFIED") {
+          setError(language === "EN"
+            ? "Account pending verification. Check your email — it may be in Spam."
+            : "Cuenta pendiente de verificación. Revisa tu correo — puede estar en Spam.");
+          setEmailToVerify(email);
+          setMode("verify");
+          return;
+        }
+        if (res.status === 403 && data.code === "ACCOUNT_SUSPENDED") {
+          setError(language === "EN"
+            ? "Account suspended. Contact the administrator."
+            : "Cuenta suspendida. Contacta al administrador.");
+          return;
+        }
+        if (res.status === 401) {
+          setError(language === "EN"
+            ? "Wrong password. Please check your credentials."
+            : "Contraseña incorrecta. Verifica tus credenciales.");
+          return;
+        }
+        
+        setError(data.error || (language === "EN" ? "Authentication failed" : "Error al autenticar"));
         return;
       }
 
@@ -374,13 +402,21 @@ export default function LandingPage({ onAuthSuccess, language }: LandingPageProp
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
                   <input 
-                    type="password"
+                    type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
-                    className="w-full bg-[#05070e] border border-slate-900 rounded-xl pl-9 pr-4 py-2.5 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 transition-colors"
+                    className="w-full bg-[#05070e] border border-slate-900 rounded-xl pl-9 pr-10 py-2.5 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 transition-colors"
                     required
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-slate-300 transition-colors focus:outline-none cursor-pointer"
+                    title={showPassword ? (language === "EN" ? "Hide password" : "Ocultar contraseña") : (language === "EN" ? "Show password" : "Ver contraseña")}
+                  >
+                    {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
                 </div>
                 <div className="flex justify-end mt-1.5">
                   <button 
@@ -482,13 +518,21 @@ export default function LandingPage({ onAuthSuccess, language }: LandingPageProp
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
                   <input 
-                    type="password"
+                    type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
-                    className="w-full bg-[#05070e] border border-slate-900 rounded-xl pl-9 pr-4 py-2 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 transition-colors"
+                    className="w-full bg-[#05070e] border border-slate-900 rounded-xl pl-9 pr-10 py-2 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 transition-colors"
                     required
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-slate-300 transition-colors focus:outline-none cursor-pointer"
+                    title={showPassword ? (language === "EN" ? "Hide password" : "Ocultar contraseña") : (language === "EN" ? "Show password" : "Ver contraseña")}
+                  >
+                    {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
                 </div>
               </div>
 
@@ -499,13 +543,21 @@ export default function LandingPage({ onAuthSuccess, language }: LandingPageProp
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
                   <input 
-                    type="password"
+                    type={showConfirmPassword ? "text" : "password"}
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="••••••••"
-                    className="w-full bg-[#05070e] border border-slate-900 rounded-xl pl-9 pr-4 py-2 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 transition-colors"
+                    className="w-full bg-[#05070e] border border-slate-900 rounded-xl pl-9 pr-10 py-2 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 transition-colors"
                     required
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-slate-300 transition-colors focus:outline-none cursor-pointer"
+                    title={showConfirmPassword ? (language === "EN" ? "Hide password" : "Ocultar contraseña") : (language === "EN" ? "Show password" : "Ver contraseña")}
+                  >
+                    {showConfirmPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
                 </div>
               </div>
             </div>
@@ -730,13 +782,21 @@ export default function LandingPage({ onAuthSuccess, language }: LandingPageProp
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
                   <input 
-                    type="password"
+                    type={showNewPassword ? "text" : "password"}
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="••••••••"
-                    className="w-full bg-[#05070e] border border-slate-900 rounded-xl pl-9 pr-4 py-2 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 transition-colors"
+                    className="w-full bg-[#05070e] border border-slate-900 rounded-xl pl-9 pr-10 py-2 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 transition-colors"
                     required
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword(!showNewPassword)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-slate-300 transition-colors focus:outline-none cursor-pointer"
+                    title={showNewPassword ? (language === "EN" ? "Hide password" : "Ocultar contraseña") : (language === "EN" ? "Show password" : "Ver contraseña")}
+                  >
+                    {showNewPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
                 </div>
               </div>
 
@@ -747,13 +807,21 @@ export default function LandingPage({ onAuthSuccess, language }: LandingPageProp
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
                   <input 
-                    type="password"
+                    type={showConfirmNewPassword ? "text" : "password"}
                     value={confirmNewPassword}
                     onChange={(e) => setConfirmNewPassword(e.target.value)}
                     placeholder="••••••••"
-                    className="w-full bg-[#05070e] border border-slate-900 rounded-xl pl-9 pr-4 py-2 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 transition-colors"
+                    className="w-full bg-[#05070e] border border-slate-900 rounded-xl pl-9 pr-10 py-2 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 transition-colors"
                     required
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmNewPassword(!showConfirmNewPassword)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-slate-300 transition-colors focus:outline-none cursor-pointer"
+                    title={showConfirmNewPassword ? (language === "EN" ? "Hide password" : "Ocultar contraseña") : (language === "EN" ? "Show password" : "Ver contraseña")}
+                  >
+                    {showConfirmNewPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
                 </div>
               </div>
             </div>
@@ -782,10 +850,24 @@ export default function LandingPage({ onAuthSuccess, language }: LandingPageProp
       {/* Header bar */}
       <header className="px-4 sm:px-6 py-4 sm:py-5 flex items-center justify-between border-b border-slate-900/60 bg-[#0f111a]/40 backdrop-blur-md z-10">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center shadow-lg shadow-emerald-500/20">
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-slate-950" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m3 17 6-6 4 4 8-8"/><path d="M17 7h4v4"/></svg>
+          <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center shadow-lg shadow-emerald-500/20 bg-slate-900 border border-emerald-500/30">
+            <img 
+              src="/mascot.png" 
+              onError={(e) => {
+                const target = e.currentTarget;
+                if (target.src.endsWith('/mascot.png')) {
+                  target.src = '/logo.png';
+                } else if (target.src.endsWith('/logo.png')) {
+                  target.src = '/image.png';
+                } else if (target.src.endsWith('/image.png')) {
+                  target.src = '/favicon.svg';
+                }
+              }}
+              alt="investiando.app" 
+              className="w-full h-full object-cover" 
+            />
           </div>
-          <span className="text-sm sm:text-base font-bold tracking-tight text-white font-mono">investiando.ai</span>
+          <span className="text-sm sm:text-base font-bold tracking-tight text-white font-mono">investiando.app</span>
         </div>
 
         <div className="flex items-center gap-2.5 sm:gap-4">

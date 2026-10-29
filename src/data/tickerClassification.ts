@@ -538,6 +538,8 @@ export const TICKER_CLASSIFICATION: Record<string, { sector: string; subsector: 
   "PYPL": { sector: "Financials", subsector: "Transaction & Payment Processing Services", sector_es: "Finanzas", subsector_es: "Servicios Financieros Especializados (Procesamiento de Pagos)" },
   "Q": { sector: "Technology", subsector: "Semiconductor Materials & Equipment", sector_es: "Tecnología", subsector_es: "Materiales y Equipos para Semiconductores" },
   "QCOM": { sector: "Technology", subsector: "Semiconductors", sector_es: "Tecnología", subsector_es: "Semiconductores" },
+  "QQQ": { sector: "Technology", subsector: "ETF", sector_es: "Tecnología", subsector_es: "ETF" },
+  "QQQM": { sector: "Technology", subsector: "ETF", sector_es: "Tecnología", subsector_es: "ETF" },
   "RACE": { sector: "Consumer Discretionary", subsector: "Automobile Manufacturers", sector_es: "Consumo Discrecional", subsector_es: "Fabricantes de Automóviles" },
   "RCL": { sector: "Consumer Discretionary", subsector: "Hotels, Resorts & Cruise Lines", sector_es: "Consumo Discrecional", subsector_es: "Hoteles, Resorts y Cruceros" },
   "REG": { sector: "Real Estate", subsector: "Retail REITs", sector_es: "Bienes Raíces", subsector_es: "REITs Comerciales (Retail)" },
@@ -579,7 +581,11 @@ export const TICKER_CLASSIFICATION: Record<string, { sector: string; subsector: 
   "SITM": { sector: "Technology", subsector: "General", sector_es: "Tecnología", subsector_es: "General" },
   "SJM": { sector: "Consumer Staples", subsector: "Packaged Foods & Meats", sector_es: "Consumo Básico", subsector_es: "Alimentos Envasados y Cárnicos" },
   "SLB": { sector: "Energy", subsector: "Oil & Gas Equipment & Services", sector_es: "Energía", subsector_es: "Equipos y Servicios Petroleros" },
+  "SMH": { sector: "Technology", subsector: "ETF", sector_es: "Tecnología", subsector_es: "ETF" },
   "SMCI": { sector: "Technology", subsector: "Technology Hardware, Storage & Peripherals", sector_es: "Tecnología", subsector_es: "Hardware, Almacenamiento y Periféricos Tecnológicos" },
+  "SOXX": { sector: "Technology", subsector: "ETF", sector_es: "Tecnología", subsector_es: "ETF" },
+  "SOXQ": { sector: "Technology", subsector: "ETF", sector_es: "Tecnología", subsector_es: "ETF" },
+  "SQQQ": { sector: "Technology", subsector: "ETF", sector_es: "Tecnología", subsector_es: "ETF" },
   "SMFG": { sector: "Financials", subsector: "Diversified Banks", sector_es: "Finanzas", subsector_es: "Bancos Diversificados" },
   "SMMT": { sector: "Healthcare", subsector: "General", sector_es: "Salud", subsector_es: "General" },
   "SMTC": { sector: "Technology", subsector: "General", sector_es: "Tecnología", subsector_es: "General" },
@@ -701,10 +707,16 @@ export const TICKER_CLASSIFICATION: Record<string, { sector: string; subsector: 
   "ZBRA": { sector: "Technology", subsector: "Electronic Equipment & Instruments", sector_es: "Tecnología", subsector_es: "Equipos e Instrumentos Electrónicos" },
   "ZS": { sector: "Technology", subsector: "Systems Software", sector_es: "Tecnología", subsector_es: "Software de Sistemas" },
   "ZTS": { sector: "Healthcare", subsector: "Pharmaceuticals", sector_es: "Salud", subsector_es: "Farmacéuticas" },
+  "XLK": { sector: "Technology", subsector: "ETF", sector_es: "Tecnología", subsector_es: "ETF" },
+  "XSD": { sector: "Technology", subsector: "ETF", sector_es: "Tecnología", subsector_es: "ETF" },
+  "TQQQ": { sector: "Technology", subsector: "ETF", sector_es: "Tecnología", subsector_es: "ETF" },
+  "VGT": { sector: "Technology", subsector: "ETF", sector_es: "Tecnología", subsector_es: "ETF" },
+  "FTEC": { sector: "Technology", subsector: "ETF", sector_es: "Tecnología", subsector_es: "ETF" },
 };
 
 export const SECTOR_SUBSECTORS: Record<string, string[]> = {
   "Technology": [
+    "ETF",
     "Semiconductores",
     "Software - Infraestructura",
     "Software - Aplicaciones",

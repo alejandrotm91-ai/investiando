@@ -27,8 +27,12 @@ import {
   Zap,
   Activity,
   Flame,
-  Award
+  Award,
+  FileSpreadsheet
 } from "lucide-react";
+import { getIndustryEpsBenchmark } from "../data/industryEpsBenchmarks";
+import { TICKER_CLASSIFICATION } from "../data/tickerClassification";
+import ThreeStatementModel from "./ThreeStatementModel";
 
 interface BogleAnalysisDashboardProps {
   portfolio: PortfolioData;
@@ -68,6 +72,10 @@ interface StockMetrics {
   buybackYield: number | null;
   fScore?: number | null;
   netIncome?: number | null;
+  sector?: string;
+  industry?: string;
+  avgPe?: number | null;
+  peHistory?: Array<{ year: number | string; date?: string; eps: number; price: number; pe: number; isCurrentYear?: boolean; quarterDate?: string }>;
 }
 
 export default function BogleAnalysisDashboard({
@@ -75,8 +83,8 @@ export default function BogleAnalysisDashboard({
   language = "ES",
   theme = "dark"
 }: BogleAnalysisDashboardProps) {
-  // Tabs: Single Stock Analysis vs. Portfolio-Wide 3 Engines Rollup
-  const [viewMode, setViewMode] = useState<"single" | "portfolio">("single");
+  // Tabs: 3-Statement Model vs. Single Stock Analysis vs. Portfolio-Wide 3 Engines Rollup
+  const [viewMode, setViewMode] = useState<"three-statement" | "single" | "portfolio">("three-statement");
 
   // Selected Ticker for single analysis
   const initialTicker = portfolio.positions.find(p => !p.isCash)?.ticker || "NVDA";
@@ -158,25 +166,28 @@ export default function BogleAnalysisDashboard({
           const sortFn = (a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime();
           const sorted = [...finData.annual].sort(sortFn);
 
-          // EPS CAGR
+          // Diluted EPS CAGR from annual data (matching Financials Income Statement Annual CAGR column)
           const validEps = sorted
-            .map((col, idx) => ({ val: col.basicEPS ?? col.dilutedEPS, idx }))
-            .filter(item => typeof item.val === "number" && !isNaN(item.val as number));
+            .map((col: any, idx: number) => ({
+              val: (col.dilutedEPS !== undefined && col.dilutedEPS !== null) ? col.dilutedEPS : col.basicEPS,
+              idx
+            }))
+            .filter(item => typeof item.val === "number" && !isNaN(item.val as number) && item.val > 0);
 
           if (validEps.length >= 2) {
             const latest = validEps[0];
-            const oldest = [...validEps].reverse().find(item => item.val > 0 && item.idx > latest.idx);
-            if (oldest && latest.val > 0) {
-              const n = oldest.idx - latest.idx;
+            const oldestPositive = [...validEps].reverse().find(item => item.val > 0 && item.idx > latest.idx);
+            if (oldestPositive) {
+              const n = oldestPositive.idx - latest.idx;
               if (n > 0) {
-                basicEpsCagrAnnual = (Math.pow(latest.val / oldest.val, 1 / n) - 1) * 100;
+                basicEpsCagrAnnual = (Math.pow(latest.val / oldestPositive.val, 1 / n) - 1) * 100;
               }
             }
           }
 
           // Buyback Yield via shares reduction CAGR
           const validShares = sorted
-            .map((col, idx) => ({ val: col.ordinarySharesNumber ?? col.shareIssued, idx }))
+            .map((col: any, idx: number) => ({ val: col.ordinarySharesNumber ?? col.shareIssued, idx }))
             .filter(item => typeof item.val === "number" && !isNaN(item.val as number) && item.val > 0);
 
           if (validShares.length >= 2) {
@@ -185,8 +196,8 @@ export default function BogleAnalysisDashboard({
             if (oldestS && latestS.val > 0) {
               const n = oldestS.idx - latestS.idx;
               if (n > 0) {
-                const sCagr = (Math.pow(latestS.val / oldestS.val, 1 / n) - 1) * 100;
-                buybackYield = Math.abs(sCagr);
+                const shareReduction = (Math.pow(latestS.val / oldestS.val, 1 / n) - 1) * 100;
+                buybackYield = shareReduction < 0 ? Math.abs(shareReduction) : 0;
               }
             }
           }
@@ -229,7 +240,9 @@ export default function BogleAnalysisDashboard({
           shareholderYield,
           buybackYield,
           fScore: sData?.piotroskiScore ?? 8,
-          netIncome: sData?.netIncome ?? freeCashFlow * 0.95
+          netIncome: sData?.netIncome ?? freeCashFlow * 0.95,
+          avgPe: finData?.avgPe ?? null,
+          peHistory: finData?.peHistory ?? []
         };
 
         setStockMetrics(metrics);
@@ -266,19 +279,29 @@ export default function BogleAnalysisDashboard({
       const tickers = activePositions.map(p => p.ticker);
 
       try {
-        const finRes = await fetch("/api/portfolio/financials", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tickers })
-        });
-        const fins = finRes.ok ? await finRes.json() : {};
+        // 1. Fetch financials and single stock endpoints in parallel for all holdings
+        const [finRes, ...stockResponses] = await Promise.all([
+          fetch("/api/portfolio/financials", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tickers })
+          }).catch(() => null),
+          ...activePositions.map(pos => fetch(`/api/stock/${pos.ticker}`).catch(() => null))
+        ]);
+
+        const fins = (finRes && finRes.ok) ? await finRes.json() : {};
+        const stockDataList = await Promise.all(
+          stockResponses.map(async (res) => (res && res.ok ? await res.json() : null))
+        );
 
         const map: Record<string, StockMetrics> = {};
 
-        for (const pos of activePositions) {
-          const sRes = await fetch(`/api/stock/${pos.ticker}`);
-          const sData = sRes.ok ? await sRes.json() : null;
-          const finData = fins[pos.ticker] || null;
+        activePositions.forEach((pos, idx) => {
+          const sData = stockDataList[idx];
+          const sym = pos.ticker.toUpperCase();
+          const finData = fins[pos.ticker] || fins[sym] || fins[pos.ticker.replace(/\./g, "-")] || null;
+          const sector = sData?.profile?.sector || TICKER_CLASSIFICATION[sym]?.sector || "";
+          const industry = sData?.profile?.industry || TICKER_CLASSIFICATION[sym]?.subsector || "";
 
           const price = pos.price || sData?.price || 100;
           const trailingEps = sData?.trailingEps ?? (sData?.eps || 4.0);
@@ -288,23 +311,54 @@ export default function BogleAnalysisDashboard({
           const divYield = sData?.dividendYield ? (sData.dividendYield > 1 ? sData.dividendYield : sData.dividendYield * 100) : 0;
           
           let epsCagr = 12.0;
-          let buybackYield = 1.0;
-          if (finData?.annual && finData.annual.length >= 2) {
+          let buybackYield = 0.0;
+
+          if (finData?.annual && Array.isArray(finData.annual) && finData.annual.length >= 2) {
             const sorted = [...finData.annual].sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
-            const valid = sorted.map((c, i) => ({ val: c.basicEPS ?? c.dilutedEPS, idx: i })).filter(x => typeof x.val === "number" && x.val > 0);
+            
+            // Diluted EPS CAGR from annual data (matching Financials Income Statement Annual CAGR column)
+            const valid = sorted
+              .map((c: any, i: number) => ({
+                val: (c.dilutedEPS !== undefined && c.dilutedEPS !== null) ? c.dilutedEPS : c.basicEPS,
+                idx: i
+              }))
+              .filter(x => typeof x.val === "number" && !isNaN(x.val as number) && x.val > 0);
+
             if (valid.length >= 2) {
               const latest = valid[0];
-              const oldest = valid[valid.length - 1];
-              const n = oldest.idx - latest.idx;
-              if (n > 0) epsCagr = (Math.pow(latest.val / oldest.val, 1 / n) - 1) * 100;
+              const oldestPositive = [...valid].reverse().find(item => item.val > 0 && item.idx > latest.idx);
+              if (oldestPositive) {
+                const n = oldestPositive.idx - latest.idx;
+                if (n > 0) {
+                  epsCagr = (Math.pow(latest.val / oldestPositive.val, 1 / n) - 1) * 100;
+                }
+              }
+            } else if (valid.length === 1 && sorted.length >= 2) {
+              // Fallback to revenue or net income growth if only 1 positive EPS
+              const rev0 = sorted[0]?.totalRevenue;
+              const revN = sorted[sorted.length - 1]?.totalRevenue;
+              if (rev0 > 0 && revN > 0) {
+                const n = sorted.length - 1;
+                epsCagr = (Math.pow(rev0 / revN, 1 / n) - 1) * 100;
+              }
             }
-            const validS = sorted.map((c, i) => ({ val: c.ordinarySharesNumber ?? c.shareIssued, idx: i })).filter(x => typeof x.val === "number" && x.val > 0);
+
+            const validS = sorted.map((c: any, i: number) => ({ val: c.ordinarySharesNumber ?? c.shareIssued, idx: i })).filter(x => typeof x.val === "number" && x.val > 0);
             if (validS.length >= 2) {
-              const latest = validS[0];
-              const oldest = validS[validS.length - 1];
-              const n = oldest.idx - latest.idx;
-              if (n > 0) buybackYield = Math.abs((Math.pow(latest.val / oldest.val, 1 / n) - 1) * 100);
+              const latestS = validS[0];
+              const oldestS = [...validS].reverse().find(item => item.val > 0 && item.idx > latestS.idx);
+              if (oldestS) {
+                const n = oldestS.idx - latestS.idx;
+                if (n > 0) {
+                  const shareReduction = (Math.pow(latestS.val / oldestS.val, 1 / n) - 1) * 100;
+                  buybackYield = shareReduction < 0 ? Math.abs(shareReduction) : 0;
+                }
+              }
             }
+          } else if (sData?.earningsGrowth) {
+            epsCagr = sData.earningsGrowth * 100;
+          } else if (sData?.revenueGrowth) {
+            epsCagr = sData.revenueGrowth * 100;
           }
 
           map[pos.ticker] = {
@@ -336,9 +390,13 @@ export default function BogleAnalysisDashboard({
             beta: sData?.beta ?? 1.0,
             basicEpsCagrAnnual: epsCagr,
             shareholderYield: divYield + buybackYield,
-            buybackYield
+            buybackYield,
+            sector,
+            industry,
+            avgPe: finData?.avgPe ?? null,
+            peHistory: finData?.peHistory ?? []
           };
-        }
+        });
 
         if (isMounted) setPortfolioMetricsMap(map);
       } catch (err) {
@@ -385,18 +443,12 @@ export default function BogleAnalysisDashboard({
     const PE0 = PE0_raw && PE0_raw > 0 ? PE0_raw : P0 / EPS_TTM;
     const PE_fwd = PE_fwd_raw && PE_fwd_raw > 0 ? PE_fwd_raw : P0 / EPS_fwd;
 
-    // 1. ENGINE 1 — EPS CAGR
+    // 1. ENGINE 1 — EPS CAGR (Strictly Diluted EPS CAGR from Annual Financials)
     const EPS_CAGR_hist = basicEpsCagrAnnual ?? 12.0;
     const EPS_CAGR_fwd_1Y = ((EPS_fwd / EPS_TTM) - 1) * 100;
 
-    // Model CAGR: Average of historic and forward 1Y, adjusted down if historic > 30%
-    let defaultModelCagr = (EPS_CAGR_hist + EPS_CAGR_fwd_1Y) / 2;
-    if (EPS_CAGR_hist > 50) {
-      defaultModelCagr = Math.min(35, (EPS_CAGR_fwd_1Y * 0.7 + 20));
-    } else if (EPS_CAGR_hist > 30) {
-      defaultModelCagr = (EPS_CAGR_hist * 0.4 + EPS_CAGR_fwd_1Y * 0.6);
-    }
-    const EPS_CAGR_modelo = modelCagrOverride !== null ? modelCagrOverride : Number(defaultModelCagr.toFixed(1));
+    const defaultModelCagr = Number(EPS_CAGR_hist.toFixed(1));
+    const EPS_CAGR_modelo = modelCagrOverride !== null ? modelCagrOverride : defaultModelCagr;
 
     const H = horizonYears;
     const EPS_H = EPS_TTM * Math.pow(1 + EPS_CAGR_modelo / 100, H);
@@ -408,12 +460,18 @@ export default function BogleAnalysisDashboard({
 
     // 3. ENGINE 3 — P/E Multiple Change & Scenarios
     // Historical benchmarks
-    const PE_avg10Y = Number((PE0 * 0.92).toFixed(1));
-    const PE_min10Y = Number((PE0 * 0.72).toFixed(1));
+    const avgPe = (typeof stockMetrics.avgPe === "number" && !isNaN(stockMetrics.avgPe) && stockMetrics.avgPe > 0)
+      ? stockMetrics.avgPe
+      : Number((PE0 * 0.92).toFixed(1));
+    const PE_avg10Y = avgPe;
+    const PE_min10Y = Number((avgPe * 0.72).toFixed(1));
 
-    // Defaults: Base Case = Current P/E (PE0), Bull Case = Base Case + 5%, Bear Case = PE0 * 0.80
+    // Defaults:
+    // Base Case: E3 = 0% (Exit P/E = Current P/E)
+    // Bull Case: Mean reversion to AVG P/E (Exit P/E = avgPe)
+    // Bear Case: Multiple compression (Exit P/E = PE0 * 0.80)
     const defaultPeExitBase = Number(PE0.toFixed(1));
-    const defaultPeExitBull = Number((defaultPeExitBase * 1.05).toFixed(1));
+    const defaultPeExitBull = Number(avgPe.toFixed(1));
     const defaultPeExitBear = Math.max(8, Number((PE0 * 0.80).toFixed(1)));
 
     const peExitBear = peExitBearOverride !== null ? peExitBearOverride : defaultPeExitBear;
@@ -430,9 +488,20 @@ export default function BogleAnalysisDashboard({
 
     // Scenario Calculator Helper
     const computeScenario = (peExit: number) => {
-      const P_H = EPS_H * peExit;
-      const retorno_precio_anual = (Math.pow(P_H / P0, 1 / H) - 1) * 100;
-      const contribE3 = retorno_precio_anual - contribE1;
+      let P_H: number;
+      let retorno_precio_anual: number;
+      let contribE3: number;
+
+      // Base case: multiple stays flat at Current P/E -> E3 is strictly 0%
+      if (Math.abs(peExit - PE0) < 0.05 || peExit === defaultPeExitBase) {
+        retorno_precio_anual = contribE1;
+        contribE3 = 0;
+        P_H = P0 * Math.pow(1 + contribE1 / 100, H);
+      } else {
+        P_H = EPS_H * peExit;
+        retorno_precio_anual = (Math.pow(P_H / P0, 1 / H) - 1) * 100;
+        contribE3 = retorno_precio_anual - contribE1;
+      }
       const retorno_total = retorno_precio_anual + SY;
 
       // Fair value today discounted at hurdle rate
@@ -544,6 +613,8 @@ export default function BogleAnalysisDashboard({
       contribE2,
       PE_avg10Y,
       PE_min10Y,
+      avgPe,
+      peHistory: stockMetrics.peHistory || [],
       peExitBear,
       peExitBase,
       peExitBull,
@@ -578,6 +649,8 @@ export default function BogleAnalysisDashboard({
 
     let weightedE1 = 0;
     let weightedE2 = 0;
+    let weightedAvgPe = 0;
+    let weightedCurrentPe = 0;
     
     const weightedScenarios = {
       bear: { e3: 0, totalReturn: 0, upside: 0 },
@@ -597,7 +670,14 @@ export default function BogleAnalysisDashboard({
           weight,
           mktVal,
           e1: 12.0,
+          rawE1: 12.0,
+          isE1Capped: false,
+          benchmarkIndustry: "",
+          benchmarkCagr: 0,
           e2: 1.5,
+          avgPe: 20.0,
+          peTrailing: 20.0,
+          peHistory: [],
           scenarios: {
             bear: { e3: -5.0, totalReturn: 8.5, fairValue: pos.price || 100, upside: -10.0 },
             base: { e3: -1.0, totalReturn: 12.5, fairValue: pos.price || 100, upside: 5.0 },
@@ -611,24 +691,52 @@ export default function BogleAnalysisDashboard({
       const EPS_fwd = m.forwardEps && m.forwardEps > 0 ? m.forwardEps : EPS_TTM * 1.1;
       const PE0 = m.peTrailing && m.peTrailing > 0 ? m.peTrailing : P0 / EPS_TTM;
       
+      // Engine 1: Exact Diluted EPS CAGR from the Annual Financials CAGR column
       const EPS_CAGR_hist = m.basicEpsCagrAnnual ?? 12.0;
-      const EPS_CAGR_fwd = ((EPS_fwd / EPS_TTM) - 1) * 100;
-      let modelCagr = (EPS_CAGR_hist + EPS_CAGR_fwd) / 2;
-      if (EPS_CAGR_hist > 50) modelCagr = Math.min(32, EPS_CAGR_fwd * 0.7 + 18);
+      const rawE1 = Number(EPS_CAGR_hist.toFixed(1));
+      let e1 = rawE1;
+      let isE1Capped = false;
+      let benchmarkIndustry = "";
+      let benchmarkCagr = 0;
 
-      const e1 = modelCagr;
-      const e2 = m.shareholderYield ?? (m.dividendYield + (m.buybackYield || 0));
+      // Rule: In Portfolio 3 engines rollup, any E1 (EPS) > 80% must use the industry average EPS CAGR
+      if (rawE1 > 80) {
+        const benchmark = getIndustryEpsBenchmark(m.industry, m.sector, pos.ticker);
+        if (benchmark) {
+          e1 = Number(benchmark.cagr.toFixed(1));
+          isE1Capped = true;
+          benchmarkIndustry = benchmark.industry;
+          benchmarkCagr = benchmark.cagr;
+        }
+      }
+
+      const e2 = Number((m.shareholderYield ?? (m.dividendYield + (m.buybackYield || 0))).toFixed(2));
+
+      // AVG P/E: Historical annual P/E average (diluted EPS / year close, current price for ongoing year)
+      const avgPe = (typeof m.avgPe === "number" && !isNaN(m.avgPe) && m.avgPe > 0)
+        ? m.avgPe
+        : Number(PE0.toFixed(1));
 
       const EPS_H = EPS_TTM * Math.pow(1 + e1 / 100, 5);
       
       const defaultPeExitBase = Number(PE0.toFixed(1));
-      const defaultPeExitBull = Number((defaultPeExitBase * 1.05).toFixed(1));
+      const defaultPeExitBull = Number(avgPe.toFixed(1));
       const defaultPeExitBear = Math.max(8, Number((PE0 * 0.80).toFixed(1)));
 
       const calcScenario = (PE_exit: number) => {
-        const P_H = EPS_H * PE_exit;
-        const retPrecio = (Math.pow(P_H / P0, 1 / 5) - 1) * 100;
-        const e3 = retPrecio - e1;
+        let retPrecio: number;
+        let e3: number;
+        let P_H: number;
+
+        if (Math.abs(PE_exit - PE0) < 0.05 || PE_exit === defaultPeExitBase) {
+          retPrecio = e1;
+          e3 = 0;
+          P_H = P0 * Math.pow(1 + e1 / 100, 5);
+        } else {
+          P_H = EPS_H * PE_exit;
+          retPrecio = (Math.pow(P_H / P0, 1 / 5) - 1) * 100;
+          e3 = retPrecio - e1;
+        }
         const totalReturn = retPrecio + e2;
         const fairValue = P_H / Math.pow(1.10, 5); // 10% hurdle rate assumption for portfolio rollup
         const upside = ((fairValue - P0) / P0) * 100;
@@ -641,6 +749,8 @@ export default function BogleAnalysisDashboard({
 
       weightedE1 += (weight / 100) * e1;
       weightedE2 += (weight / 100) * e2;
+      weightedAvgPe += (weight / 100) * avgPe;
+      weightedCurrentPe += (weight / 100) * PE0;
       
       weightedScenarios.bear.e3 += (weight / 100) * bear.e3;
       weightedScenarios.bear.totalReturn += (weight / 100) * bear.totalReturn;
@@ -660,16 +770,28 @@ export default function BogleAnalysisDashboard({
         weight,
         mktVal,
         e1,
+        rawE1,
+        isE1Capped,
+        benchmarkIndustry,
+        benchmarkCagr,
         e2,
+        avgPe,
+        peTrailing: Number(PE0.toFixed(1)),
+        peHistory: m.peHistory || [],
         scenarios: { bear, base, bull }
       };
     });
+
+    const hasCappedHoldings = rows.some(r => r.isE1Capped);
 
     return {
       totalInvested,
       weightedE1,
       weightedE2,
+      weightedAvgPe,
+      weightedCurrentPe,
       weightedScenarios,
+      hasCappedHoldings,
       rows
     };
   }, [portfolio, portfolioMetricsMap]);
@@ -741,7 +863,7 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-12">
+    <div className="space-y-6 w-full max-w-[1580px] mx-auto pb-12">
       {/* Top Banner Header */}
       <div className="bg-[#0f111a]/70 border border-slate-900/60 p-6 sm:p-8 rounded-3xl flex flex-col md:flex-row md:items-center md:justify-between gap-6 shadow-xl backdrop-blur-md relative overflow-hidden">
         <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-emerald-500/20 via-emerald-500/70 to-emerald-500/20" />
@@ -761,35 +883,58 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
           </p>
         </div>
 
-        {/* View Mode Switcher: Single Stock vs. Portfolio Rollup */}
-        <div className="flex items-center bg-[#0f111a]/90 backdrop-blur-md p-1.5 rounded-2xl border border-slate-800/90 shadow-lg shrink-0 self-start md:self-center">
+        {/* View Mode Switcher: 3-Statement vs. Single Stock Bogle vs. Portfolio Rollup */}
+        <div className="flex items-center flex-wrap bg-[#0f111a]/90 backdrop-blur-md p-1.5 rounded-2xl border border-slate-800/90 shadow-lg shrink-0 self-start md:self-center gap-1">
+          <button
+            onClick={() => setViewMode("three-statement")}
+            className={`px-3.5 py-2 rounded-xl text-xs uppercase tracking-wider transition-all duration-200 flex items-center gap-2 cursor-pointer border ${
+              viewMode === "three-statement"
+                ? "bg-emerald-500 text-slate-950 border-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.35)] font-extrabold"
+                : "text-slate-400 border-transparent hover:text-white hover:bg-slate-800/80 font-bold"
+            }`}
+          >
+            <FileSpreadsheet size={14} />
+            <span>{language === "EN" ? "3-Statement & DCF Model" : "Modelo 3 Estados & DCF"}</span>
+          </button>
           <button
             onClick={() => setViewMode("single")}
-            className={`px-4 py-2 rounded-xl text-xs uppercase tracking-wider transition-all duration-200 flex items-center gap-2 cursor-pointer border ${
+            className={`px-3.5 py-2 rounded-xl text-xs uppercase tracking-wider transition-all duration-200 flex items-center gap-2 cursor-pointer border ${
               viewMode === "single"
                 ? "bg-white text-slate-950 border-white shadow-[0_0_20px_rgba(255,255,255,0.22)] font-extrabold"
                 : "text-slate-400 border-transparent hover:text-white hover:bg-slate-800/80 font-bold"
             }`}
           >
             <BarChart3 size={14} />
-            <span>{language === "EN" ? "Single Stock Deep Dive" : "Análisis por Acción"}</span>
+            <span>{language === "EN" ? "Bogle 3 Engines" : "Motores de Bogle"}</span>
           </button>
           <button
             onClick={() => setViewMode("portfolio")}
-            className={`px-4 py-2 rounded-xl text-xs uppercase tracking-wider transition-all duration-200 flex items-center gap-2 cursor-pointer border ${
+            className={`px-3.5 py-2 rounded-xl text-xs uppercase tracking-wider transition-all duration-200 flex items-center gap-2 cursor-pointer border ${
               viewMode === "portfolio"
                 ? "bg-white text-slate-950 border-white shadow-[0_0_20px_rgba(255,255,255,0.22)] font-extrabold"
                 : "text-slate-400 border-transparent hover:text-white hover:bg-slate-800/80 font-bold"
             }`}
           >
             <Layers size={14} />
-            <span>{language === "EN" ? "Portfolio 3 Engines Rollup" : "Agregado Portafolio"}</span>
+            <span>{language === "EN" ? "Portfolio Rollup" : "Agregado Portafolio"}</span>
           </button>
         </div>
       </div>
 
       {/* ========================================================
-          VIEW 1: SINGLE STOCK DEEP DIVE
+          VIEW 0: 3-STATEMENT MODEL & DCF VALUATION (INTEGRATED)
+          ======================================================== */}
+      {viewMode === "three-statement" && (
+        <ThreeStatementModel
+          portfolioTickers={portfolio.positions.filter(p => !p.isCash).map(p => p.ticker)}
+          initialTicker={selectedTicker}
+          language={language}
+          theme={theme}
+        />
+      )}
+
+      {/* ========================================================
+          VIEW 1: SINGLE STOCK DEEP DIVE (BOGLE)
           ======================================================== */}
       {viewMode === "single" && (
         <div className="space-y-6">
@@ -1115,17 +1260,72 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
                       <span>{language === "EN" ? "Current P/E:" : "P/E Actual:"}</span>
                       <span className="font-bold text-purple-400">{calc.PE0 > 0 ? `${calc.PE0.toFixed(1)}×` : "N/A"}</span>
                     </div>
+                    <span className="text-slate-700">|</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-purple-300 font-semibold">{language === "EN" ? "AVG P/E:" : "AVG P/E:"}</span>
+                      <span
+                        className="font-bold text-purple-300 bg-purple-500/15 px-2 py-0.5 rounded border border-purple-500/25 cursor-help"
+                        title={
+                          calc.peHistory && calc.peHistory.length > 0
+                            ? `AVG P/E: ${calc.avgPe.toFixed(1)}×\n` +
+                              calc.peHistory.map(h => `${h.isCurrentYear ? (language === "EN" ? "Current P/E" : "P/E Actual") : `Año ${h.year}`}: ${h.pe.toFixed(1)}×${h.isCurrentYear ? "" : ` (Cierre: $${h.price} / EPS: $${h.eps})`}`).join("\n")
+                            : `AVG P/E: ${calc.avgPe.toFixed(1)}×`
+                        }
+                      >
+                        {calc.avgPe > 0 ? `${calc.avgPe.toFixed(1)}×` : `${calc.PE0.toFixed(1)}×`}
+                      </span>
+                    </div>
                   </div>
                 </div>
+
+                {/* Annual P/E Breakdown bar if history is available */}
+                {calc.peHistory && calc.peHistory.length > 0 && (
+                  <div className="px-4 sm:px-5 py-2.5 bg-purple-950/20 border-b border-purple-900/30 flex items-center justify-between flex-wrap gap-2 text-xs font-mono">
+                    <div className="flex items-center gap-2">
+                      <span className="text-purple-300 font-bold uppercase text-[11px] flex items-center gap-1">
+                        <Activity size={13} />
+                        AVG P/E Breakdown ({calc.peHistory.length} {language === "EN" ? "periods" : "datos"}):
+                      </span>
+                      <span className="text-slate-400 text-[11px] hidden md:inline">
+                        ({language === "EN" ? "4 annual P/Es (Year Close / Diluted EPS) + Current P/E" : "4 P/E anuales (Cierre / BPA diluido) + P/E Actual"}):
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {calc.peHistory.map((h, idx) => (
+                        <div
+                          key={`${h.year}-${h.isCurrentYear ? "curr" : "hist"}-${idx}`}
+                          className={`px-2 py-0.5 rounded text-[11px] border ${h.isCurrentYear ? "bg-purple-500/20 border-purple-400/40 text-purple-200 font-bold" : "bg-slate-900/80 border-slate-800 text-slate-300"}`}
+                          title={`${h.isCurrentYear ? (language === "EN" ? "Current P/E" : "P/E Actual") : `Año ${h.year}`}: ${h.isCurrentYear ? `Current P/E: ${h.pe.toFixed(1)}×` : `Cierre $${h.price} ÷ EPS $${h.eps} = ${h.pe.toFixed(1)}×`}`}
+                        >
+                          <span className="text-slate-400 mr-1">{h.isCurrentYear ? (language === "EN" ? "Current" : "Actual") : h.year}:</span>
+                          <span className="font-bold text-white">{h.pe.toFixed(1)}×</span>
+                        </div>
+                      ))}
+                      <div className="px-2 py-0.5 rounded text-[11px] bg-purple-500/30 border border-purple-400/60 text-purple-100 font-extrabold ml-1">
+                        <span className="mr-1">AVG P/E:</span>
+                        <span>{calc.avgPe.toFixed(1)}×</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs font-mono">
                     <thead className="bg-slate-950/80 text-slate-400 uppercase text-[11px] border-b border-slate-900">
                       <tr>
                         <th className="py-3 px-4 font-bold">{language === "EN" ? "Metric / Component" : "Métrica / Componente"}</th>
-                        <th className="py-3 px-4 text-rose-300 font-bold bg-rose-950/10 border-l border-slate-900">{language === "EN" ? "Bearish (Bajista)" : "Bajista"}</th>
-                        <th className="py-3 px-4 text-emerald-300 font-bold bg-emerald-950/10 border-l border-slate-900">{language === "EN" ? "Base Case (Base)" : "Caso Base"}</th>
-                        <th className="py-3 px-4 text-blue-300 font-bold bg-blue-950/10 border-l border-slate-900">{language === "EN" ? "Bullish (Alcista)" : "Alcista"}</th>
+                        <th className="py-3 px-4 text-rose-300 font-bold bg-rose-950/10 border-l border-slate-900">
+                          {language === "EN" ? "Bearish (Bajista)" : "Bajista"}
+                          <div className="text-[10px] font-normal text-rose-400/80 font-mono">P/E −20%</div>
+                        </th>
+                        <th className="py-3 px-4 text-emerald-300 font-bold bg-emerald-950/10 border-l border-slate-900">
+                          {language === "EN" ? "Base Case (Base)" : "Caso Base"}
+                          <div className="text-[10px] font-normal text-emerald-400/80 font-mono">E3 = 0% ({language === "EN" ? "Current P/E" : "P/E Actual"})</div>
+                        </th>
+                        <th className="py-3 px-4 text-blue-300 font-bold bg-blue-950/10 border-l border-slate-900">
+                          {language === "EN" ? "Bullish (Alcista)" : "Alcista"}
+                          <div className="text-[10px] font-normal text-blue-400/80 font-mono">{language === "EN" ? "Mean Reversion to AVG P/E" : "Retorno a AVG P/E"}</div>
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-900/60 text-slate-300">
@@ -1207,6 +1407,9 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
                       <tr>
                         <td className="py-2.5 px-4 font-sans font-medium text-slate-400">
                           {language === "EN" ? "Engine 3 Contribution (Δ P/E)" : "Contribución Motor 3 (Δ P/E)"}
+                          <span className="block text-[10px] text-slate-500 font-mono">
+                            {language === "EN" ? "Annualized multiple expansion/contraction" : "Expansión/contracción anualizada de múltiplo"}
+                          </span>
                         </td>
                         <td className={`py-2.5 px-4 bg-rose-950/5 border-l border-slate-900 font-bold ${calc.bear.contribE3 >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
                           {calc.bear.contribE3 >= 0 ? "+" : ""}{calc.bear.contribE3.toFixed(1)}%
@@ -1215,7 +1418,14 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
                           {calc.base.contribE3 >= 0 ? "+" : ""}{calc.base.contribE3.toFixed(1)}%
                         </td>
                         <td className={`py-2.5 px-4 bg-blue-950/5 border-l border-slate-900 font-bold ${calc.bull.contribE3 >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                          {calc.bull.contribE3 >= 0 ? "+" : ""}{calc.bull.contribE3.toFixed(1)}%
+                          <div>
+                            <span>{calc.bull.contribE3 >= 0 ? "+" : ""}{calc.bull.contribE3.toFixed(1)}%</span>
+                            {calc.PE0 > 0 && calc.bull.peExit !== calc.PE0 && (
+                              <span className="block text-[10px] font-mono text-blue-300 font-normal">
+                                (Δ total: {((calc.bull.peExit - calc.PE0) / calc.PE0 * 100) >= 0 ? "+" : ""}{((calc.bull.peExit - calc.PE0) / calc.PE0 * 100).toFixed(1)}%)
+                              </span>
+                            )}
+                          </div>
                         </td>
                       </tr>
 
@@ -1313,8 +1523,16 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
                 {portfolioRollup.weightedE1 >= 0 ? "+" : ""}{portfolioRollup.weightedE1.toFixed(1)}%
                 <span className="text-xs font-sans font-medium text-slate-400 ml-1.5">{language === "EN" ? "/ yr" : "/ año"}</span>
               </div>
-              <div className="mt-2 text-[11px] text-slate-400 font-mono border-t border-slate-800/60 pt-2">
-                {language === "EN" ? "Fundamental portfolio EPS growth" : "Crecimiento fundamental ponderado"}
+              <div className="mt-2 text-[11px] text-slate-400 font-mono border-t border-slate-800/60 pt-2 flex items-center justify-between">
+                <span>{language === "EN" ? "Fundamental portfolio EPS growth" : "Crecimiento fundamental ponderado"}</span>
+                {portfolioRollup.hasCappedHoldings && (
+                  <span 
+                    className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20 font-bold tracking-tight"
+                    title={language === "EN" ? "High-growth assets (>80%) normalized to industry consensus average" : "Activos con E1 > 80% normalizados al promedio de la industria"}
+                  >
+                    {language === "EN" ? "Industry Normalized" : "Normalizado x Industria"}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -1347,8 +1565,11 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
                 {portfolioRollup.weightedScenarios[activeScenario].e3 >= 0 ? "+" : ""}{portfolioRollup.weightedScenarios[activeScenario].e3.toFixed(1)}%
                 <span className="text-xs font-sans font-medium text-slate-400 ml-1.5">{language === "EN" ? "/ yr" : "/ año"}</span>
               </div>
-              <div className="mt-2 text-[11px] text-slate-400 font-mono border-t border-slate-800/60 pt-2">
-                {language === "EN" ? `Mean-reverting multiple change (${activeScenario})` : `Cambio de múltiplo ponderado (${activeScenario})`}
+              <div className="mt-2 text-[11px] text-slate-400 font-mono border-t border-slate-800/60 pt-2 flex justify-between items-center">
+                <span>{language === "EN" ? `Multiple reversion (${activeScenario})` : `Reversión múltiplo (${activeScenario})`}</span>
+                <span className="text-purple-300 font-bold" title="P/E Actual ponderado vs AVG P/E ponderado">
+                  {portfolioRollup.weightedCurrentPe.toFixed(1)}× → {portfolioRollup.weightedAvgPe.toFixed(1)}×
+                </span>
               </div>
             </div>
 
@@ -1391,7 +1612,9 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
                   {language === "EN" ? "PORTFOLIO HOLDINGS 3 ENGINES BREAKDOWN" : "DESGLOSE DE LOS 3 MOTORES POR POSICIÓN"}
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  {language === "EN" ? `Individual contributions and fair value for every asset in your portfolio (${activeScenario} scenario).` : `Contribuciones individuales y valor razonable para cada posición de tu portafolio (escenario ${activeScenario}).`}
+                  {language === "EN" 
+                    ? `Individual contributions and fair value for every asset in your portfolio (${activeScenario} scenario). E1 values > 80% use industry consensus EPS.` 
+                    : `Contribuciones individuales y valor razonable para cada posición de tu portafolio (escenario ${activeScenario}). Valores E1 > 80% usan el promedio de su industria.`}
                 </p>
               </div>
             </div>
@@ -1404,6 +1627,9 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
                     <th className="py-3 px-3 text-right font-bold">{language === "EN" ? "Weight" : "Peso"}</th>
                     <th className="py-3 px-3 text-right text-emerald-400 font-bold">{language === "EN" ? "E1 (EPS)" : "E1 (EPS)"}</th>
                     <th className="py-3 px-3 text-right text-blue-400 font-bold">{language === "EN" ? "E2 (SY)" : "E2 (SY)"}</th>
+                    <th className="py-3 px-3 text-right text-purple-400 font-bold cursor-help" title={language === "EN" ? "Average annual P/E (Year-end close / Diluted EPS, ongoing year uses current price)" : "Promedio P/E anual (Cierre de año / BPA diluido, año en curso con precio actual)"}>
+                      {language === "EN" ? "AVG P/E" : "AVG P/E"}
+                    </th>
                     <th className="py-3 px-3 text-right text-purple-400 font-bold">{language === "EN" ? "E3 (ΔP/E)" : "E3 (ΔP/E)"}</th>
                     <th className="py-3 px-3 text-right text-white font-bold">{language === "EN" ? "Total Return" : "Retorno Total"}</th>
                     <th className="py-3 px-3 text-right font-bold">{language === "EN" ? "Fair Value" : "Valor Razonable"}</th>
@@ -1421,11 +1647,30 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
                         <span className="truncate max-w-[150px] text-slate-300">{row.name}</span>
                       </td>
                       <td className="py-3 px-3 text-right font-bold text-slate-300">{row.weight.toFixed(1)}%</td>
-                      <td className={`py-3 px-3 text-right font-bold ${row.e1 >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                        {row.e1 >= 0 ? "+" : ""}{row.e1.toFixed(1)}%
+                      <td className={`py-3 px-3 text-right font-bold ${row.isE1Capped ? "text-amber-400" : row.e1 >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                        <span
+                          title={row.isE1Capped ? (language === "EN"
+                            ? `Historical EPS CAGR (${row.rawE1.toFixed(1)}%) exceeds 80%. Normalized to ${row.benchmarkIndustry} consensus: ${row.e1.toFixed(1)}%`
+                            : `CAGR EPS histórico (${row.rawE1.toFixed(1)}%) supera el 80%. Normalizado al promedio de la industria ${row.benchmarkIndustry}: ${row.e1.toFixed(1)}%`) : undefined}
+                        >
+                          {row.e1 >= 0 ? "+" : ""}{row.e1.toFixed(1)}%
+                        </span>
                       </td>
                       <td className={`py-3 px-3 text-right font-bold ${row.e2 >= 0 ? "text-blue-400" : "text-rose-400"}`}>
                         {row.e2 >= 0 ? "+" : ""}{row.e2.toFixed(2)}%
+                      </td>
+                      <td className="py-3 px-3 text-right font-bold text-purple-300">
+                        <span
+                          className="hover:underline cursor-help"
+                          title={
+                            row.peHistory && row.peHistory.length > 0
+                              ? `AVG P/E: ${row.avgPe.toFixed(1)}×\n` +
+                                row.peHistory.map(h => `${h.isCurrentYear ? (language === "EN" ? "Current P/E" : "P/E Actual") : `Año ${h.year}`}: ${h.pe.toFixed(1)}×${h.isCurrentYear ? "" : ` (Cierre: $${h.price} / EPS: $${h.eps})`}`).join("\n")
+                              : `AVG P/E: ${row.avgPe.toFixed(1)}× (P/E actual: ${row.peTrailing.toFixed(1)}×)`
+                          }
+                        >
+                          {row.avgPe > 0 ? `${row.avgPe.toFixed(1)}×` : `${row.peTrailing.toFixed(1)}×`}
+                        </span>
                       </td>
                       <td className={`py-3 px-3 text-right font-bold ${row.scenarios[activeScenario].e3 >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
                         {row.scenarios[activeScenario].e3 >= 0 ? "+" : ""}{row.scenarios[activeScenario].e3.toFixed(1)}%

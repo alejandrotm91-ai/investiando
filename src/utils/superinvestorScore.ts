@@ -34,7 +34,7 @@ export function calculateFundScore(si: SuperinvestorMeta): SuperinvestorScoreInf
   const result = calculatePortfolioScoreFromMatrix(stockHoldings);
 
   return {
-    score: result.score,
+    score: Math.ceil(result.score),
     grade: result.grade,
     labelEN: result.labelEN,
     labelES: result.labelES,
@@ -56,7 +56,7 @@ export const SUPERINVESTOR_SCORES: Record<string, SuperinvestorScoreInfo> = Obje
 /** Combined portfolio score */
 export const COMBINED_SUPERINVESTOR_SCORE: SuperinvestorScoreInfo = (() => {
   const allScores = Object.values(SUPERINVESTOR_SCORES);
-  const avg = Math.round(allScores.reduce((sum, s) => sum + s.score, 0) / (allScores.length || 1));
+  const avg = Math.ceil(allScores.reduce((sum, s) => sum + s.score, 0) / (allScores.length || 1));
   return {
     score: avg,
     grade: avg >= 75 ? "A" : avg >= 65 ? "B+" : "B",

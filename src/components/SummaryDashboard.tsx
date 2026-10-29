@@ -13,23 +13,27 @@ import {
   Cell,
   Legend,
 } from "recharts";
-import { TrendingUp, TrendingDown, DollarSign, Wallet, ArrowUpRight, ArrowDownRight, Activity, Calendar, Loader2, PieChart as PieChartIcon, ChevronDown, ChevronRight, BarChart3, Eye, EyeOff } from "lucide-react";
+import { TrendingUp, TrendingDown, DollarSign, Wallet, ArrowUpRight, ArrowDownRight, Activity, Calendar, Loader2, PieChart as PieChartIcon, ChevronDown, ChevronRight, BarChart3, Rocket, Eye, EyeOff, X } from "lucide-react";
 import { getTickerSector, getSectorSpanish, getSectorColor, getTickerBeta, getTickerSubsector, getDividendPerShare } from "./HoldingsTable";
+import { PortfolioDistributionDonut } from "./PortfolioDistributionDonut";
 import { getRawFeatures, buildScores, overrideFeaturesWithFinancials } from "../utils/engine";
 import { calculatePortfolioScoreFromMatrix, getStockScore } from "../utils/stockScoresMatrix";
+import { getCachedFinancials, getAllCachedFinancials, setCachedFinancials } from "../utils/financialsCache";
 
 const BENCHMARK_METRICS = {
   SP500: {
     pe: 25.2,
     fwdPe: 21.4,
     peg: 1.80,
-    beta: 1.00
+    beta: 1.00,
+    top50Concentration: 45
   },
   QQQ: {
     pe: 32.5,
     fwdPe: 26.2,
     peg: 1.55,
-    beta: 1.18
+    beta: 1.18,
+    top50Concentration: 11
   }
 };
 
@@ -76,11 +80,25 @@ interface SummaryDashboardProps {
   portfolioName?: string;
   isReadOnly?: boolean;
   theme?: "dark" | "light";
+  financialsMap?: Record<string, { annual: any[]; quarterly: any[] }>;
 }
 
-export default function SummaryDashboard({ portfolio, onSelectTickerForChart, onNavigateToHealth, language = "ES", portfolioName, isReadOnly = false, theme = "dark" }: SummaryDashboardProps) {
+export default function SummaryDashboard({ 
+  portfolio, 
+  onSelectTickerForChart, 
+  onNavigateToHealth, 
+  language = "ES", 
+  portfolioName, 
+  isReadOnly = false, 
+  theme = "dark",
+  financialsMap: propFinancialsMap,
+}: SummaryDashboardProps) {
   const [chartSymbol, setChartSymbol] = useState<string>("PORTFOLIO");
-  const [timeframe, setTimeframe] = useState<string>("1M");
+  
+  const validPositions = React.useMemo(() => {
+    return portfolio?.positions ? portfolio.positions.filter(p => p.ticker !== "MARGIN_PAID") : [];
+  }, [portfolio?.positions]);
+  const [timeframe, setTimeframe] = useState<string>("YTD");
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
   const [loadingChart, setLoadingChart] = useState<boolean>(false);
   const [expandedSectors, setExpandedSectors] = useState<Record<string, boolean>>({});
@@ -88,57 +106,76 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
   const [benchmarkToggle, setBenchmarkToggle] = useState<"SP500" | "QQQ">("SP500");
   const [showPortfolioTotal, setShowPortfolioTotal] = useState<boolean>(true);
+  const [mobileDynamicsModal, setMobileDynamicsModal] = useState<"up" | "down" | null>(null);
+  
+  const [years, setYears] = useState<number>(10);
+  const [monthlyAddition, setMonthlyAddition] = useState<number>(500);
+  const [cagr, setCagr] = useState<number>(10);
 
-  const [financialsMap, setFinancialsMap] = useState<Record<string, { annual: any[]; quarterly: any[] }>>({});
+  const handleSelectTicker = (ticker: string | null) => {
+    setSelectedTicker(ticker);
+    const nextSymbol = ticker || "PORTFOLIO";
+    setChartSymbol(nextSymbol);
+    if (onSelectTickerForChart) {
+      onSelectTickerForChart(nextSymbol);
+    }
+  };
+
+  const [localFinancialsMap, setLocalFinancialsMap] = useState<Record<string, { annual: any[]; quarterly: any[] }>>(() => getAllCachedFinancials());
+
+  const effectiveFinancialsMap = React.useMemo(() => {
+    return {
+      ...getAllCachedFinancials(),
+      ...(propFinancialsMap || {}),
+      ...localFinancialsMap,
+    };
+  }, [propFinancialsMap, localFinancialsMap]);
 
   useEffect(() => {
     const fetchAllFinancials = async () => {
-      if (!portfolio || !portfolio.positions) return;
-      const tickersToFetch = Array.from(new Set(portfolio.positions.filter(p => !p.isCash).map(p => p.ticker)));
-      const results = await Promise.all(tickersToFetch.map(async t => {
-        try {
-          const res = await fetch("/api/portfolio/financials", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ticker: t })
-          });
-          const data = await res.json();
-          return { ticker: t, data };
-        } catch (e) {
-          return { ticker: t, data: null };
-        }
-      }));
-      const newMap: any = {};
-      const sortFn = (a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime();
-      results.forEach(r => {
-        if (r.data && !r.data.error) {
-          if (Array.isArray(r.data.annual)) r.data.annual.sort(sortFn);
-          if (Array.isArray(r.data.quarterly)) r.data.quarterly.sort(sortFn);
-          newMap[r.ticker] = r.data;
-        }
-      });
-      setFinancialsMap(newMap);
+      if (!portfolio || !validPositions) return;
+      const tickersToFetch: string[] = Array.from(new Set(validPositions.filter(p => !p.isCash && p.ticker && p.ticker.toUpperCase() !== "CASH" && p.ticker.toUpperCase() !== "USD").map(p => p.ticker)));
+      if (tickersToFetch.length === 0) return;
+
+      const missing = tickersToFetch.filter((t: string) => !getCachedFinancials(t));
+      if (missing.length > 0) {
+        const results = await Promise.all(missing.map(async t => {
+          try {
+            const res = await fetch("/api/portfolio/financials", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ticker: t })
+            });
+            const data = await res.json();
+            return { ticker: t, data };
+          } catch (e) {
+            return { ticker: t, data: null };
+          }
+        }));
+        const sortFn = (a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime();
+        results.forEach(r => {
+          if (r.data && !r.data.error) {
+            if (Array.isArray(r.data.annual)) r.data.annual.sort(sortFn);
+            if (Array.isArray(r.data.quarterly)) r.data.quarterly.sort(sortFn);
+            setCachedFinancials(r.ticker, r.data);
+          }
+        });
+      }
+      setLocalFinancialsMap(getAllCachedFinancials());
     };
     fetchAllFinancials();
   }, [portfolio]);
 
-  const portfolioWeightedScore = React.useMemo(() => {
-    if (!portfolio || !portfolio.positions) return 0;
-    const stockPositions = portfolio.positions.filter(p => !p.isCash);
-    if (stockPositions.length === 0) return 0;
-    
-    const result = calculatePortfolioScoreFromMatrix(stockPositions);
-    return result.score;
-  }, [portfolio]);
-
-  const portfolioWeightedType = React.useMemo(() => {
-    if (!portfolio || !portfolio.positions) return null;
-    const stockPositions = portfolio.positions.filter(p => !p.isCash);
+  const portfolioWeightedHealth = React.useMemo(() => {
+    if (!portfolio || !validPositions) return null;
+    const stockPositions = validPositions.filter(p => !p.isCash);
     if (stockPositions.length === 0) return null;
     
-    const result = calculatePortfolioScoreFromMatrix(stockPositions);
-    return result.dominantType;
-  }, [portfolio]);
+    return calculatePortfolioScoreFromMatrix(stockPositions, effectiveFinancialsMap);
+  }, [portfolio, effectiveFinancialsMap]);
+
+  const portfolioWeightedScore = portfolioWeightedHealth ? portfolioWeightedHealth.score : 0;
+  const portfolioWeightedType = portfolioWeightedHealth ? portfolioWeightedHealth.dominantType : null;
 
   const getTypeBadgeConfig = (type: string | undefined | null) => {
     if (!type) return { icon: "❓", className: "badge-type-unknown" };
@@ -312,7 +349,7 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
     const items = [
       {
         id: "selection",
-        name: chartSymbol === "PORTFOLIO" ? (portfolioName || (language === "EN" ? "My Portfolio" : "Mi Portafolio")) : `${chartSymbol}`,
+        name: chartSymbol === "PORTFOLIO" ? ((!portfolioName || portfolioName === "Mi Portafolio" || portfolioName === "My Portfolio") ? (language === "EN" ? "My Portfolio" : "Mi Portafolio") : portfolioName) : `${chartSymbol}`,
         returnVal: latestReturns?.selection,
         dotClass: theme === "light" ? "bg-[#0e6245]" : "bg-white",
         textClass: "text-slate-300",
@@ -367,13 +404,13 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
       return (
         <div className="bg-slate-955/95 backdrop-blur-md border border-slate-800 p-4 rounded-2xl shadow-2xl min-w-[210px] flex flex-col gap-2.5 z-50">
           <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-800/60 pb-2">
-            Fecha: {formattedDate}
+            {language === "EN" ? "Date:" : "Fecha:"} {formattedDate}
           </p>
           <div className="flex flex-col gap-2">
             {sortedPayload.map((item: any, idx: number) => {
               const isSelection = item.name === "selection";
               const labelName = isSelection
-                ? (chartSymbol === "PORTFOLIO" ? (portfolioName || (language === "EN" ? "My Portfolio" : "Mi Portafolio")) : chartSymbol)
+                ? (chartSymbol === "PORTFOLIO" ? ((!portfolioName || portfolioName === "Mi Portafolio" || portfolioName === "My Portfolio") ? (language === "EN" ? "My Portfolio" : "Mi Portafolio") : portfolioName) : chartSymbol)
                 : item.name === "voo" ? "S&P 500" : "NASDAQ-100";
 
               const textClass = isSelection
@@ -419,7 +456,7 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
           body: JSON.stringify({
             symbol: chartSymbol,
             timeframe: timeframe,
-            positions: portfolio.positions,
+            positions: validPositions,
           }),
         });
         if (!response.ok) {
@@ -430,12 +467,12 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
           if (Array.isArray(data) && data.length > 0) {
             setChartData(data);
           } else {
-            setChartData(generateFallbackChartData(chartSymbol, timeframe, portfolio.positions));
+            setChartData(generateFallbackChartData(chartSymbol, timeframe, validPositions));
           }
         }
       } catch (err) {
         if (active) {
-          setChartData(generateFallbackChartData(chartSymbol, timeframe, portfolio.positions));
+          setChartData(generateFallbackChartData(chartSymbol, timeframe, validPositions));
         }
       } finally {
         if (active) setLoadingChart(false);
@@ -446,10 +483,10 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
     return () => {
       active = false;
     };
-  }, [chartSymbol, timeframe, portfolio.positions]);
+  }, [chartSymbol, timeframe, validPositions]);
 
   // Identify top gainer and top loser in portfolio (excluding Cash)
-  const stockPositions = portfolio.positions.filter((p) => !p.isCash);
+  const stockPositions = validPositions.filter((p) => !p.isCash);
   const sortedByDailyChg = [...stockPositions].sort((a, b) => b.chgPct - a.chgPct);
   const topGainer = sortedByDailyChg[0];
   const topLoser = sortedByDailyChg[sortedByDailyChg.length - 1];
@@ -457,7 +494,7 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
   // Auto-expand sector when a ticker is selected
   useEffect(() => {
     if (selectedTicker) {
-      const pos = portfolio.positions.find(p => p.ticker === selectedTicker);
+      const pos = validPositions.find(p => p.ticker === selectedTicker);
       if (pos) {
         const sector = getTickerSector(pos.ticker, pos.isCash);
         setExpandedSectors(prev => ({
@@ -466,10 +503,10 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
         }));
       }
     }
-  }, [selectedTicker, portfolio.positions]);
+  }, [selectedTicker, validPositions]);
 
   // Allocation pie chart data
-  const pieData = portfolio.positions.map((pos) => ({
+  const pieData = validPositions.map((pos) => ({
     name: pos.ticker,
     value: Number(pos.mktValue.toFixed(2)),
     weight: pos.weight,
@@ -477,8 +514,8 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
 
   // Filter positions for pie chart if a sector is selected
   const filteredPositionsForPie = selectedSector
-    ? portfolio.positions.filter(pos => getTickerSector(pos.ticker, pos.isCash) === selectedSector)
-    : portfolio.positions;
+    ? validPositions.filter(pos => getTickerSector(pos.ticker, pos.isCash) === selectedSector)
+    : validPositions;
 
   // Pie chart total value
   const pieTotalValue = selectedSector
@@ -538,7 +575,7 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
     "#64748b", // slate-500
   ];
 
-  const cashPosition = portfolio.positions.find((p) => p.isCash);
+  const cashPosition = validPositions.find((p) => p.isCash);
   const cashAmount = cashPosition ? cashPosition.mktValue : 0;
 
   const formatNumber = (val: number | null, decimals = 2) => {
@@ -547,7 +584,7 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
   };
 
   // Sort positions: Stocks first (by market value desc), Cash last
-  const sortedPositions = [...portfolio.positions].sort((a, b) => {
+  const sortedPositions = [...validPositions].sort((a, b) => {
     if (a.isCash) return 1;
     if (b.isCash) return -1;
     return b.mktValue - a.mktValue;
@@ -555,7 +592,7 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
 
   const sectorSubsectors = sortedPositions.reduce((acc, pos) => {
     const sector = getTickerSector(pos.ticker, pos.isCash);
-    const subsector = getTickerSubsector(pos.ticker, pos.isCash);
+    const subsector = getTickerSubsector(pos.ticker, pos.isCash, language === "EN" ? "EN" : "ES");
     if (!acc[sector]) {
       acc[sector] = {};
     }
@@ -581,7 +618,7 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
   }, {} as Record<string, number>);
 
   // Sort sectors by weight descending
-  const sortedSectors = Object.entries(sectorWeights)
+  const sortedSectors = (Object.entries(sectorWeights) as [string, number][])
     .map(([name, weight]) => ({
       name,
       weight,
@@ -592,13 +629,17 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
   // Filter sectors if a specific position is selected
   const filteredSectors = selectedTicker
     ? sortedSectors.filter(s => 
-        portfolio.positions.some(pos => 
+        validPositions.some(pos => 
           pos.ticker === selectedTicker && getTickerSector(pos.ticker, pos.isCash) === s.name
         )
       )
     : sortedSectors;
 
   // 2. Weighted Multiples & Metrics
+  const selectedPosition = selectedTicker
+    ? validPositions.find((p) => p.ticker === selectedTicker)
+    : null;
+
   const totalWeight = sortedPositions.reduce((sum, p) => sum + p.weight, 0);
 
   // Weighted Beta
@@ -632,8 +673,23 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
   const top3Concentration = sortedByWeight.slice(0, 3).reduce((sum, p) => sum + p.weight, 0);
   const top3Positions = sortedByWeight.slice(0, 3);
 
+  // 4. Concentration for 50% of portfolio
+  const validPositionsByWeight = sortedByWeight.filter(p => p.mktValue > 0 || p.weight > 0);
+  let cumulativeWeight50 = 0;
+  let positionsCountFor50 = 0;
+  const topPositionsFor50: typeof sortedPositions = [];
+
+  for (const pos of validPositionsByWeight) {
+    if (cumulativeWeight50 >= 50 && positionsCountFor50 > 0) {
+      break;
+    }
+    cumulativeWeight50 += pos.weight;
+    positionsCountFor50++;
+    topPositionsFor50.push(pos);
+  }
+
   // Daily P&L dynamics calculations
-  const stockPositionsForPnL = portfolio.positions.filter(p => !p.isCash);
+  const stockPositionsForPnL = validPositions.filter(p => !p.isCash);
   const upPositions = stockPositionsForPnL.filter(p => p.dailyPnL > 0);
   const downPositions = stockPositionsForPnL.filter(p => p.dailyPnL < 0);
 
@@ -658,28 +714,123 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
   const sortedUpPositions = [...upPositions].sort((a, b) => b.dailyPnL - a.dailyPnL);
   const sortedDownPositions = [...downPositions].sort((a, b) => a.dailyPnL - b.dailyPnL);
 
-  const portfolioCost = portfolio.totals.costBasis ?? portfolio.positions.reduce(
+  const portfolioCost = portfolio.totals.costBasis ?? validPositions.reduce(
     (sum, pos) => sum + pos.shares * pos.avgCost,
     0
   );
 
-  const totalDividendIncome = (portfolio.positions || []).reduce((acc, pos) => {
+  const totalDividendIncome = (validPositions || []).reduce((acc, pos) => {
     if (pos.isCash) return acc;
     const rate = getDividendPerShare(pos);
     return acc + (rate !== null ? rate * pos.shares : 0);
   }, 0);
 
+  // Portfolio Projections Logic
+  const formatAbbreviatedK = (val: number) => {
+    if (val >= 1000000) return `$${(val / 1000000).toFixed(2)}M`;
+    if (val >= 1000) return `$${(val / 1000).toFixed(0)}k`;
+    return `$${val.toFixed(0)}`;
+  };
+  const effectiveGrowthRate = cagr / 100;
+  const currentYear = new Date().getFullYear();
+  const projectionsMktValue = portfolio.totals.mktValue || 0;
+
+  const projectionsChartData = React.useMemo(() => {
+    let currentValue = projectionsMktValue;
+    const data = [];
+    data.push({
+      year: String(currentYear),
+      value: Math.round(currentValue),
+    });
+
+    const totalMonths = years * 12;
+    const monthlyRate = Math.pow(1 + effectiveGrowthRate, 1 / 12) - 1;
+
+    for (let m = 1; m <= totalMonths; m++) {
+      currentValue = currentValue * (1 + monthlyRate) + monthlyAddition;
+      if (m % 12 === 0) {
+        const yearNum = currentYear + (m / 12);
+        data.push({
+          year: String(yearNum),
+          value: Math.round(currentValue),
+        });
+      }
+    }
+    return data;
+  }, [projectionsMktValue, years, effectiveGrowthRate, monthlyAddition, currentYear]);
+
+  const projectedTotalValue = React.useMemo(() => {
+    if (projectionsChartData.length === 0) return 0;
+    return projectionsChartData[projectionsChartData.length - 1].value;
+  }, [projectionsChartData]);
+
+  const portfolioTargets = React.useMemo(() => {
+    let fiftyTwoWkHigh = 0;
+    let avgTarget = 0;
+    let highTarget = 0;
+
+    validPositions.forEach(p => {
+      if (p.isCash) {
+        fiftyTwoWkHigh += p.mktValue || 0;
+        avgTarget += p.mktValue || 0;
+        highTarget += p.mktValue || 0;
+      } else {
+        const h52 = p.fiftyTwoWeekHigh || p.price || 0;
+        const meanT = p.targetMeanPrice || p.price || 0;
+        const highT = p.targetHighPrice || p.price || 0;
+        
+        fiftyTwoWkHigh += p.shares * h52;
+        avgTarget += p.shares * meanT;
+        highTarget += p.shares * highT;
+      }
+    });
+
+    return { fiftyTwoWkHigh, avgTarget, highTarget };
+  }, [validPositions]);
+
+  const marginMetrics = React.useMemo(() => {
+    const marginPositions = validPositions.filter(p => p.isMargin && !p.isCash);
+    const costBasis = marginPositions.reduce((sum, p) => sum + (p.shares * p.avgCost), 0);
+    const mktValue = marginPositions.reduce((sum, p) => sum + (p.mktValue || (p.shares * p.price)), 0);
+    const gain = mktValue - costBasis;
+    const gainPct = costBasis > 0 ? (gain / costBasis) * 100 : 0;
+    return { gain, gainPct, costBasis, mktValue };
+  }, [validPositions]);
+
+  const val5y = React.useMemo(() => {
+    let currentValue = projectionsMktValue;
+    const rate = cagr / 100;
+    const monthlyRate = Math.pow(1 + rate, 1 / 12) - 1;
+    for (let m = 1; m <= 5 * 12; m++) {
+      currentValue = currentValue * (1 + monthlyRate) + monthlyAddition;
+    }
+    return currentValue;
+  }, [projectionsMktValue, cagr, monthlyAddition]);
+
+  const val10y = React.useMemo(() => {
+    let currentValue = projectionsMktValue;
+    const rate = cagr / 100;
+    const monthlyRate = Math.pow(1 + rate, 1 / 12) - 1;
+    for (let m = 1; m <= 10 * 12; m++) {
+      currentValue = currentValue * (1 + monthlyRate) + monthlyAddition;
+    }
+    return currentValue;
+  }, [projectionsMktValue, cagr, monthlyAddition]);
+
   return (
     <div className="space-y-6" id="summary-section">
       <div className="flex flex-col lg:flex-row gap-4 items-stretch">
         {/* Card 1: Combined Portfolio Value & Daily Dynamics (Stacked Vertically) */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-5 hover:border-slate-700 transition-all shadow-xl flex flex-col justify-between w-full lg:w-[320px] shrink-0">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-4 hover:border-slate-700 transition-all shadow-xl flex flex-col justify-between w-full lg:w-[320px] xl:w-[340px] 2xl:w-[360px] shrink-0">
           <div>
             {/* Top Part: Portfolio Valuation */}
             <div>
-              <div className="flex items-start justify-between text-slate-400 mb-1 sm:mb-1.5">
-                <span className="text-[11px] sm:text-xs font-semibold uppercase tracking-wider mt-0.5 sm:mt-1">
+              <div className="flex items-center justify-between h-7 text-slate-400 mb-2">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 truncate">
                   {language === "ES" ? "Valor del Portafolio" : "Portfolio Value"}
+                </span>
+                <span className="p-1.5 bg-sky-500/10 text-sky-400 rounded-xl shrink-0 flex items-center justify-center">
+                  <Wallet size={14} />
                 </span>
               </div>
               <div className="flex items-center justify-between gap-2">
@@ -687,13 +838,13 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
                   {formatValuation(portfolio.totals.mktValue)}
                 </h3>
               </div>
-              <div className="text-[11px] sm:text-xs text-slate-400 mt-1 flex items-center justify-between font-medium">
+              <div className="text-[11px] sm:text-xs text-slate-400 mt-0.5 flex items-center justify-between font-medium">
                 <span>{language === "ES" ? "Costo del Portafolio:" : "Portfolio Cost:"}</span>
                 <span className="font-mono text-slate-300 font-semibold">{formatValuation(portfolioCost)}</span>
               </div>
               
-              {/* Informative metrics breakdown - ultra compact on mobile */}
-              <div className="grid grid-cols-2 sm:flex sm:flex-col gap-1.5 sm:gap-2 mt-2.5 sm:mt-3.5">
+              {/* Informative metrics breakdown - ultra compact */}
+              <div className="grid grid-cols-2 sm:flex sm:flex-col gap-1 sm:gap-1.5 mt-2 sm:mt-2.5">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-1.5 sm:p-0 rounded-xl sm:rounded-none bg-slate-950/40 sm:bg-transparent border border-slate-800/40 sm:border-0 text-xs sm:text-sm">
                   <span className="text-[10px] sm:text-xs text-slate-400 font-medium">{language === "ES" ? "Histórico:" : "Historic:"}</span>
                   <span className={`font-semibold flex items-center gap-0.5 sm:gap-1 text-xs sm:text-sm ${portfolio.totals.totalReturn >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
@@ -739,11 +890,11 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
             </div>
 
             {/* Divider */}
-            <div className="border-t border-slate-800/60 my-3 sm:my-6" />
+            <div className="border-t border-slate-800/60 my-2.5 sm:my-3" />
 
             {/* Bottom Part: Daily Dynamics */}
             <div>
-              <div className="flex items-center justify-between text-slate-400 mb-2.5">
+              <div className="flex items-center justify-between text-slate-400 mb-1.5">
                 <span className="text-[11px] font-extrabold uppercase text-slate-400 tracking-wider">
                   {language === "ES" ? "Dinámica del Día" : "Daily Dynamics"}
                 </span>
@@ -762,14 +913,26 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 mt-3.5 divide-x divide-slate-800/40 relative">
+              <div className="grid grid-cols-2 gap-2.5 mt-2.5 divide-x divide-slate-800/40 relative">
                 {/* Up positions */}
-                <div className="space-y-1 relative group/up">
-                  <div className="flex items-center gap-1 text-[10px] text-emerald-400 font-bold uppercase tracking-wider cursor-pointer">
-                    <ArrowUpRight size={12} />
-                    <span>{language === "ES" ? "Suben" : "Gains"}</span>
+                <div 
+                  id="daily-dynamics-up-btn"
+                  className="space-y-0.5 relative group/up cursor-pointer select-none active:scale-[0.98] transition-transform rounded-xl p-1.5 -m-1 hover:bg-slate-800/20 touch-manipulation min-h-[44px]"
+                  onClick={() => setMobileDynamicsModal("up")}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setMobileDynamicsModal("up"); } }}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1 text-[10px] text-emerald-400 font-bold uppercase tracking-wider">
+                      <ArrowUpRight size={12} />
+                      <span>{language === "ES" ? "Suben" : "Gains"}</span>
+                    </div>
+                    <span className="sm:hidden text-[9px] text-emerald-400/80 font-medium bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.2 rounded-md">
+                      {language === "ES" ? "Toca" : "Tap"}
+                    </span>
                   </div>
-                  <div className="flex flex-col cursor-pointer">
+                  <div className="flex flex-col">
                     <span className="text-sm font-extrabold font-mono text-emerald-400 leading-tight">
                       {totalUpValue > 0 ? "+" : ""}{formatStockValue(totalUpValue)}
                     </span>
@@ -781,8 +944,8 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
                     {upCount} {upCount === 1 ? (language === "ES" ? "posic." : "pos.") : (language === "ES" ? "posic." : "pos.")}
                   </p>
 
-                  {/* Hover Popover for Up Positions */}
-                  <div className={`daily-dynamics-popover absolute left-0 bottom-full mb-2 p-3 bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-2xl shadow-2xl opacity-0 invisible group-hover/up:opacity-100 group-hover/up:visible transition-all duration-200 pointer-events-none group-hover/up:pointer-events-auto z-50 ${sortedUpPositions.length > 5 ? "w-[290px] sm:w-[330px]" : "w-72 sm:w-80"}`}>
+                  {/* Hover Popover for Up Positions (Desktop) */}
+                  <div className={`daily-dynamics-popover absolute left-0 bottom-full mb-2 p-3 bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-2xl shadow-2xl opacity-0 invisible group-hover/up:opacity-100 group-hover/up:visible transition-all duration-200 pointer-events-none group-hover/up:pointer-events-auto z-50 hidden sm:block ${sortedUpPositions.length > 5 ? "w-[290px] sm:w-[330px]" : "w-72 sm:w-80"}`}>
                     <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800">
                       <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400">
                         <ArrowUpRight size={14} />
@@ -817,12 +980,24 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
                 </div>
 
                 {/* Down positions */}
-                <div className="space-y-1 pl-3 relative group/down">
-                  <div className="flex items-center gap-1 text-[10px] text-rose-400 font-bold uppercase tracking-wider cursor-pointer">
-                    <ArrowDownRight size={12} />
-                    <span>{language === "ES" ? "Bajan" : "Losses"}</span>
+                <div 
+                  id="daily-dynamics-down-btn"
+                  className="space-y-0.5 pl-2.5 relative group/down cursor-pointer select-none active:scale-[0.98] transition-transform rounded-xl p-1.5 -m-1 hover:bg-slate-800/20 touch-manipulation min-h-[44px]"
+                  onClick={() => setMobileDynamicsModal("down")}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setMobileDynamicsModal("down"); } }}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1 text-[10px] text-rose-400 font-bold uppercase tracking-wider">
+                      <ArrowDownRight size={12} />
+                      <span>{language === "ES" ? "Bajan" : "Losses"}</span>
+                    </div>
+                    <span className="sm:hidden text-[9px] text-rose-400/80 font-medium bg-rose-500/10 border border-rose-500/20 px-1.5 py-0.2 rounded-md">
+                      {language === "ES" ? "Toca" : "Tap"}
+                    </span>
                   </div>
-                  <div className="flex flex-col cursor-pointer">
+                  <div className="flex flex-col">
                     <span className="text-sm font-extrabold font-mono text-rose-400 leading-tight">
                       {formatStockValue(totalDownValue)}
                     </span>
@@ -834,8 +1009,8 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
                     {downCount} {downCount === 1 ? (language === "ES" ? "posic." : "pos.") : (language === "ES" ? "posic." : "pos.")}
                   </p>
 
-                  {/* Hover Popover for Down Positions */}
-                  <div className={`daily-dynamics-popover absolute right-0 bottom-full mb-2 p-3 bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-2xl shadow-2xl opacity-0 invisible group-hover/down:opacity-100 group-hover/down:visible transition-all duration-200 pointer-events-none group-hover/down:pointer-events-auto z-50 ${sortedDownPositions.length > 5 ? "w-[290px] sm:w-[330px]" : "w-72 sm:w-80"}`}>
+                  {/* Hover Popover for Down Positions (Desktop) */}
+                  <div className={`daily-dynamics-popover absolute right-0 bottom-full mb-2 p-3 bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-2xl shadow-2xl opacity-0 invisible group-hover/down:opacity-100 group-hover/down:visible transition-all duration-200 pointer-events-none group-hover/down:pointer-events-auto z-50 hidden sm:block ${sortedDownPositions.length > 5 ? "w-[290px] sm:w-[330px]" : "w-72 sm:w-80"}`}>
                     <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800">
                       <div className="flex items-center gap-1.5 text-xs font-bold text-rose-400">
                         <ArrowDownRight size={14} />
@@ -871,8 +1046,8 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
               </div>
 
               {/* Proportion Bar */}
-              <div className="mt-4">
-                <div className="h-2 w-full bg-slate-950 rounded-full overflow-hidden flex">
+              <div className="mt-2.5">
+                <div className="h-1.5 w-full bg-slate-950 rounded-full overflow-hidden flex">
                   {totalUpValue === 0 && totalDownValue === 0 ? (
                     <div className="h-full w-full bg-slate-800" />
                   ) : (
@@ -885,66 +1060,219 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
               </div>
             </div>
           </div>
-          
-          <div className="text-[9px] text-slate-500 font-semibold mt-3.5 pt-2 border-t border-slate-800/40 text-center uppercase tracking-wider">
-            {language === "ES" ? "Valor y P&L Diario" : "Value & Daily P&L"}
+        </div>
+
+        {/* Card 2: Distribución de Activos (Modern Interactive Donut with Pills & Classic Toggle) */}
+        <PortfolioDistributionDonut
+          portfolio={portfolio}
+          selectedTicker={selectedTicker}
+          onSelectTicker={handleSelectTicker}
+          selectedSector={selectedSector}
+          onClearSector={() => setSelectedSector(null)}
+          language={language}
+          isReadOnly={isReadOnly}
+          theme={theme}
+          showPortfolioTotal={showPortfolioTotal}
+          onToggleShowPortfolioTotal={() => setShowPortfolioTotal(prev => !prev)}
+          portfolioWeightedType={portfolioWeightedType}
+          portfolioWeightedScore={portfolioWeightedScore}
+          onNavigateToHealth={onNavigateToHealth}
+          getTypeBadgeConfig={getTypeBadgeConfig}
+          getScoreHex={getScoreHex}
+          getScoreColorClass={getScoreColorClass}
+        />
+
+        {/* Card 2.5: Portfolio Future Value & Targets */}
+        <div id="portfolio-projections-card" className="metrics-container-card bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-4 hover:border-slate-700 transition-all shadow-xl flex flex-col justify-between w-full lg:w-[260px] xl:w-[280px] 2xl:w-[300px] shrink-0">
+          <div>
+            {/* Header */}
+            <div className="flex items-center justify-between h-7 text-slate-400 mb-2">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 truncate">
+                {language === "ES" ? "Valor Futuro Cartera" : "Portfolio Future Value"}
+              </span>
+              <span className="p-1.5 bg-pink-500/10 text-pink-400 rounded-xl shrink-0 flex items-center justify-center">
+                <Rocket size={14} />
+              </span>
+            </div>
+
+            {/* List Rows */}
+            <div className="space-y-4 pt-1">
+              {/* Row 1: 52wk High */}
+              <div className="flex items-center justify-between border-b border-slate-900 pb-3">
+                <div className="flex items-center gap-1.5 text-[11px] sm:text-xs text-slate-400">
+                  <span>
+                    {language === "ES" ? "Máximo 52 Semanas" : "52wk High"}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <div className="relative">
+                    <span className="text-[13px] sm:text-sm font-mono font-bold text-white">
+                      {formatValuation(portfolioTargets.fiftyTwoWkHigh)}
+                    </span>
+                  </div>
+                  <span className="inline-flex items-center gap-0.5 text-[9px] sm:text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 sm:px-2 py-0.5 rounded font-mono">
+                    +{portfolio.totals.mktValue > 0 ? ((portfolioTargets.fiftyTwoWkHigh - portfolio.totals.mktValue) / portfolio.totals.mktValue * 100).toFixed(1) : "0.0"}%
+                  </span>
+                </div>
+              </div>
+
+              {/* Row 2: Analyst Avg Target */}
+              <div className="flex items-center justify-between border-b border-slate-900 pb-3">
+                <div className="flex items-center gap-1.5 text-[11px] sm:text-xs text-slate-400">
+                  <span>{language === "ES" ? "Target Promedio" : "Avg Target Value"}</span>
+                </div>
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <div className="relative">
+                    <span className="text-[13px] sm:text-sm font-mono font-bold text-white">
+                      {formatValuation(portfolioTargets.avgTarget)}
+                    </span>
+                  </div>
+                  <span className="inline-flex items-center gap-0.5 text-[9px] sm:text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 sm:px-2 py-0.5 rounded font-mono">
+                    +{portfolio.totals.mktValue > 0 ? ((portfolioTargets.avgTarget - portfolio.totals.mktValue) / portfolio.totals.mktValue * 100).toFixed(1) : "0.0"}%
+                  </span>
+                </div>
+              </div>
+
+              {/* Row 3: Analyst High Target */}
+              <div className="flex items-center justify-between border-b border-slate-900 pb-3">
+                <div className="flex items-center gap-1.5 text-[11px] sm:text-xs text-slate-400">
+                  <span>{language === "ES" ? "High Target" : "High Target Value"}</span>
+                </div>
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <div className="relative">
+                    <span className="text-[13px] sm:text-sm font-mono font-bold text-white">
+                      {formatValuation(portfolioTargets.highTarget)}
+                    </span>
+                  </div>
+                  <span className="inline-flex items-center gap-0.5 text-[9px] sm:text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 sm:px-2 py-0.5 rounded font-mono">
+                    +{portfolio.totals.mktValue > 0 ? ((portfolioTargets.highTarget - portfolio.totals.mktValue) / portfolio.totals.mktValue * 100).toFixed(1) : "0.0"}%
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Margin Analysis Box */}
+            {(portfolio.totals.marginCostBasis ?? 0) > 0 ? (
+              <div className="bg-[#121420]/60 border border-slate-900 rounded-2xl p-3 sm:p-4 mt-2">
+                <div className="flex justify-between items-center mb-3">
+                  <span className="text-[9px] text-amber-400 font-bold uppercase tracking-wider block font-mono">
+                    {language === "ES" ? "ANÁLISIS DE MARGEN (6.25%)" : "MARGIN ANALYSIS (6.25%)"}
+                  </span>
+                </div>
+                                    
+                <div className="space-y-2.5 text-[11px] sm:text-xs">
+                  <div className="flex justify-between items-center text-slate-400">
+                    <span className="flex items-center gap-1 text-rose-400">
+                      {language === "ES" ? "Préstamo (Deuda)" : "Loan (Debt)"}
+                    </span>
+                    <span className="font-mono font-semibold text-rose-400">
+                      -{formatValuation(portfolio.totals.marginCostBasis ?? 0)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-slate-400">
+                    <span>{language === "ES" ? "Costo Mensual Estimado" : "Estimated Monthly Cost"}</span>
+                    <span className="font-mono font-semibold text-amber-300">
+                      -{formatValuation(portfolio.totals.marginMonthlyCost ?? 0)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-slate-400">
+                    <span>{language === "ES" ? "Costo Anual Estimado" : "Estimated Annual Cost"}</span>
+                    <span className="font-mono font-semibold text-amber-300">
+                      -{formatValuation((portfolio.totals.marginMonthlyCost ?? 0) * 12)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-slate-400">
+                    <span className="flex items-center gap-1 text-emerald-400">
+                      {language === "ES" ? "Ganancia de Inversión" : "Investment Gains"}
+                    </span>
+                    <div className="text-right">
+                      <span className={`font-mono font-bold ${marginMetrics.gain >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                        {marginMetrics.gain >= 0 ? "+" : ""}{formatValuation(marginMetrics.gain)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-[#121420]/60 border border-slate-900 rounded-2xl p-3 sm:p-4 mt-2 flex items-center justify-center min-h-[100px]">
+                <span className="text-xs text-slate-500 font-mono italic">
+                  {language === "ES" ? "Sin deuda de margen" : "No margin debt"}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Card 2: Portfolio Metrics */}
-        <div id="summary-metrics-card" className="metrics-container-card bg-slate-900 border border-slate-800 rounded-2xl p-5 hover:border-slate-700 transition-all shadow-xl flex flex-col justify-between w-full lg:w-[260px] shrink-0">
+        {/* Card 3: Portfolio Metrics */}
+        <div id="summary-metrics-card" className="metrics-container-card bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-4 hover:border-slate-700 transition-all shadow-xl flex flex-col justify-between w-full lg:w-[260px] xl:w-[280px] 2xl:w-[300px] shrink-0">
           <div>
-            <div className="flex flex-col gap-2.5 mb-3.5">
-              <div className="flex items-center justify-between text-slate-400">
-                <span className="text-xs font-semibold uppercase tracking-wider">
+            <div className="flex items-center justify-between h-7 text-slate-400 mb-2">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 truncate">
                   {language === "ES" ? "Métricas" : "Metrics"}
                 </span>
-                <span className="p-1.5 bg-[#6366f1]/10 text-[#6366f1] rounded-lg">
-                  <BarChart3 size={14} />
-                </span>
+                {selectedPosition && (
+                  <button
+                    onClick={() => handleSelectTicker(null)}
+                    className="text-[9px] font-mono font-bold text-sky-400 bg-sky-500/15 hover:bg-sky-500/25 px-1.5 py-0.5 rounded-md border border-sky-500/30 transition-all flex items-center gap-1 cursor-pointer shrink-0"
+                    title={language === "ES" ? "Volver a portafolio ponderado" : "Reset to weighted portfolio"}
+                  >
+                    <span>{selectedPosition.ticker}</span>
+                    <span className="font-extrabold text-sky-300">×</span>
+                  </button>
+                )}
               </div>
-              
-              {/* Benchmark Toggle */}
-              <div className="bg-slate-950/80 p-0.5 border border-slate-800/60 rounded-xl flex items-center justify-between w-full">
-                <button
-                  onClick={() => setBenchmarkToggle("SP500")}
-                  className={`flex-1 py-1 text-[10px] font-bold rounded-lg transition-all cursor-pointer text-center ${
-                    benchmarkToggle === "SP500"
-                      ? "bg-sky-500 text-slate-950 font-extrabold shadow-sm"
-                      : "text-slate-400 hover:text-white"
-                  }`}
-                >
-                  S&P 500
-                </button>
-                <button
-                  onClick={() => setBenchmarkToggle("QQQ")}
-                  className={`flex-1 py-1 text-[10px] font-bold rounded-lg transition-all cursor-pointer text-center ${
-                    benchmarkToggle === "QQQ"
-                      ? "bg-violet-500 text-slate-950 font-extrabold shadow-sm"
-                      : "text-slate-400 hover:text-white"
-                  }`}
-                >
-                  QQQ
-                </button>
-              </div>
+              <span className="p-1.5 bg-[#6366f1]/10 text-[#6366f1] rounded-xl shrink-0 flex items-center justify-center">
+                <BarChart3 size={14} />
+              </span>
             </div>
             
-            <div className="flex flex-col gap-2 mt-1.5">
+            {/* Benchmark Toggle */}
+            <div className="bg-slate-950/80 p-0.5 border border-slate-800/60 rounded-xl flex items-center justify-between w-full mb-2">
+              <button
+                onClick={() => setBenchmarkToggle("SP500")}
+                className={`flex-1 py-0.5 text-[10px] font-bold rounded-lg transition-all cursor-pointer text-center ${
+                  benchmarkToggle === "SP500"
+                    ? "bg-sky-500 text-slate-950 font-extrabold shadow-sm"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                S&P 500
+              </button>
+              <button
+                onClick={() => setBenchmarkToggle("QQQ")}
+                className={`flex-1 py-0.5 text-[10px] font-bold rounded-lg transition-all cursor-pointer text-center ${
+                  benchmarkToggle === "QQQ"
+                    ? "bg-violet-500 text-slate-950 font-extrabold shadow-sm"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                QQQ
+              </button>
+            </div>
+            
+            <div className="flex flex-col gap-1.5 mt-1">
               {/* P/E Ratio */}
-              <div className="metrics-subcard bg-white dark:bg-[#121420]/30 border border-slate-200 dark:border-slate-800/60 rounded-xl p-2.5 px-3 hover:border-slate-300 dark:hover:border-slate-800 transition-colors">
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
-                    {language === "ES" ? "P/E Ponderado" : "Weighted P/E"}
+              <div className="metrics-subcard bg-slate-950/60 border border-slate-800/60 rounded-xl p-2 px-2.5 hover:border-slate-700/80 transition-colors">
+                <div className="flex flex-col gap-1">
+                  <span className="text-[9.5px] text-slate-400 font-bold uppercase tracking-wider">
+                    {selectedPosition
+                      ? `P/E (${selectedPosition.ticker})`
+                      : (language === "ES" ? "P/E Ponderado" : "Weighted P/E")}
                   </span>
                   <div className="flex items-center justify-between text-xs font-mono">
                     <div className="flex items-baseline gap-1">
-                      <span className="text-[9px] font-sans font-medium text-slate-500">{language === "ES" ? "Port" : "Port"}:</span>
+                      <span className="text-[9px] font-sans font-medium text-slate-400">
+                        {selectedPosition ? selectedPosition.ticker : (language === "ES" ? "Port" : "Port")}:
+                      </span>
                       <span className="font-bold text-white text-xs">
-                        {weightedPe !== null ? formatNumber(weightedPe, 1) : "—"}
+                        {selectedPosition
+                          ? (selectedPosition.pe !== null && selectedPosition.pe > 0 ? formatNumber(selectedPosition.pe, 1) : "—")
+                          : (weightedPe !== null ? formatNumber(weightedPe, 1) : "—")}
                       </span>
                     </div>
                     <div className="flex items-baseline gap-1">
-                      <span className="text-[9px] font-sans font-medium text-slate-500">{benchmarkToggle === "SP500" ? "S&P" : "QQQ"}:</span>
+                      <span className="text-[9px] font-sans font-medium text-slate-400">{benchmarkToggle === "SP500" ? "S&P" : "QQQ"}:</span>
                       <span className={`font-bold text-xs ${benchmarkToggle === "SP500" ? "text-sky-400" : "text-violet-400"}`}>
                         {formatNumber(BENCHMARK_METRICS[benchmarkToggle].pe, 1)}
                       </span>
@@ -954,20 +1282,26 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
               </div>
               
               {/* Forward P/E */}
-              <div className="metrics-subcard bg-white dark:bg-[#121420]/30 border border-slate-200 dark:border-slate-800/60 rounded-xl p-2.5 px-3 hover:border-slate-300 dark:hover:border-slate-800 transition-colors">
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
-                    {language === "ES" ? "FWD P/E Ponderado" : "Weighted FWD P/E"}
+              <div className="metrics-subcard bg-slate-950/60 border border-slate-800/60 rounded-xl p-2 px-2.5 hover:border-slate-700/80 transition-colors">
+                <div className="flex flex-col gap-1">
+                  <span className="text-[9.5px] text-slate-400 font-bold uppercase tracking-wider">
+                    {selectedPosition
+                      ? `FWD P/E (${selectedPosition.ticker})`
+                      : (language === "ES" ? "FWD P/E Ponderado" : "Weighted FWD P/E")}
                   </span>
                   <div className="flex items-center justify-between text-xs font-mono">
                     <div className="flex items-baseline gap-1">
-                      <span className="text-[9px] font-sans font-medium text-slate-500">{language === "ES" ? "Port" : "Port"}:</span>
+                      <span className="text-[9px] font-sans font-medium text-slate-400">
+                        {selectedPosition ? selectedPosition.ticker : (language === "ES" ? "Port" : "Port")}:
+                      </span>
                       <span className="font-bold text-white text-xs">
-                        {weightedFwdPe !== null ? formatNumber(weightedFwdPe, 1) : "—"}
+                        {selectedPosition
+                          ? (selectedPosition.fwdPe !== null && selectedPosition.fwdPe > 0 ? formatNumber(selectedPosition.fwdPe, 1) : "—")
+                          : (weightedFwdPe !== null ? formatNumber(weightedFwdPe, 1) : "—")}
                       </span>
                     </div>
                     <div className="flex items-baseline gap-1">
-                      <span className="text-[9px] font-sans font-medium text-slate-500">{benchmarkToggle === "SP500" ? "S&P" : "QQQ"}:</span>
+                      <span className="text-[9px] font-sans font-medium text-slate-400">{benchmarkToggle === "SP500" ? "S&P" : "QQQ"}:</span>
                       <span className={`font-bold text-xs ${benchmarkToggle === "SP500" ? "text-sky-400" : "text-violet-400"}`}>
                         {formatNumber(BENCHMARK_METRICS[benchmarkToggle].fwdPe, 1)}
                       </span>
@@ -977,20 +1311,26 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
               </div>
               
               {/* PEG */}
-              <div className="metrics-subcard bg-white dark:bg-[#121420]/30 border border-slate-200 dark:border-slate-800/60 rounded-xl p-2.5 px-3 hover:border-slate-300 dark:hover:border-slate-800 transition-colors">
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
-                    {language === "ES" ? "PEG Ponderado" : "Weighted PEG"}
+              <div className="metrics-subcard bg-slate-950/60 border border-slate-800/60 rounded-xl p-2 px-2.5 hover:border-slate-700/80 transition-colors">
+                <div className="flex flex-col gap-1">
+                  <span className="text-[9.5px] text-slate-400 font-bold uppercase tracking-wider">
+                    {selectedPosition
+                      ? `PEG (${selectedPosition.ticker})`
+                      : (language === "ES" ? "PEG Ponderado" : "Weighted PEG")}
                   </span>
                   <div className="flex items-center justify-between text-xs font-mono">
                     <div className="flex items-baseline gap-1">
-                      <span className="text-[9px] font-sans font-medium text-slate-500">{language === "ES" ? "Port" : "Port"}:</span>
+                      <span className="text-[9px] font-sans font-medium text-slate-400">
+                        {selectedPosition ? selectedPosition.ticker : (language === "ES" ? "Port" : "Port")}:
+                      </span>
                       <span className="font-bold text-white text-xs">
-                        {weightedPeg !== null ? formatNumber(weightedPeg, 2) : "—"}
+                        {selectedPosition
+                          ? (selectedPosition.peg !== null && selectedPosition.peg > 0 ? formatNumber(selectedPosition.peg, 2) : "—")
+                          : (weightedPeg !== null ? formatNumber(weightedPeg, 2) : "—")}
                       </span>
                     </div>
                     <div className="flex items-baseline gap-1">
-                      <span className="text-[9px] font-sans font-medium text-slate-500">{benchmarkToggle === "SP500" ? "S&P" : "QQQ"}:</span>
+                      <span className="text-[9px] font-sans font-medium text-slate-400">{benchmarkToggle === "SP500" ? "S&P" : "QQQ"}:</span>
                       <span className={`font-bold text-xs ${benchmarkToggle === "SP500" ? "text-sky-400" : "text-violet-400"}`}>
                         {formatNumber(BENCHMARK_METRICS[benchmarkToggle].peg, 2)}
                       </span>
@@ -1000,20 +1340,26 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
               </div>
               
               {/* Beta */}
-              <div className="metrics-subcard bg-white dark:bg-[#121420]/30 border border-slate-200 dark:border-slate-800/60 rounded-xl p-2.5 px-3 hover:border-slate-300 dark:hover:border-slate-800 transition-colors">
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
-                    {language === "ES" ? "Beta Ponderado" : "Weighted Beta"}
+              <div className="metrics-subcard bg-slate-950/60 border border-slate-800/60 rounded-xl p-2 px-2.5 hover:border-slate-700/80 transition-colors">
+                <div className="flex flex-col gap-1">
+                  <span className="text-[9.5px] text-slate-400 font-bold uppercase tracking-wider">
+                    {selectedPosition
+                      ? `Beta (${selectedPosition.ticker})`
+                      : (language === "ES" ? "Beta Ponderado" : "Weighted Beta")}
                   </span>
                   <div className="flex items-center justify-between text-xs font-mono">
                     <div className="flex items-baseline gap-1">
-                      <span className="text-[9px] font-sans font-medium text-slate-500">{language === "ES" ? "Port" : "Port"}:</span>
+                      <span className="text-[9px] font-sans font-medium text-slate-400">
+                        {selectedPosition ? selectedPosition.ticker : (language === "ES" ? "Port" : "Port")}:
+                      </span>
                       <span className="font-bold text-white text-xs">
-                        {formatNumber(weightedBeta, 2)}
+                        {selectedPosition
+                          ? formatNumber(getTickerBeta(selectedPosition.ticker, selectedPosition.isCash), 2)
+                          : formatNumber(weightedBeta, 2)}
                       </span>
                     </div>
                     <div className="flex items-baseline gap-1">
-                      <span className="text-[9px] font-sans font-medium text-slate-500">{benchmarkToggle === "SP500" ? "S&P" : "QQQ"}:</span>
+                      <span className="text-[9px] font-sans font-medium text-slate-400">{benchmarkToggle === "SP500" ? "S&P" : "QQQ"}:</span>
                       <span className={`font-bold text-xs ${benchmarkToggle === "SP500" ? "text-sky-400" : "text-violet-400"}`}>
                         {formatNumber(BENCHMARK_METRICS[benchmarkToggle].beta, 2)}
                       </span>
@@ -1021,204 +1367,54 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
-          
-          <div className="text-[9px] text-slate-500 font-semibold mt-3 pt-2 border-t border-slate-800/40 text-center uppercase tracking-wider">
-            {language === "ES" ? "Comparación Ponderada" : "Weighted Comparison"}
-          </div>
-        </div>
 
-        {/* Card 3: Distribución de Activos (Enhanced Donut) */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 hover:border-slate-700 transition-all shadow-xl flex flex-col justify-between w-full lg:flex-1 min-w-0">
-          <div>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-slate-400 mb-3">
-              <div className="flex items-center justify-between gap-2 min-w-0">
-                <span className="text-xs font-semibold uppercase tracking-wider flex items-center gap-2 truncate">
-                  {language === "ES" ? "Distribución de Portafolio" : "Portfolio Distribution"}
-                  <button
-                    type="button"
-                    onClick={() => setShowPortfolioTotal(prev => !prev)}
-                    className="text-slate-400 hover:text-white p-1 rounded-md hover:bg-slate-800 transition-colors cursor-pointer inline-flex items-center justify-center shrink-0"
-                    title={showPortfolioTotal ? (language === "ES" ? "Ocultar total del portafolio" : "Hide portfolio total") : (language === "ES" ? "Mostrar total del portafolio" : "Show portfolio total")}
-                  >
-                    {showPortfolioTotal ? <Eye size={14} /> : <EyeOff size={14} className="text-slate-500" />}
-                  </button>
-                  {selectedSector && (
-                    <button 
-                      onClick={() => setSelectedSector(null)}
-                      className="text-[10px] text-emerald-400 normal-case bg-emerald-500/15 hover:bg-emerald-500/25 px-2 py-0.5 rounded-full border border-emerald-500/30 transition-all flex items-center gap-1 cursor-pointer shrink-0"
-                      title={language === "ES" ? "Limpiar filtro de sector" : "Clear sector filter"}
-                    >
-                      <span className="truncate max-w-[110px] sm:max-w-none">Sector: {getSectorSpanish(selectedSector)}</span>
-                      <span className="font-extrabold text-emerald-300">×</span>
-                    </button>
-                  )}
-                </span>
-                <span className="sm:hidden p-1.5 bg-emerald-500/10 text-emerald-400 rounded-xl shrink-0">
-                  <PieChartIcon size={14} />
-                </span>
-              </div>
-
-              <div className="flex items-center justify-center sm:justify-end gap-2 sm:gap-3 flex-wrap w-full sm:w-auto">
-                {portfolioWeightedType && (
-                  <button
-                    onClick={onNavigateToHealth}
-                    className={`inline-flex shrink-0 items-center gap-1 sm:gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl text-[11px] sm:text-xs font-extrabold cursor-pointer hover:scale-105 active:scale-95 transition-all shadow-md border border-emerald-500/30 ${getTypeBadgeConfig(portfolioWeightedType).className}`}
-                    title={language === "ES" ? "Ir al toggle de Salud (Health) en la pestaña Holdings" : "Go to Health toggle in Holdings tab"}
-                  >
-                    <span className="text-xs sm:text-sm">{getTypeBadgeConfig(portfolioWeightedType).icon}</span>
-                    <span>{portfolioWeightedType}</span>
-                  </button>
-                )}
-                
-                {portfolioWeightedScore > 0 && (
-                  <button
-                    onClick={onNavigateToHealth}
-                    className="flex items-center gap-1.5 sm:gap-2 group cursor-pointer hover:scale-105 active:scale-95 transition-all p-1 sm:p-1.5 rounded-xl hover:bg-slate-800/80 border border-transparent hover:border-slate-700/60 shrink-0"
-                    title={language === "ES" ? "Ir al toggle de Salud (Health) en la pestaña Holdings" : "Go to Health toggle in Holdings tab"}
-                  >
-                    <div className="flex flex-col items-end mr-0.5">
-                      <span className="text-[9px] sm:text-[10px] uppercase tracking-wider font-extrabold text-slate-400 group-hover:text-emerald-400 transition-colors leading-none">
-                        Score
+              {/* Concentración (50%) / Peso de Posición */}
+              <div
+                className="metrics-subcard bg-slate-950/60 border border-slate-800/60 rounded-xl p-2 px-2.5 hover:border-slate-700/80 transition-colors cursor-help"
+                title={
+                  selectedPosition
+                    ? `${selectedPosition.ticker}: ${selectedPosition.name} (${selectedPosition.weight.toFixed(1)}% ${language === "ES" ? "del portafolio" : "of portfolio"})`
+                    : positionsCountFor50 > 0
+                    ? `${language === "ES" ? "50% concentrado en" : "50% concentrated in"}: ${topPositionsFor50.map(p => `${p.ticker} (${p.weight.toFixed(1)}%)`).join(", ")} ≈ ${cumulativeWeight50.toFixed(1)}%`
+                    : undefined
+                }
+              >
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9.5px] text-slate-400 font-bold uppercase tracking-wider">
+                      {selectedPosition
+                        ? (language === "ES" ? "Peso en Portafolio" : "Portfolio Weight")
+                        : (language === "ES" ? "Concentración (50%)" : "Concentration (50%)")}
+                    </span>
+                    {!selectedPosition && cumulativeWeight50 > 0 && (
+                      <span className="text-[8.5px] font-mono font-medium text-slate-400">
+                        {cumulativeWeight50.toFixed(1)}%
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between text-xs font-mono">
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-[9px] font-sans font-medium text-slate-400">
+                        {selectedPosition ? selectedPosition.ticker : (language === "ES" ? "Port" : "Port")}:
+                      </span>
+                      <span className="font-bold text-white text-xs">
+                        {selectedPosition
+                          ? `${formatNumber(selectedPosition.weight, 1)}%`
+                          : positionsCountFor50 > 0
+                          ? `${positionsCountFor50} ${language === "ES" ? "pos" : "pos"}`
+                          : "—"}
                       </span>
                     </div>
-                    <div className="relative w-9 h-9 sm:w-12 sm:h-12 flex items-center justify-center shrink-0">
-                      <svg viewBox="0 0 36 36" className="w-full h-full transform -rotate-90">
-                        {/* Background Track */}
-                        <path
-                          className="text-slate-800"
-                          d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="3.5"
-                        />
-                        {/* Progress */}
-                        <path
-                          d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                          fill="none"
-                          stroke={getScoreHex(portfolioWeightedScore)}
-                          strokeWidth="3.5"
-                          strokeDasharray={`${portfolioWeightedScore}, 100`}
-                          className="drop-shadow-sm transition-all duration-1000 ease-out"
-                        />
-                      </svg>
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <span className={`text-[11px] sm:text-[13px] font-extrabold font-mono ${getScoreColorClass(portfolioWeightedScore)}`}>
-                          {portfolioWeightedScore.toFixed(0)}
-                        </span>
-                      </div>
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-[9px] font-sans font-medium text-slate-400">{benchmarkToggle === "SP500" ? "S&P" : "QQQ"}:</span>
+                      <span className={`font-bold text-xs ${benchmarkToggle === "SP500" ? "text-sky-400" : "text-violet-400"}`}>
+                        {`${BENCHMARK_METRICS[benchmarkToggle].top50Concentration} pos`}
+                      </span>
                     </div>
-                  </button>
-                )}
-                
-                <span className="hidden sm:inline-flex p-2 bg-emerald-500/10 text-emerald-400 rounded-xl ml-1 shrink-0">
-                  <PieChartIcon size={16} />
-                </span>
-              </div>
-            </div>
-
-            {portfolio.positions.length === 0 ? (
-              <div className="h-[150px] flex items-center justify-center text-slate-500 text-[11px]">
-                {language === "ES" ? "No hay activos." : "No assets."}
-              </div>
-            ) : (
-              <div className="flex flex-col sm:flex-row items-center gap-8 mt-4">
-                {/* Large Donut Chart */}
-                <div className="w-[260px] h-[260px] relative flex-shrink-0">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={pieDataDisplay}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={85}
-                        outerRadius={115}
-                        paddingAngle={2}
-                        dataKey="value"
-                      >
-                        {pieDataDisplay.map((entry, index) => {
-                          const isSelected = selectedTicker === entry.name;
-                          const hasSelection = selectedTicker !== null;
-                          const opacity = hasSelection ? (isSelected ? 1 : 0.3) : 1;
-                          return (
-                            <Cell 
-                              key={`cell-mini-${index}`} 
-                              fill={COLORS[index % COLORS.length]} 
-                              fillOpacity={opacity}
-                              className="cursor-pointer outline-none transition-all duration-300"
-                              onClick={() => {
-                                if (!entry.name.startsWith("Otros") && !entry.name.startsWith("Other")) {
-                                  setSelectedTicker(prev => prev === entry.name ? null : entry.name);
-                                }
-                              }}
-                            />
-                          );
-                        })}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
-                  {/* Center text */}
-                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                    <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider leading-none">
-                      {selectedSector ? (language === "ES" ? "SECTOR" : "SECTOR") : (language === "ES" ? "TOTAL" : "TOTAL")}
-                    </span>
-                    <span className="text-2xl font-mono font-black text-white mt-1 leading-none tracking-tight">
-                      {showPortfolioTotal 
-                        ? (isReadOnly ? formatStockValue(pieTotalValue) : formatKValue(pieTotalValue)) 
-                        : "••••••"}
-                    </span>
                   </div>
                 </div>
-
-                {/* Right legend (stylish ultra-compact text grid in two columns) */}
-                <div className="flex-1 min-w-0 grid grid-cols-2 gap-x-5 gap-y-1.5 w-full max-h-[220px] overflow-y-auto pr-1">
-                  {pieDataDisplay.map((pos, index) => {
-                    const isSelected = selectedTicker === pos.name;
-                    const hasSelection = selectedTicker !== null;
-                    const isOther = pos.name.startsWith("Otros") || pos.name.startsWith("Other");
-                    return (
-                      <button 
-                        key={`${pos.name}-${index}`} 
-                        disabled={isOther}
-                        onClick={() => {
-                          setSelectedTicker(prev => prev === pos.name ? null : pos.name);
-                        }}
-                        className={`flex items-center gap-1.5 text-xs font-mono py-1 px-2 rounded-lg border border-transparent transition-all min-w-0 text-left w-full ${
-                          isOther 
-                            ? "cursor-default opacity-60" 
-                            : isSelected 
-                              ? "bg-slate-800 border-emerald-500/30 shadow-md scale-[1.02] cursor-pointer" 
-                              : hasSelection 
-                                ? "opacity-30 hover:opacity-100 hover:bg-slate-800/20 cursor-pointer" 
-                                : "hover:bg-slate-800/30 cursor-pointer"
-                        }`}
-                      >
-                        {/* Dot indicator */}
-                        <span
-                          className="w-2 h-2 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: COLORS[index % COLORS.length] }}
-                        />
-                        {/* Ticker Name */}
-                        <span className={`font-bold uppercase transition-colors truncate ${isSelected ? "text-emerald-400 font-extrabold" : "text-slate-300 group-hover:text-white"}`}>
-                          {pos.name}
-                        </span>
-                        {/* Bullet separator */}
-                        <span className="text-slate-600 font-semibold select-none">•</span>
-                        {/* Weight Percentage */}
-                        <span className="text-white font-extrabold shrink-0">
-                          {pos.weight.toFixed(1)}%
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
               </div>
-            )}
-          </div>
-
-          <div className="text-[9px] text-slate-500 font-semibold mt-4 pt-2 border-t border-slate-800/40 text-center uppercase tracking-wider">
-            {language === "ES" ? "Distribución de Cartera" : "Portfolio Distribution"}
+            </div>
           </div>
         </div>
       </div>
@@ -1226,10 +1422,11 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
       {/* Performance & Metrics Panel */}
       {sortedPositions.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6" id="performance-metrics-panel">
-          {/* Performance Area Chart */}
-          <div className="lg:col-span-8 bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-6 flex flex-col justify-between shadow-2xl">
-            <div>
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 mb-5 sm:mb-6">
+          <div className="lg:col-span-8 flex flex-col gap-6">
+            {/* Performance Area Chart */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-6 flex flex-col justify-between shadow-2xl">
+              <div>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 mb-5 sm:mb-6">
                 <div>
                   <h3 className="text-base sm:text-lg font-display font-semibold text-white tracking-wide">
                     BENCHMARK
@@ -1241,13 +1438,17 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
                   <select
                     value={chartSymbol}
                     onChange={(e) => {
-                      setChartSymbol(e.target.value);
-                      onSelectTickerForChart(e.target.value);
+                      const val = e.target.value;
+                      handleSelectTicker(val === "PORTFOLIO" || val === "CASH" ? null : val);
+                      if (val === "CASH") {
+                        setChartSymbol("CASH");
+                        if (onSelectTickerForChart) onSelectTickerForChart("CASH");
+                      }
                     }}
                     className="bg-slate-800 border border-slate-700 rounded-xl text-[10px] sm:text-xs font-semibold px-2 sm:px-3 py-1 sm:py-1.5 text-white outline-none focus:border-emerald-500 transition-all cursor-pointer w-24 sm:w-auto sm:max-w-[190px] truncate shrink-0"
                   >
-                    <option value="PORTFOLIO">{portfolioName || (language === "EN" ? "Complete Portfolio" : "Portafolio Completo")}</option>
-                    <option value="CASH">Efectivo (Cash)</option>
+                    <option value="PORTFOLIO">{(!portfolioName || portfolioName === "Mi Portafolio" || portfolioName === "My Portfolio") ? (language === "EN" ? "My Portfolio" : "Mi Portafolio") : portfolioName}</option>
+                    <option value="CASH">{language === "EN" ? "Cash" : "Efectivo (Cash)"}</option>
                     {stockPositions.map((pos, idx) => (
                       <option key={`${pos.ticker}-${idx}`} value={pos.ticker}>
                         {pos.ticker} ({pos.name})
@@ -1276,11 +1477,13 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
               {loadingChart ? (
                 <div className="h-[280px] flex flex-col items-center justify-center gap-3 text-slate-500">
                   <Loader2 className="animate-spin text-emerald-400" size={28} />
-                  <span className="text-xs">Cargando datos históricos de rendimiento...</span>
+                  <span className="text-xs">
+                    {language === "EN" ? "Loading historical performance data..." : "Cargando datos históricos de rendimiento..."}
+                  </span>
                 </div>
               ) : chartData.length === 0 ? (
                 <div className="h-[280px] flex items-center justify-center text-slate-500 text-xs">
-                  No hay datos disponibles para este periodo.
+                  {language === "EN" ? "No data available for this timeframe." : "No hay datos disponibles para este periodo."}
                 </div>
               ) : (
                 <div className="h-[280px] w-full flex flex-col justify-between">
@@ -1366,7 +1569,7 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
               )}
             </div>
           </div>
-
+        </div>
           {/* Card 2: Distribución por Sectores (S&P 500) */}
           <div className="lg:col-span-4 bg-slate-900 border border-slate-800 rounded-3xl p-5 hover:border-slate-700 transition-all shadow-xl flex flex-col justify-between" id="portfolio-sectors-card">
             <div>
@@ -1379,11 +1582,11 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
                     {language === "ES" ? "Distribución Sectorial" : "Sector Distribution"}
                     {selectedTicker && (
                       <button 
-                        onClick={() => setSelectedTicker(null)}
+                        onClick={() => handleSelectTicker(null)}
                         className="text-[10px] text-sky-400 normal-case bg-sky-500/15 hover:bg-sky-500/25 px-2 py-0.5 rounded-full border border-sky-500/30 transition-all flex items-center gap-1 cursor-pointer"
                         title={language === "ES" ? "Limpiar filtro de posición" : "Clear position filter"}
                       >
-                        <span>Posición: {selectedTicker}</span>
+                        <span>{language === "EN" ? "Position:" : "Posición:"} {selectedTicker}</span>
                         <span className="font-extrabold text-sky-300">×</span>
                       </button>
                     )}
@@ -1398,8 +1601,10 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
                 {filteredSectors.map((sector, index) => {
                   const isExpanded = !!expandedSectors[sector.name];
                   const subsectors = sectorSubsectors[sector.name]
-                    ? Object.entries(sectorSubsectors[sector.name]).sort((a, b) => b[1].weight - a[1].weight)
+                    ? (Object.entries(sectorSubsectors[sector.name]) as [string, { mktValue: number; weight: number }][]).sort((a, b) => b[1].weight - a[1].weight)
                     : [];
+
+                  const sectorDisplayName = language === "EN" ? sector.name : getSectorSpanish(sector.name);
 
                   return (
                     <div key={`${sector.name}-${index}`} className="border-b border-slate-800/20 pb-2.5 last:border-0 last:pb-0">
@@ -1419,8 +1624,8 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
                             {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                           </span>
                           <span className={`w-2 h-2 rounded-full shrink-0 ${getSectorColor(sector.name)}`} />
-                          <span className="font-semibold text-slate-300 group-hover:text-white truncate text-xs" title={getSectorSpanish(sector.name)}>
-                            {getSectorSpanish(sector.name)}
+                          <span className="font-semibold text-slate-300 group-hover:text-white truncate text-xs" title={sectorDisplayName}>
+                            {sectorDisplayName}
                           </span>
                         </div>
                         <div className="flex items-center gap-2.5 font-mono shrink-0 text-xs">
@@ -1465,6 +1670,138 @@ export default function SummaryDashboard({ portfolio, onSelectTickerForChart, on
         </div>
       )}
 
+      {/* Mobile / Tap Dynamics Modal for Daily Dynamics (Suben / Bajan) */}
+      {mobileDynamicsModal && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200"
+          onClick={() => setMobileDynamicsModal(null)}
+        >
+          <div 
+            className={`w-full max-w-md rounded-t-3xl sm:rounded-3xl border shadow-2xl p-5 max-h-[85vh] flex flex-col transition-all animate-in slide-in-from-bottom duration-200 ${
+              theme === "light" 
+                ? "bg-white border-slate-200 text-slate-900" 
+                : "bg-slate-900 border-slate-700/80 text-white"
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-700/50 mb-3">
+              <div className="flex items-center gap-2.5">
+                {mobileDynamicsModal === "up" ? (
+                  <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    <ArrowUpRight size={20} />
+                  </div>
+                ) : (
+                  <div className="p-2 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                    <ArrowDownRight size={20} />
+                  </div>
+                )}
+                <div>
+                  <h4 className="font-bold text-sm leading-tight flex items-center gap-1.5">
+                    <span>
+                      {mobileDynamicsModal === "up" 
+                        ? (language === "ES" ? "Posiciones que Suben" : "Gaining Positions")
+                        : (language === "ES" ? "Posiciones que Bajan" : "Losing Positions")}
+                    </span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-mono font-bold ${
+                      mobileDynamicsModal === "up" 
+                        ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" 
+                        : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
+                    }`}>
+                      {mobileDynamicsModal === "up" ? upCount : downCount}
+                    </span>
+                  </h4>
+                  <span className={`text-xs font-mono font-bold ${mobileDynamicsModal === "up" ? "text-emerald-400" : "text-rose-400"}`}>
+                    {mobileDynamicsModal === "up"
+                      ? `${totalUpValue > 0 ? "+" : ""}${formatStockValue(totalUpValue)} (${totalUpPercent >= 0 ? "+" : ""}${totalUpPercent.toFixed(2)}%)`
+                      : `${formatStockValue(totalDownValue)} (${totalDownPercent.toFixed(2)}%)`}
+                  </span>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setMobileDynamicsModal(null)}
+                className={`p-2 rounded-xl border transition-colors ${
+                  theme === "light" 
+                    ? "bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-600" 
+                    : "bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300"
+                }`}
+                aria-label={language === "ES" ? "Cerrar" : "Close"}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Positions List */}
+            <div className="overflow-y-auto flex-1 custom-scrollbar space-y-2 pr-1 py-1">
+              {(mobileDynamicsModal === "up" ? sortedUpPositions : sortedDownPositions).length === 0 ? (
+                <p className="text-xs text-slate-400 italic py-8 text-center">
+                  {mobileDynamicsModal === "up"
+                    ? (language === "ES" ? "Sin posiciones en verde hoy" : "No gaining positions today")
+                    : (language === "ES" ? "Sin posiciones en rojo hoy" : "No losing positions today")}
+                </p>
+              ) : (
+                (mobileDynamicsModal === "up" ? sortedUpPositions : sortedDownPositions).map((p, idx) => {
+                  return (
+                    <div 
+                      key={`${p.ticker}-${idx}`}
+                      onClick={() => {
+                        handleSelectTicker(p.ticker);
+                        setMobileDynamicsModal(null);
+                      }}
+                      className={`flex items-center justify-between p-3 rounded-2xl border transition-all cursor-pointer ${
+                        theme === "light"
+                          ? "bg-slate-50 hover:bg-slate-100/80 border-slate-200/80"
+                          : "bg-slate-950/60 hover:bg-slate-800/80 border-slate-800/80"
+                      }`}
+                    >
+                      <div className="min-w-0 pr-2">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold font-mono text-sm truncate">
+                            {p.ticker}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-medium px-1.5 py-0.5 rounded bg-slate-800/40 border border-slate-700/30">
+                            {p.shares} {language === "ES" ? "acc." : "shs."}
+                          </span>
+                        </div>
+                        {p.name && (
+                          <p className="text-[11px] text-slate-400 truncate max-w-[180px] sm:max-w-[220px]">
+                            {p.name}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="text-right shrink-0 font-mono">
+                        <div className={`text-sm font-extrabold ${mobileDynamicsModal === "up" ? "text-emerald-400" : "text-rose-400"}`}>
+                          {mobileDynamicsModal === "up" ? "+" : ""}{formatStockValue(p.dailyPnL)}
+                        </div>
+                        <div className={`text-[11px] font-bold ${mobileDynamicsModal === "up" ? "text-emerald-500/90" : "text-rose-500/90"}`}>
+                          {p.chgPct !== undefined ? `${p.chgPct >= 0 ? "+" : ""}${p.chgPct.toFixed(2)}%` : ""}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="pt-3 border-t border-slate-700/40 mt-2 flex items-center justify-between text-[11px] text-slate-400">
+              <span>{language === "ES" ? "Toca una acción para ver su gráfico" : "Tap a stock to view its chart"}</span>
+              <button
+                onClick={() => setMobileDynamicsModal(null)}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold ${
+                  theme === "light"
+                    ? "bg-slate-900 text-white hover:bg-slate-800"
+                    : "bg-white text-slate-900 hover:bg-slate-100"
+                }`}
+              >
+                {language === "ES" ? "Cerrar" : "Close"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

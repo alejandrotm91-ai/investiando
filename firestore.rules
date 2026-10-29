@@ -1,8 +1,25 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // User accounts, profiles, portfolios, and watchlists
     match /users/{userId} {
       allow read, write: if true;
+    }
+
+    // Portfolios collection
+    match /portfolios/{portfolioId} {
+      allow read, write: if true;
+    }
+
+    // AI generated analyses cache
+    match /ai_analyses/{analysisId} {
+      allow read, write: if true;
+    }
+
+    // Shared precomputed superinvestor insights (public read)
+    match /superinvestor_insights/{insightId} {
+      allow read: if true;
+      allow write: if true;
     }
   }
 }

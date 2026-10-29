@@ -223,7 +223,12 @@
   box-shadow: 0 4px 20px -3px rgba(58, 55, 48, 0.05), 0 2px 6px -1px rgba(58, 55, 48, 0.03) !important;
 }
 
-/* Internal elements inside Card 1 (Value Card) and Card 2 (Metrics Card) under Light Mode */
+/* Internal elements inside Card 1 (Value Card) and Card 2 (Metrics Card) */
+.metrics-subcard {
+  background-color: rgba(2, 6, 23, 0.6);
+  border-color: rgba(30, 41, 59, 0.6);
+}
+
 .light .metrics-subcard,
 .light #summary-section .metrics-subcard,
 .light #summary-section > div:first-child > div:nth-child(2) div.bg-\[\#121420\]\/30,
@@ -982,6 +987,25 @@ div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-
 
 .health-metrics-tooltip .arrow-bottom {
   border-top-color: #1a1d27;
+}
+
+/* Webkit autofill overrides for Dark Mode */
+input:-webkit-autofill,
+input:-webkit-autofill:hover, 
+input:-webkit-autofill:focus, 
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 50px var(--theme-input, #020617) inset !important;
+  -webkit-text-fill-color: var(--theme-text-bright, #f8fafc) !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+/* Light Mode Webkit autofill overrides */
+.light input:-webkit-autofill,
+.light input:-webkit-autofill:hover, 
+.light input:-webkit-autofill:focus, 
+.light input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 50px #ffffff inset !important;
+  -webkit-text-fill-color: #0f172a !important;
 }
 
 /* Light Mode Overrides for Health Metrics Tooltip */

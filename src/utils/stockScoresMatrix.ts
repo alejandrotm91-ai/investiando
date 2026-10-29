@@ -153,17 +153,17 @@ const MATRIX_STORE = new Map<string, UnifiedStockScore>();
 
 /** Map ScoredRow to UnifiedStockScore */
 function mapRowToUnifiedScore(row: ScoredRow): UnifiedStockScore {
-  const balancedScore = Math.round(row.scores.balanced ?? 55);
+  const balancedScore = Math.ceil(row.scores.balanced ?? 55);
   const cfg = getScoreStyleConfig(balancedScore);
 
-  const growth = Math.round(row.factors.growth ?? 50);
-  const quality = Math.round(row.factors.quality ?? 50);
-  const stability = Math.round(row.factors.stability ?? 50);
-  const valuation = Math.round(row.factors.valuation ?? 50);
+  const growth = Math.ceil(row.factors.growth ?? 50);
+  const quality = Math.ceil(row.factors.quality ?? 50);
+  const stability = Math.ceil(row.factors.stability ?? 50);
+  const valuation = Math.ceil(row.factors.valuation ?? 50);
 
-  const garp = Math.round(row.scores.garp ?? 50);
-  const quality_def = Math.round(row.scores.quality_def ?? 50);
-  const deep_value = Math.round(row.scores.deep_value ?? 50);
+  const garp = Math.ceil(row.scores.garp ?? 50);
+  const quality_def = Math.ceil(row.scores.quality_def ?? 50);
+  const deep_value = Math.ceil(row.scores.deep_value ?? 50);
 
   const sectorClass = TICKER_CLASSIFICATION[normalizeTicker(row.symbol)] || TICKER_CLASSIFICATION[row.symbol];
 
@@ -390,8 +390,8 @@ export function getAllStockScoresList(): UnifiedStockScore[] {
 
 /**
  * Standardized portfolio score calculation using the unified Matrix.
- * Guarantees that any portfolio (User, Superinvestor, Watchlist) gets
- * calculated consistently and reproducibly.
+ * Guarantees that any portfolio (User, Superinvestor, Watchlist, Summary, Holdings)
+ * gets calculated consistently and reproducibly, taking financials into account when loaded.
  */
 export function calculatePortfolioScoreFromMatrix(
   positions: Array<{
@@ -404,7 +404,12 @@ export function calculatePortfolioScoreFromMatrix(
     valueM?: number;
     isCash?: boolean;
     portfolioWeight?: number;
-  }>
+    pe?: number | null;
+    fwdPe?: number | null;
+    evEbitda?: number | null;
+    name?: string;
+  }>,
+  financialsMap?: Record<string, any> | null
 ) {
   const stockPositions = positions.filter(
     (p) => !p.isCash && p.ticker && p.ticker.toUpperCase() !== "CASH" && p.ticker.toUpperCase() !== "USD"
@@ -413,10 +418,11 @@ export function calculatePortfolioScoreFromMatrix(
   if (stockPositions.length === 0) {
     return {
       score: 50,
+      roundedScore: 50,
       grade: "B" as const,
       labelEN: "Balanced / Quality",
       labelES: "Equilibrado / Calidad",
-      dominantType: "Balanced",
+      dominantType: "Mature Compounder",
       factors: { growth: 50, quality: 50, stability: 50, valuation: 50 },
       drivers: [],
     };
@@ -433,7 +439,48 @@ export function calculatePortfolioScoreFromMatrix(
 
   stockPositions.forEach((pos) => {
     const sym = normalizeTicker(pos.ticker);
-    const itemScore = getStockScore(sym);
+    const sector = getSectorForTicker(pos.ticker);
+    const unified = getStockScore(sym, sector, pos.name);
+    
+    // Check if financials are provided
+    const finData = financialsMap
+      ? (financialsMap[pos.ticker] || financialsMap[sym] || financialsMap[pos.ticker.toUpperCase()])
+      : null;
+
+    let score = unified.strategyScores?.balanced ?? unified.score ?? 50;
+    let growth = unified.factors?.growth ?? 50;
+    let quality = unified.factors?.quality ?? 50;
+    let stability = unified.factors?.stability ?? 50;
+    let valuation = unified.factors?.valuation ?? 50;
+    let dominantItemType = unified.type;
+
+    if (finData) {
+      let raw = { ...getRawFeatures(pos.ticker, pos.name || unified.name, sector) };
+      raw = overrideFeaturesWithFinancials(raw, finData);
+      if (pos.pe !== null && pos.pe !== undefined) {
+        raw.trailing_pe = pos.pe;
+      }
+      if (pos.fwdPe !== null && pos.fwdPe !== undefined) {
+        raw.forward_pe = pos.fwdPe;
+      }
+      if (pos.evEbitda !== null && pos.evEbitda !== undefined) {
+        raw.ev_ebitda = pos.evEbitda;
+      }
+
+      const finMap: Record<string, any> = { [sym]: finData };
+      const scoredList = buildScores([raw], "zscore", finMap);
+      if (scoredList && scoredList.length > 0) {
+        score = scoredList[0].scores?.balanced ?? (scoredList[0] as any).score ?? score;
+        growth = scoredList[0].factors?.growth ?? growth;
+        quality = scoredList[0].factors?.quality ?? quality;
+        stability = scoredList[0].factors?.stability ?? stability;
+        valuation = scoredList[0].factors?.valuation ?? valuation;
+        if (scoredList[0].type) {
+          dominantItemType = scoredList[0].type;
+        }
+      }
+    }
+
     const w =
       pos.portfolioWeight ??
       pos.weight ??
@@ -442,26 +489,26 @@ export function calculatePortfolioScoreFromMatrix(
       (pos.shares && pos.price ? pos.shares * pos.price : (pos.shares && pos.avgCost ? pos.shares * pos.avgCost : 1));
 
     totalWeight += w;
-    weightedScoreSum += itemScore.score * w;
-    weightedGrowth += itemScore.factors.growth * w;
-    weightedQuality += itemScore.factors.quality * w;
-    weightedStability += itemScore.factors.stability * w;
-    weightedValuation += itemScore.factors.valuation * w;
+    weightedScoreSum += score * w;
+    weightedGrowth += growth * w;
+    weightedQuality += quality * w;
+    weightedStability += stability * w;
+    weightedValuation += valuation * w;
 
-    if (itemScore.type) {
-      typeWeights.set(itemScore.type, (typeWeights.get(itemScore.type) || 0) + w);
+    if (dominantItemType) {
+      typeWeights.set(dominantItemType, (typeWeights.get(dominantItemType) || 0) + w);
     }
 
-    drivers.push({ ticker: sym, weight: w, score: itemScore.score });
+    drivers.push({ ticker: sym, weight: w, score });
   });
 
-  const finalScore = totalWeight > 0 ? Math.round(weightedScoreSum / totalWeight) : 55;
-  const growth = totalWeight > 0 ? Math.round(weightedGrowth / totalWeight) : 50;
-  const quality = totalWeight > 0 ? Math.round(weightedQuality / totalWeight) : 50;
-  const stability = totalWeight > 0 ? Math.round(weightedStability / totalWeight) : 50;
-  const valuation = totalWeight > 0 ? Math.round(weightedValuation / totalWeight) : 50;
+  const finalScore = totalWeight > 0 ? (weightedScoreSum / totalWeight) : 55;
+  const growth = totalWeight > 0 ? (weightedGrowth / totalWeight) : 50;
+  const quality = totalWeight > 0 ? (weightedQuality / totalWeight) : 50;
+  const stability = totalWeight > 0 ? (weightedStability / totalWeight) : 50;
+  const valuation = totalWeight > 0 ? (weightedValuation / totalWeight) : 50;
 
-  let dominantType = "Compounder";
+  let dominantType = "Mature Compounder";
   let maxW = 0;
   typeWeights.forEach((w, type) => {
     if (w > maxW) {
@@ -470,11 +517,13 @@ export function calculatePortfolioScoreFromMatrix(
     }
   });
 
-  const cfg = getScoreStyleConfig(finalScore);
+  const roundedScore = Math.ceil(finalScore);
+  const cfg = getScoreStyleConfig(roundedScore);
   drivers.sort((a, b) => b.weight - a.weight);
 
   return {
-    score: finalScore,
+    score: roundedScore,
+    roundedScore,
     grade: cfg.grade,
     labelEN: cfg.labelEN,
     labelES: cfg.labelES,
@@ -484,10 +533,10 @@ export function calculatePortfolioScoreFromMatrix(
     colorHex: cfg.colorHex,
     dominantType,
     factors: {
-      growth,
-      quality,
-      stability,
-      valuation,
+      growth: Math.ceil(growth),
+      quality: Math.ceil(quality),
+      stability: Math.ceil(stability),
+      valuation: Math.ceil(valuation),
     },
     drivers: drivers.slice(0, 5),
   };

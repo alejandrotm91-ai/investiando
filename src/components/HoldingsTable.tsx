@@ -2,10 +2,11 @@ import React, { useState, useMemo, useEffect } from "react";
 import { motion } from "motion/react";
 import { Position } from "../types";
 import { getRawFeatures, buildScores, overrideFeaturesWithFinancials } from "../utils/engine";
-import { getStockScore } from "../utils/stockScoresMatrix";
+import { getStockScore, calculatePortfolioScoreFromMatrix } from "../utils/stockScoresMatrix";
+import { getCachedFinancials, getAllCachedFinancials, setCachedFinancials } from "../utils/financialsCache";
 import { CompanyFinancials } from "./CompanyFinancials";
 import { getQuarterlyBasicEpsCagrFromFinancials } from "./WhatIfSimulator";
-import { Table, LayoutGrid, Edit, Plus, Trash2, Search, Loader2, Briefcase, PieChart, TrendingUp, TrendingDown, Sparkles, Activity, Rocket, Target, ChevronDown, Info, Award, BarChart3, FileText, Percent } from "lucide-react";
+import { Table, LayoutGrid, Edit, Plus, Trash2, Search, Loader2, Briefcase, PieChart, PieChart as PieChartIcon, TrendingUp, TrendingDown, Sparkles, Activity, Rocket, Target, ChevronDown, ChevronRight, Info, Award, BarChart3, FileText, Percent } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line, ReferenceLine, ComposedChart, BarChart, Bar, Cell } from "recharts";
 
 import { TICKER_CLASSIFICATION, SECTOR_SUBSECTORS } from "../data/tickerClassification";
@@ -421,11 +422,12 @@ const getStockDetails = (
   livePe?: number | null,
   liveFwdPe?: number | null,
   livePeg?: number | null,
-  financialsData?: { annual: any[]; quarterly: any[] } | null
+  financialsData?: { annual: any[]; quarterly: any[] } | null,
+  language: "EN" | "ES" = "ES"
 ) => {
   const upper = ticker.toUpperCase();
   const sector = getTickerSector(ticker, isCash);
-  const sectorSp = getSectorSpanish(sector);
+  const sectorSp = language === "EN" ? sector : getSectorSpanish(sector);
 
   const getYoY = (curr: number, prev: number) => {
     const diff = ((curr - prev) / prev) * 100;
@@ -786,7 +788,8 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
     position.pe,
     position.fwdPe,
     position.peg,
-    financialsData
+    financialsData,
+    language
   );
 
   const fundamentalsChartData = useMemo(() => {
@@ -1041,7 +1044,7 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
             {position.ticker}
           </span>
           <span className={`px-2 py-0.5 rounded-full text-[9px] md:text-[10px] font-bold bg-slate-900 border border-slate-800 ${getSectorTextClass(getTickerSector(position.ticker, position.isCash))}`}>
-            {getSectorSpanish(getTickerSector(position.ticker, position.isCash))}
+            {language === "EN" ? getTickerSector(position.ticker, position.isCash) : getSectorSpanish(getTickerSector(position.ticker, position.isCash))}
           </span>
           <span className="text-xs md:text-sm text-slate-400 font-medium">
             {position.name}
@@ -1493,6 +1496,7 @@ interface HoldingsTableProps {
   isReadOnly?: boolean;
   initialTabMode?: "basis" | "valuation" | "health" | "financials";
   onTabModeChange?: (mode: "basis" | "valuation" | "health" | "financials") => void;
+  financialsMap?: Record<string, { annual: any[]; quarterly: any[] }>;
 }
 
 export const HealthMetricsTooltip = ({ 
@@ -1539,9 +1543,10 @@ export const HealthMetricsTooltip = ({
 
 
 const ScoreDonut = ({ score, label, colorClass }: { score: number, label: string, colorClass: string }) => {
+  const displayScore = Math.ceil(score || 0);
   const radius = 24;
   const circumference = 2 * Math.PI * radius;
-  const strokeDashoffset = circumference - (Math.max(0, Math.min(100, score)) / 100) * circumference;
+  const strokeDashoffset = circumference - (Math.max(0, Math.min(100, displayScore)) / 100) * circumference;
   
   return (
     <div className="flex flex-col items-center gap-2">
@@ -1550,14 +1555,23 @@ const ScoreDonut = ({ score, label, colorClass }: { score: number, label: string
              <circle cx="32" cy="32" r={radius} className="stroke-slate-800/60" strokeWidth="6" fill="transparent" />
              <circle cx="32" cy="32" r={radius} className={`stroke-current ${colorClass} transition-all duration-1000`} strokeWidth="6" fill="transparent" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} strokeLinecap="round" />
           </svg>
-          <span className={`text-sm font-bold leading-none ${colorClass} relative z-10`}>{Math.round(score)}</span>
+          <span className={`text-sm font-bold leading-none ${colorClass} relative z-10`}>{displayScore}</span>
        </div>
        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider text-center">{label}</span>
     </div>
   );
 };
 
-export default function HoldingsTable({ positions, loading, onEditHoldings, language = "EN", isReadOnly = false, initialTabMode, onTabModeChange }: HoldingsTableProps) {
+export default function HoldingsTable({ 
+  positions, 
+  loading, 
+  onEditHoldings, 
+  language = "EN", 
+  isReadOnly = false, 
+  initialTabMode, 
+  onTabModeChange,
+  financialsMap: propFinancialsMap,
+}: HoldingsTableProps) {
   const [viewMode, setViewMode] = useState<"table" | "cards">(() => {
     if (typeof window !== "undefined" && window.innerWidth < 768) {
       return "cards";
@@ -1580,7 +1594,16 @@ export default function HoldingsTable({ positions, loading, onEditHoldings, lang
     }
   };
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
-  const [financialsMap, setFinancialsMap] = useState<Record<string, { annual: any[]; quarterly: any[] }>>({});
+  const [localFinancialsMap, setLocalFinancialsMap] = useState<Record<string, { annual: any[]; quarterly: any[] }>>(() => getAllCachedFinancials());
+
+  const effectiveFinancialsMap = useMemo(() => {
+    return {
+      ...getAllCachedFinancials(),
+      ...(propFinancialsMap || {}),
+      ...localFinancialsMap,
+    };
+  }, [propFinancialsMap, localFinancialsMap]);
+
   const [dcfAssumptionsMap, setDcfAssumptionsMap] = useState<Record<string, { growthRate: number; discountRate: number; terminalGrowthRate: number }>>({});
 
   useEffect(() => {
@@ -1593,7 +1616,7 @@ export default function HoldingsTable({ positions, loading, onEditHoldings, lang
   }, []);
 
   const calculateTickerDCF = (ticker: string, eps: number | null) => {
-    const financials = financialsMap[ticker] || financialsMap[ticker.toUpperCase()];
+    const financials = effectiveFinancialsMap[ticker] || effectiveFinancialsMap[ticker.toUpperCase()];
     if (!financials?.annual || financials.annual.length === 0) return null;
     const latest = financials.annual[0];
 
@@ -1639,30 +1662,34 @@ export default function HoldingsTable({ positions, loading, onEditHoldings, lang
 
   useEffect(() => {
     const fetchAllFinancials = async () => {
-      const tickersToFetch = Array.from(new Set(positions.filter(p => !p.isCash).map(p => p.ticker)));
-      const results = await Promise.all(tickersToFetch.map(async t => {
-        try {
-          const res = await fetch("/api/portfolio/financials", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ticker: t })
-          });
-          const data = await res.json();
-          return { ticker: t, data };
-        } catch (e) {
-          return { ticker: t, data: null };
-        }
-      }));
-      const newMap: any = {};
-      const sortFn = (a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime();
-      results.forEach(r => {
-        if (r.data && !r.data.error) {
-          if (Array.isArray(r.data.annual)) r.data.annual.sort(sortFn);
-          if (Array.isArray(r.data.quarterly)) r.data.quarterly.sort(sortFn);
-          newMap[r.ticker] = r.data;
-        }
-      });
-      setFinancialsMap(newMap);
+      const tickersToFetch = Array.from(new Set(positions.filter(p => !p.isCash && p.ticker && p.ticker.toUpperCase() !== "CASH" && p.ticker.toUpperCase() !== "USD").map(p => p.ticker)));
+      if (tickersToFetch.length === 0) return;
+
+      const missing = tickersToFetch.filter(t => !getCachedFinancials(t));
+      if (missing.length > 0) {
+        const results = await Promise.all(missing.map(async t => {
+          try {
+            const res = await fetch("/api/portfolio/financials", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ticker: t })
+            });
+            const data = await res.json();
+            return { ticker: t, data };
+          } catch (e) {
+            return { ticker: t, data: null };
+          }
+        }));
+        const sortFn = (a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime();
+        results.forEach(r => {
+          if (r.data && !r.data.error) {
+            if (Array.isArray(r.data.annual)) r.data.annual.sort(sortFn);
+            if (Array.isArray(r.data.quarterly)) r.data.quarterly.sort(sortFn);
+            setCachedFinancials(r.ticker, r.data);
+          }
+        });
+      }
+      setLocalFinancialsMap(getAllCachedFinancials());
     };
     fetchAllFinancials();
   }, [positions]);
@@ -1808,156 +1835,315 @@ export default function HoldingsTable({ positions, loading, onEditHoldings, lang
     }
   }[language];
 
-  const activePositions = positions || [];
-  const principalPositions = activePositions.filter((p) => !p.isMargin);
-  const marginActivePositions = activePositions.filter((p) => p.isMargin && !p.isCash);
+  const [projectionTab, setProjectionTab] = useState<"portfolio" | "margin" | "total">("portfolio");
 
-  const principalCurrentVal = principalPositions.reduce((acc, pos) => acc + (pos.shares * pos.price), 0);
-  const marginCurrentVal = marginActivePositions.reduce((acc, pos) => acc + (pos.shares * pos.price), 0);
-  const marginFinancedPrincipal = marginActivePositions.reduce((sum, p) => sum + (p.shares * p.avgCost), 0);
+  const getTabColor = (tab: "portfolio" | "margin" | "total"): string => {
+    if (tab === "portfolio") return "#10b981"; // emerald
+    if (tab === "margin") return "#f59e0b"; // amber
+    return "#6366f1"; // indigo
+  };
 
+  const getTabBadgeClass = (tab: "portfolio" | "margin" | "total"): string => {
+    if (tab === "portfolio") return "text-emerald-400 bg-emerald-500/5 border-emerald-500/10";
+    if (tab === "margin") return "text-amber-400 bg-amber-500/5 border-amber-500/10";
+    return "text-indigo-400 bg-indigo-500/5 border-indigo-500/10";
+  };
+
+  const [expandedSectors, setExpandedSectors] = useState<Record<string, boolean>>({});
+
+  const toggleSector = (sectorName: string) => {
+    setExpandedSectors(prev => ({
+      ...prev,
+      [sectorName]: !prev[sectorName]
+    }));
+  };
+
+  const allPositions = positions || [];
+  const activePositions = allPositions.filter(p => p.ticker !== "MARGIN_PAID");
+  const principalPositions = useMemo(() => activePositions.filter((p) => !p.isMargin), [activePositions]);
+  const marginActivePositions = useMemo(() => activePositions.filter((p) => p.isMargin && !p.isCash), [activePositions]);
+
+  const selectedPositions = useMemo(() => {
+    if (projectionTab === "portfolio") return principalPositions;
+    if (projectionTab === "margin") return marginActivePositions;
+    return activePositions;
+  }, [projectionTab, principalPositions, marginActivePositions, activePositions]);
+
+  const principalCurrentVal = useMemo(() => principalPositions.reduce((acc, pos) => acc + (pos.shares * pos.price), 0), [principalPositions]);
+  const marginCurrentVal = useMemo(() => marginActivePositions.reduce((acc, pos) => acc + (pos.shares * pos.price), 0), [marginActivePositions]);
   const currentPortfolioValue = principalCurrentVal + marginCurrentVal;
-  const netCurrentPortfolioValue = Math.max(0, currentPortfolioValue - marginFinancedPrincipal);
 
-  // 1. 52wk High calculations
-  const principal52wkVal = principalPositions.reduce((acc, pos) => {
-    if (pos.isCash || pos.ticker === "CASH" || pos.ticker === "USD") return acc + (pos.shares * pos.price);
-    const highPrice = (pos.fiftyTwoWeekHigh !== null && pos.fiftyTwoWeekHigh !== undefined && pos.fiftyTwoWeekHigh > 0)
-      ? pos.fiftyTwoWeekHigh
-      : pos.price * 1.34668;
-    return acc + (pos.shares * highPrice);
-  }, 0);
-  const principal52wkGain = principal52wkVal - principalCurrentVal;
-  const principal52wkGainPct = principalCurrentVal > 0 ? (principal52wkGain / principalCurrentVal) * 100 : 0;
+  const selectedTotalMktValue = useMemo(() => {
+    if (projectionTab === "portfolio") return principalCurrentVal;
+    if (projectionTab === "margin") return marginCurrentVal;
+    return currentPortfolioValue;
+  }, [projectionTab, principalCurrentVal, marginCurrentVal, currentPortfolioValue]);
 
-  const marginGross52wkVal = marginActivePositions.reduce((acc, pos) => {
-    const highPrice = (pos.fiftyTwoWeekHigh !== null && pos.fiftyTwoWeekHigh !== undefined && pos.fiftyTwoWeekHigh > 0)
-      ? pos.fiftyTwoWeekHigh
-      : pos.price * 1.34668;
-    return acc + (pos.shares * highPrice);
-  }, 0);
-  const marginNet52wkVal = Math.max(0, marginGross52wkVal - marginFinancedPrincipal);
-  const margin52wkGain = marginGross52wkVal - marginCurrentVal;
-  const margin52wkGainPct = marginCurrentVal > 0 ? (margin52wkGain / marginCurrentVal) * 100 : 0;
+  const marginFinancedPrincipal = useMemo(() => {
+    return selectedPositions
+      .filter((p) => (p.isMargin || projectionTab === "margin") && !p.isCash && p.ticker !== "CASH" && p.ticker !== "USD")
+      .reduce((sum, p) => sum + (p.shares * (p.avgCost || p.price)), 0);
+  }, [selectedPositions, projectionTab]);
 
-  const fiftyTwoWeekHighTotal = principal52wkVal + marginNet52wkVal;
-  const total52wkGain = fiftyTwoWeekHighTotal - netCurrentPortfolioValue;
+  const netSelectedMktValue = Math.max(0, selectedTotalMktValue - marginFinancedPrincipal);
 
-  // 2. Avg Target calculations
-  const principalAvgTargetVal = principalPositions.reduce((acc, pos) => {
-    if (pos.isCash || pos.ticker === "CASH" || pos.ticker === "USD") return acc + (pos.shares * pos.price);
-    const data = getAnalystData(pos.ticker, pos.price);
-    const targetPrice = (pos.targetMeanPrice !== null && pos.targetMeanPrice !== undefined && pos.targetMeanPrice > 0)
-      ? pos.targetMeanPrice
-      : ((data.avgTarget !== null && data.avgTarget > 0) ? data.avgTarget : pos.price);
-    return acc + (pos.shares * targetPrice);
-  }, 0);
-  const principalAvgTargetGain = principalAvgTargetVal - principalCurrentVal;
-  const principalAvgTargetGainPct = principalCurrentVal > 0 ? (principalAvgTargetGain / principalCurrentVal) * 100 : 0;
+  // 1. 52wk High calculations & breakdown
+  const principal52wk = useMemo(() => {
+    const principalList = selectedPositions.filter(p => !p.isMargin && projectionTab !== "margin");
+    const currentVal = principalList.reduce((acc, pos) => acc + (pos.shares * pos.price), 0);
+    const futureVal = principalList.reduce((acc, pos) => {
+      if (pos.isCash || pos.ticker === "CASH" || pos.ticker === "USD") return acc + (pos.shares * pos.price);
+      const highPrice = (pos.fiftyTwoWeekHigh !== null && pos.fiftyTwoWeekHigh !== undefined && pos.fiftyTwoWeekHigh > 0)
+        ? pos.fiftyTwoWeekHigh
+        : pos.price * 1.34668;
+      return acc + (pos.shares * highPrice);
+    }, 0);
+    const gain = futureVal - currentVal;
+    const gainPct = currentVal > 0 ? (gain / currentVal) * 100 : 0;
+    return { currentVal, futureVal, gain, gainPct };
+  }, [selectedPositions, projectionTab]);
 
-  const marginGrossAvgTargetVal = marginActivePositions.reduce((acc, pos) => {
-    const data = getAnalystData(pos.ticker, pos.price);
-    const targetPrice = (pos.targetMeanPrice !== null && pos.targetMeanPrice !== undefined && pos.targetMeanPrice > 0)
-      ? pos.targetMeanPrice
-      : ((data.avgTarget !== null && data.avgTarget > 0) ? data.avgTarget : pos.price);
-    return acc + (pos.shares * targetPrice);
-  }, 0);
-  const marginNetAvgTargetVal = Math.max(0, marginGrossAvgTargetVal - marginFinancedPrincipal);
-  const marginAvgTargetGain = marginGrossAvgTargetVal - marginCurrentVal;
-  const marginAvgTargetGainPct = marginCurrentVal > 0 ? (marginAvgTargetGain / marginCurrentVal) * 100 : 0;
+  const margin52wk = useMemo(() => {
+    const marginList = selectedPositions.filter(p => (p.isMargin || projectionTab === "margin") && !p.isCash && p.ticker !== "CASH" && p.ticker !== "USD");
+    const currentVal = marginList.reduce((acc, pos) => acc + (pos.shares * pos.price), 0);
+    const grossFutureVal = marginList.reduce((acc, pos) => {
+      const highPrice = (pos.fiftyTwoWeekHigh !== null && pos.fiftyTwoWeekHigh !== undefined && pos.fiftyTwoWeekHigh > 0)
+        ? pos.fiftyTwoWeekHigh
+        : pos.price * 1.34668;
+      return acc + (pos.shares * highPrice);
+    }, 0);
+    const netFutureVal = Math.max(0, grossFutureVal - marginFinancedPrincipal);
+    const gain = grossFutureVal - currentVal;
+    const debtBase = marginFinancedPrincipal > 0 ? marginFinancedPrincipal : currentVal;
+    const gainPct = debtBase > 0 ? (gain / debtBase) * 100 : 0;
+    return { currentVal, grossFutureVal, netFutureVal, gain, gainPct };
+  }, [selectedPositions, projectionTab, marginFinancedPrincipal]);
 
-  const avgTargetValueTotal = principalAvgTargetVal + marginNetAvgTargetVal;
-  const totalAvgTargetGain = avgTargetValueTotal - netCurrentPortfolioValue;
+  const fiftyTwoWeekHighTotal = useMemo(() => {
+    return principal52wk.futureVal + margin52wk.netFutureVal;
+  }, [principal52wk.futureVal, margin52wk.netFutureVal]);
 
-  // 3. High Target calculations
-  const principalHighTargetVal = principalPositions.reduce((acc, pos) => {
-    if (pos.isCash || pos.ticker === "CASH" || pos.ticker === "USD") return acc + (pos.shares * pos.price);
-    const data = getAnalystData(pos.ticker, pos.price);
-    const targetPrice = (pos.targetHighPrice !== null && pos.targetHighPrice !== undefined && pos.targetHighPrice > 0)
-      ? pos.targetHighPrice
-      : ((data.highTarget !== null && data.highTarget > 0) ? data.highTarget : pos.price);
-    return acc + (pos.shares * targetPrice);
-  }, 0);
-  const principalHighTargetGain = principalHighTargetVal - principalCurrentVal;
-  const principalHighTargetGainPct = principalCurrentVal > 0 ? (principalHighTargetGain / principalCurrentVal) * 100 : 0;
+  const total52wkGain = fiftyTwoWeekHighTotal - netSelectedMktValue;
 
-  const marginGrossHighTargetVal = marginActivePositions.reduce((acc, pos) => {
-    const data = getAnalystData(pos.ticker, pos.price);
-    const targetPrice = (pos.targetHighPrice !== null && pos.targetHighPrice !== undefined && pos.targetHighPrice > 0)
-      ? pos.targetHighPrice
-      : ((data.highTarget !== null && data.highTarget > 0) ? data.highTarget : pos.price);
-    return acc + (pos.shares * targetPrice);
-  }, 0);
-  const marginNetHighTargetVal = Math.max(0, marginGrossHighTargetVal - marginFinancedPrincipal);
-  const marginHighTargetGain = marginGrossHighTargetVal - marginCurrentVal;
-  const marginHighTargetGainPct = marginCurrentVal > 0 ? (marginHighTargetGain / marginCurrentVal) * 100 : 0;
+  // 2. Avg Target calculations & breakdown
+  const principalAvgTarget = useMemo(() => {
+    const principalList = selectedPositions.filter(p => !p.isMargin && projectionTab !== "margin");
+    const currentVal = principalList.reduce((acc, pos) => acc + (pos.shares * pos.price), 0);
+    const futureVal = principalList.reduce((acc, pos) => {
+      if (pos.isCash || pos.ticker === "CASH" || pos.ticker === "USD") return acc + (pos.shares * pos.price);
+      const data = getAnalystData(pos.ticker, pos.price);
+      const targetPrice = (pos.targetMeanPrice !== null && pos.targetMeanPrice !== undefined && pos.targetMeanPrice > 0)
+        ? pos.targetMeanPrice
+        : ((data.avgTarget !== null && data.avgTarget > 0) ? data.avgTarget : pos.price);
+      return acc + (pos.shares * targetPrice);
+    }, 0);
+    const gain = futureVal - currentVal;
+    const gainPct = currentVal > 0 ? (gain / currentVal) * 100 : 0;
+    return { currentVal, futureVal, gain, gainPct };
+  }, [selectedPositions, projectionTab]);
 
-  const highTargetValueTotal = principalHighTargetVal + marginNetHighTargetVal;
-  const totalHighTargetGain = highTargetValueTotal - netCurrentPortfolioValue;
+  const marginAvgTarget = useMemo(() => {
+    const marginList = selectedPositions.filter(p => (p.isMargin || projectionTab === "margin") && !p.isCash && p.ticker !== "CASH" && p.ticker !== "USD");
+    const currentVal = marginList.reduce((acc, pos) => acc + (pos.shares * pos.price), 0);
+    const grossFutureVal = marginList.reduce((acc, pos) => {
+      const data = getAnalystData(pos.ticker, pos.price);
+      const targetPrice = (pos.targetMeanPrice !== null && pos.targetMeanPrice !== undefined && pos.targetMeanPrice > 0)
+        ? pos.targetMeanPrice
+        : ((data.avgTarget !== null && data.avgTarget > 0) ? data.avgTarget : pos.price);
+      return acc + (pos.shares * targetPrice);
+    }, 0);
+    const netFutureVal = Math.max(0, grossFutureVal - marginFinancedPrincipal);
+    const gain = grossFutureVal - currentVal;
+    const debtBase = marginFinancedPrincipal > 0 ? marginFinancedPrincipal : currentVal;
+    const gainPct = debtBase > 0 ? (gain / debtBase) * 100 : 0;
+    return { currentVal, grossFutureVal, netFutureVal, gain, gainPct };
+  }, [selectedPositions, projectionTab, marginFinancedPrincipal]);
 
-  const baseValueForUpside = netCurrentPortfolioValue > 0 ? netCurrentPortfolioValue : currentPortfolioValue;
+  const avgTargetValueTotal = useMemo(() => {
+    return principalAvgTarget.futureVal + marginAvgTarget.netFutureVal;
+  }, [principalAvgTarget.futureVal, marginAvgTarget.netFutureVal]);
 
-  const high52wkUpside = baseValueForUpside > 0 
-    ? ((fiftyTwoWeekHighTotal - netCurrentPortfolioValue) / baseValueForUpside) * 100 
-    : 0;
+  const totalAvgTargetGain = avgTargetValueTotal - netSelectedMktValue;
 
-  const avgTargetUpside = baseValueForUpside > 0 
-    ? ((avgTargetValueTotal - netCurrentPortfolioValue) / baseValueForUpside) * 100 
-    : 0;
+  // 3. High Target calculations & breakdown
+  const principalHighTarget = useMemo(() => {
+    const principalList = selectedPositions.filter(p => !p.isMargin && projectionTab !== "margin");
+    const currentVal = principalList.reduce((acc, pos) => acc + (pos.shares * pos.price), 0);
+    const futureVal = principalList.reduce((acc, pos) => {
+      if (pos.isCash || pos.ticker === "CASH" || pos.ticker === "USD") return acc + (pos.shares * pos.price);
+      const data = getAnalystData(pos.ticker, pos.price);
+      const targetPrice = (pos.targetHighPrice !== null && pos.targetHighPrice !== undefined && pos.targetHighPrice > 0)
+        ? pos.targetHighPrice
+        : ((data.highTarget !== null && data.highTarget > 0) ? data.highTarget : pos.price);
+      return acc + (pos.shares * targetPrice);
+    }, 0);
+    const gain = futureVal - currentVal;
+    const gainPct = currentVal > 0 ? (gain / currentVal) * 100 : 0;
+    return { currentVal, futureVal, gain, gainPct };
+  }, [selectedPositions, projectionTab]);
 
-  const highTargetUpside = baseValueForUpside > 0 
-    ? ((highTargetValueTotal - netCurrentPortfolioValue) / baseValueForUpside) * 100 
-    : 0;
+  const marginHighTarget = useMemo(() => {
+    const marginList = selectedPositions.filter(p => (p.isMargin || projectionTab === "margin") && !p.isCash && p.ticker !== "CASH" && p.ticker !== "USD");
+    const currentVal = marginList.reduce((acc, pos) => acc + (pos.shares * pos.price), 0);
+    const grossFutureVal = marginList.reduce((acc, pos) => {
+      const data = getAnalystData(pos.ticker, pos.price);
+      const targetPrice = (pos.targetHighPrice !== null && pos.targetHighPrice !== undefined && pos.targetHighPrice > 0)
+        ? pos.targetHighPrice
+        : ((data.highTarget !== null && data.highTarget > 0) ? data.highTarget : pos.price);
+      return acc + (pos.shares * targetPrice);
+    }, 0);
+    const netFutureVal = Math.max(0, grossFutureVal - marginFinancedPrincipal);
+    const gain = grossFutureVal - currentVal;
+    const debtBase = marginFinancedPrincipal > 0 ? marginFinancedPrincipal : currentVal;
+    const gainPct = debtBase > 0 ? (gain / debtBase) * 100 : 0;
+    return { currentVal, grossFutureVal, netFutureVal, gain, gainPct };
+  }, [selectedPositions, projectionTab, marginFinancedPrincipal]);
 
-  // Projection Calculations (Option A: strictly match the user-selected CAGR)
+  const highTargetValueTotal = useMemo(() => {
+    return principalHighTarget.futureVal + marginHighTarget.netFutureVal;
+  }, [principalHighTarget.futureVal, marginHighTarget.netFutureVal]);
+
+  const totalHighTargetGain = highTargetValueTotal - netSelectedMktValue;
+
+  const baseValueForUpside = useMemo(() => {
+    if (projectionTab === "margin") {
+      return marginFinancedPrincipal > 0 ? marginFinancedPrincipal : (netSelectedMktValue > 0 ? netSelectedMktValue : selectedTotalMktValue);
+    }
+    return netSelectedMktValue > 0 ? netSelectedMktValue : selectedTotalMktValue;
+  }, [projectionTab, marginFinancedPrincipal, netSelectedMktValue, selectedTotalMktValue]);
+
+  const high52wkUpside = useMemo(() => {
+    if (baseValueForUpside <= 0) return 0;
+    return ((fiftyTwoWeekHighTotal - netSelectedMktValue) / baseValueForUpside) * 100;
+  }, [fiftyTwoWeekHighTotal, netSelectedMktValue, baseValueForUpside]);
+
+  const avgTargetUpside = useMemo(() => {
+    if (baseValueForUpside <= 0) return 0;
+    return ((avgTargetValueTotal - netSelectedMktValue) / baseValueForUpside) * 100;
+  }, [avgTargetValueTotal, netSelectedMktValue, baseValueForUpside]);
+
+  const highTargetUpside = useMemo(() => {
+    if (baseValueForUpside <= 0) return 0;
+    return ((highTargetValueTotal - netSelectedMktValue) / baseValueForUpside) * 100;
+  }, [highTargetValueTotal, netSelectedMktValue, baseValueForUpside]);
+
+  // Projection Calculations
   const baseGrowthRate = cagr / 100;
   const effectiveGrowthRate = baseGrowthRate;
-
   const currentYear = new Date().getFullYear();
-  let currentValueComputed = currentPortfolioValue;
-  const chartData = [];
 
-  chartData.push({
-    year: String(currentYear),
-    value: Math.round(currentValueComputed),
-  });
+  const chartData = useMemo(() => {
+    let currentValue = selectedTotalMktValue;
+    const data = [];
+    data.push({
+      year: String(currentYear),
+      value: Math.round(currentValue),
+    });
 
-  const totalMonths = years * 12;
-  const monthlyRate = Math.pow(1 + effectiveGrowthRate, 1 / 12) - 1;
+    const totalMonths = years * 12;
+    const monthlyRate = Math.pow(1 + effectiveGrowthRate, 1 / 12) - 1;
 
-  for (let m = 1; m <= totalMonths; m++) {
-    currentValueComputed = currentValueComputed * (1 + monthlyRate) + monthlyAddition;
-    if (m % 12 === 0) {
-      const yearNum = currentYear + (m / 12);
-      chartData.push({
-        year: String(yearNum),
-        value: Math.round(currentValueComputed),
-      });
+    for (let m = 1; m <= totalMonths; m++) {
+      currentValue = currentValue * (1 + monthlyRate) + (projectionTab === "margin" ? 0 : monthlyAddition);
+      if (m % 12 === 0) {
+        const yearNum = currentYear + (m / 12);
+        data.push({
+          year: String(yearNum),
+          value: Math.round(currentValue),
+        });
+      }
     }
-  }
+    return data;
+  }, [selectedTotalMktValue, years, effectiveGrowthRate, monthlyAddition, currentYear, projectionTab]);
 
-  const projectedTotalValue = currentValueComputed;
-  const totalInvested = currentPortfolioValue + (monthlyAddition * totalMonths);
-  const totalGrowth = Math.max(0, projectedTotalValue - currentPortfolioValue);
+  const projectedTotalValue = useMemo(() => {
+    if (chartData.length === 0) return 0;
+    return chartData[chartData.length - 1].value;
+  }, [chartData]);
+
+  const totalAdditions = projectionTab === "margin" ? 0 : (monthlyAddition * years * 12);
+
+  const totalInvested = projectionTab === "margin"
+    ? (marginFinancedPrincipal > 0 ? marginFinancedPrincipal : selectedTotalMktValue)
+    : (selectedTotalMktValue + totalAdditions);
+  const totalGrowth = Math.max(0, projectedTotalValue - totalInvested);
   const interestGains = totalGrowth;
-
-  const interestGainsProgression = chartData.slice(1).map((item, index) => {
-    const yearIndex = index + 1;
-    const valueAtYear = item.value;
-    const cumulativeGain = Math.max(0, valueAtYear - currentPortfolioValue);
-    const growthPercent = currentPortfolioValue > 0 ? (cumulativeGain / currentPortfolioValue) * 100 : 0;
-    return {
-      yearLabel: item.year,
-      yearIndex,
-      value: valueAtYear,
-      cumulativeGain,
-      growthPercent
-    };
-  });
 
   const percentageReturnOnInvested = totalInvested > 0 
     ? ((projectedTotalValue - totalInvested) / totalInvested) * 100 
     : 0;
+
+  const { sortedSectors, sectorSubsectors } = useMemo(() => {
+    const sortedPositions = [...selectedPositions].sort((a, b) => {
+      if (a.isCash) return 1;
+      if (b.isCash) return -1;
+      const valA = a.shares * a.price;
+      const valB = b.shares * b.price;
+      return valB - valA;
+    });
+
+    const totalVal = sortedPositions.reduce((sum, p) => sum + (p.shares * p.price), 0);
+
+    const subsectors = sortedPositions.reduce((acc, pos) => {
+      const sector = getTickerSector(pos.ticker, pos.isCash);
+      const subsector = getTickerSubsector(pos.ticker, pos.isCash, language);
+      const posVal = pos.shares * pos.price;
+      if (!acc[sector]) {
+        acc[sector] = {};
+      }
+      if (!acc[sector][subsector]) {
+        acc[sector][subsector] = { mktValue: 0, weight: 0 };
+      }
+      acc[sector][subsector].mktValue += posVal;
+      acc[sector][subsector].weight += totalVal > 0 ? (posVal / totalVal) * 100 : 0;
+      return acc;
+    }, {} as Record<string, Record<string, { mktValue: number; weight: number }>>);
+
+    const sectorWeights = sortedPositions.reduce((acc, pos) => {
+      const sector = getTickerSector(pos.ticker, pos.isCash);
+      const posVal = pos.shares * pos.price;
+      const posWeight = totalVal > 0 ? (posVal / totalVal) * 100 : 0;
+      acc[sector] = (acc[sector] || 0) + posWeight;
+      return acc;
+    }, {} as Record<string, number>);
+
+    const sectorMktValues = sortedPositions.reduce((acc, pos) => {
+      const sector = getTickerSector(pos.ticker, pos.isCash);
+      const posVal = pos.shares * pos.price;
+      acc[sector] = (acc[sector] || 0) + posVal;
+      return acc;
+    }, {} as Record<string, number>);
+
+    const sortedSectorsList = (Object.entries(sectorWeights) as [string, number][])
+      .map(([name, weight]) => ({
+        name,
+        weight,
+        mktValue: sectorMktValues[name] || 0
+      }))
+      .sort((a, b) => b.weight - a.weight);
+
+    return {
+      sortedSectors: sortedSectorsList,
+      sectorSubsectors: subsectors
+    };
+  }, [selectedPositions, language]);
+
+  const formatAbbreviatedK = (val: number) => {
+    const abs = Math.abs(val);
+    if (abs >= 1000000000) {
+      const billions = val / 1000000000;
+      return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(billions) + "Bn";
+    }
+    if (abs >= 1000000) {
+      const millions = val / 1000000;
+      return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(millions) + "M";
+    }
+    if (abs >= 1000) {
+      const thousands = val / 1000;
+      return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(thousands) + "k";
+    }
+    return formatCurrency(val);
+  };
 
   const formatCurrency = (val: number | null) => {
     if (val === null) return "—";
@@ -2084,7 +2270,7 @@ export default function HoldingsTable({ positions, loading, onEditHoldings, lang
   }, {} as Record<string, number>);
 
   // Sort sectors by weight descending
-  const sortedSectors = Object.entries(sectorWeights)
+  const statsSortedSectors = Object.entries(sectorWeights)
     .map(([name, weight]) => ({
       name,
       weight,
@@ -2174,14 +2360,14 @@ export default function HoldingsTable({ positions, loading, onEditHoldings, lang
   // Scorecard / Health mode calculations using unified Master Stock Score Matrix
   const scoredRowsMap = useMemo(() => {
     const map = new Map<string, any>();
-    const stockPositions = positions.filter((p) => !p.isCash);
+    const stockPositions = activePositions.filter((p) => !p.isCash);
     if (stockPositions.length === 0) return map;
     
     stockPositions.forEach((pos) => {
       const sym = pos.ticker.toUpperCase();
       const sector = getTickerSector(pos.ticker, pos.isCash);
       const unified = getStockScore(sym, sector, pos.name);
-      const finData = financialsMap[pos.ticker] || financialsMap[sym];
+      const finData = effectiveFinancialsMap[pos.ticker] || effectiveFinancialsMap[sym];
 
       let raw = { ...getRawFeatures(pos.ticker, pos.name, sector) };
       if (finData) {
@@ -2197,12 +2383,31 @@ export default function HoldingsTable({ positions, loading, onEditHoldings, lang
         raw.ev_ebitda = pos.evEbitda;
       }
 
+      let rowScores = unified.strategyScores;
+      let rowFactors = unified.factors;
+      
+      const finMap: Record<string, any> = {};
+      if (finData) {
+        finMap[sym] = finData;
+      }
+      
+      const scoredList = buildScores([raw], "zscore", finMap);
+      if (scoredList && scoredList.length > 0) {
+        rowScores = scoredList[0].scores;
+        rowFactors = {
+          growth: scoredList[0].factors.growth,
+          quality: scoredList[0].factors.quality,
+          stability: scoredList[0].factors.stability,
+          valuation: scoredList[0].factors.valuation,
+        };
+      }
+
       map.set(sym, {
         symbol: unified.symbol,
         name: unified.name,
         sector: unified.sector,
-        scores: unified.strategyScores,
-        factors: unified.factors,
+        scores: rowScores,
+        factors: rowFactors,
         archetype: unified.archetype,
         type: unified.type,
         valuationMethod: unified.valuationMethod,
@@ -2212,14 +2417,14 @@ export default function HoldingsTable({ positions, loading, onEditHoldings, lang
       });
     });
     return map;
-  }, [positions, financialsMap]);
+  }, [activePositions, effectiveFinancialsMap]);
 
   const getPositionCagr = (ticker: string): number => {
     const sym = ticker.toUpperCase();
     if (sym === "CASH" || sym === "USD") return 0;
 
     // 1. Calculate directly from fetched financials map (quarterly basicEPS CAGR)
-    const finData = financialsMap[sym] || financialsMap[ticker];
+    const finData = effectiveFinancialsMap[sym] || effectiveFinancialsMap[ticker];
     const finCagr = getQuarterlyBasicEpsCagrFromFinancials(finData);
     if (finCagr !== null && !isNaN(finCagr)) {
       return finCagr;
@@ -2241,7 +2446,7 @@ export default function HoldingsTable({ positions, loading, onEditHoldings, lang
   };
 
   const portfolioWeightedCagr = useMemo(() => {
-    const stockPositions = positions.filter((p) => !p.isCash && p.ticker.toUpperCase() !== "CASH");
+    const stockPositions = activePositions.filter((p) => !p.isCash && p.ticker.toUpperCase() !== "CASH");
     if (stockPositions.length === 0) return 0;
     let sumWeightedCagr = 0;
     let sumWeights = 0;
@@ -2254,7 +2459,7 @@ export default function HoldingsTable({ positions, loading, onEditHoldings, lang
     });
 
     return sumWeights > 0 ? Number((sumWeightedCagr / sumWeights).toFixed(1)) : 0;
-  }, [positions, financialsMap, scoredRowsMap]);
+  }, [activePositions, effectiveFinancialsMap, scoredRowsMap]);
 
   // Synchronize CAGR input with portfolio weighted Basic EPS CAGR
   useEffect(() => {
@@ -2263,68 +2468,13 @@ export default function HoldingsTable({ positions, loading, onEditHoldings, lang
     }
   }, [portfolioWeightedCagr]);
 
-  const portfolioWeightedScore = useMemo(() => {
-    const stockPositions = sortedPositions.filter(p => !p.isCash);
-    const totalStockWeight = stockPositions.reduce((sum, p) => sum + p.weight, 0);
-    if (totalStockWeight === 0) return 0;
-    
-    let sumScore = 0;
-    stockPositions.forEach((pos) => {
-      const row = scoredRowsMap.get(pos.ticker.toUpperCase());
-      if (row) {
-        sumScore += (row.scores.balanced || 50) * pos.weight;
-      }
-    });
-    return sumScore / totalStockWeight;
-  }, [sortedPositions, scoredRowsMap]);
+  const portfolioHealth = useMemo(() => {
+    return calculatePortfolioScoreFromMatrix(sortedPositions, effectiveFinancialsMap);
+  }, [sortedPositions, effectiveFinancialsMap]);
 
-  const portfolioWeightedType = useMemo(() => {
-    const stockPositions = sortedPositions.filter(p => !p.isCash);
-    if (stockPositions.length === 0) return null;
-    
-    const typeWeights = new Map<string, number>();
-    stockPositions.forEach(pos => {
-      const row = scoredRowsMap.get(pos.ticker.toUpperCase());
-      if (row && row.type) {
-        const currentWeight = typeWeights.get(row.type) || 0;
-        typeWeights.set(row.type, currentWeight + pos.weight);
-      }
-    });
-    
-    let maxWeight = 0;
-    let dominantType = null;
-    typeWeights.forEach((weight, type) => {
-      if (weight > maxWeight) {
-        maxWeight = weight;
-        dominantType = type;
-      }
-    });
-    
-    return dominantType;
-  }, [sortedPositions, scoredRowsMap]);
-
-  const portfolioWeightedFactors = useMemo(() => {
-    const stockPositions = sortedPositions.filter(p => !p.isCash);
-    const totalStockWeight = stockPositions.reduce((sum, p) => sum + p.weight, 0);
-    const result = { growth: 0, quality: 0, stability: 0, valuation: 0 };
-    if (totalStockWeight === 0) return result;
-
-    stockPositions.forEach((pos) => {
-      const row = scoredRowsMap.get(pos.ticker.toUpperCase());
-      if (row) {
-        result.growth += (row.factors.growth || 50) * pos.weight;
-        result.quality += (row.factors.quality || 50) * pos.weight;
-        result.stability += (row.factors.stability || 50) * pos.weight;
-        result.valuation += (row.factors.valuation || 50) * pos.weight;
-      }
-    });
-
-    result.growth /= totalStockWeight;
-    result.quality /= totalStockWeight;
-    result.stability /= totalStockWeight;
-    result.valuation /= totalStockWeight;
-    return result;
-  }, [sortedPositions, scoredRowsMap]);
+  const portfolioWeightedScore = portfolioHealth.score;
+  const portfolioWeightedType = portfolioHealth.dominantType;
+  const portfolioWeightedFactors = portfolioHealth.factors;
 
   const getScoreColorClass = (score: number | null) => {
     if (score === null) return "text-slate-500";
@@ -2343,7 +2493,10 @@ export default function HoldingsTable({ positions, loading, onEditHoldings, lang
   };
 
   const marginPositions = useMemo(() => sortedPositions.filter(p => p.isMargin && !p.isCash), [sortedPositions]);
-  const marginCostBasis = useMemo(() => marginPositions.reduce((sum, p) => sum + (p.shares * p.avgCost), 0), [marginPositions]);
+  const grossMarginCostBasis = useMemo(() => marginPositions.reduce((sum, p) => sum + (p.shares * p.avgCost), 0), [marginPositions]);
+  const marginPaidPos = useMemo(() => allPositions.find(p => p.ticker === "MARGIN_PAID"), [allPositions]);
+  const marginPaidAmount = marginPaidPos ? marginPaidPos.shares : 0;
+  const marginCostBasis = Math.max(0, grossMarginCostBasis - marginPaidAmount);
   const marginMktValue = useMemo(() => marginPositions.reduce((sum, p) => sum + p.mktValue, 0), [marginPositions]);
   const marginAnnualCost = marginCostBasis * 0.0625;
   const marginMonthlyCost = marginCostBasis * (Math.pow(1 + 0.0625, 1 / 12) - 1);
@@ -2361,7 +2514,7 @@ export default function HoldingsTable({ positions, loading, onEditHoldings, lang
               {language === "EN" ? "PORTFOLIO POSITIONS" : "POSICIONES DE CARTERA"}
             </h2>
             <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5 leading-none">
-              {positions.filter(p => !p.isCash).length} {language === "EN" ? "active positions • Live Yahoo Finance data" : "posiciones activas • Valores en tiempo real de Yahoo Finance"}
+              {positions.filter(p => !p.isCash).length} {language === "EN" ? "active positions • Live market data" : "posiciones activas • Valores de mercado en tiempo real"}
             </p>
           </div>
         </div>
@@ -2370,6 +2523,7 @@ export default function HoldingsTable({ positions, loading, onEditHoldings, lang
           {/* Basis vs Valuation vs Health Toggle */}
           <div className="w-full sm:w-auto grid grid-cols-4 sm:inline-flex bg-[#0a0c14] border border-slate-900 rounded-full px-1 py-0.5 sm:px-1.5 sm:py-1 gap-0.5 sm:gap-0 font-bold shadow-inner" id="holdings-mode-toggle">
             <button
+              id="holdings-tab-basis"
               onClick={() => handleTabModeChange("basis")}
               className={`px-1 min-[360px]:px-1.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full transition-all duration-300 cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 uppercase font-bold text-[9px] min-[380px]:text-[10px] sm:text-[11px] tracking-tight sm:tracking-wider ${
                 holdingsTabMode === "basis"
@@ -2381,6 +2535,7 @@ export default function HoldingsTable({ positions, loading, onEditHoldings, lang
               <span>Basis</span>
             </button>
             <button
+              id="holdings-tab-valuation"
               onClick={() => handleTabModeChange("valuation")}
               className={`px-1 min-[360px]:px-1.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full transition-all duration-300 cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 uppercase font-bold text-[9px] min-[380px]:text-[10px] sm:text-[11px] tracking-tight sm:tracking-wider ${
                 holdingsTabMode === "valuation"
@@ -2392,6 +2547,7 @@ export default function HoldingsTable({ positions, loading, onEditHoldings, lang
               <span>Valuation</span>
             </button>
             <button
+              id="holdings-tab-health"
               onClick={() => handleTabModeChange("health")}
               className={`px-1 min-[360px]:px-1.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full transition-all duration-300 cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 uppercase font-bold text-[9px] min-[380px]:text-[10px] sm:text-[11px] tracking-tight sm:tracking-wider ${
                 holdingsTabMode === "health"
@@ -2403,6 +2559,7 @@ export default function HoldingsTable({ positions, loading, onEditHoldings, lang
               <span>{language === "EN" ? "Health" : "Salud"}</span>
             </button>
             <button
+              id="holdings-tab-financials"
               onClick={() => handleTabModeChange("financials")}
               className={`px-1 min-[360px]:px-1.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full transition-all duration-300 cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 uppercase font-bold text-[9px] min-[380px]:text-[10px] sm:text-[11px] tracking-tight sm:tracking-wider ${
                 holdingsTabMode === "financials"
@@ -2480,48 +2637,6 @@ export default function HoldingsTable({ positions, loading, onEditHoldings, lang
         </div>
       </div>
 
-      {/* MARGIN POSITIONS INFO BANNER */}
-      {marginPositions.length > 0 && (
-        <div className="bg-[#0f131f] border border-amber-500/30 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 font-bold shrink-0">
-              <Percent size={20} />
-            </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs font-bold text-amber-300 uppercase tracking-wider">
-                  {language === "EN" ? "Margin Leverage Active" : "Apalancamiento en Margen Activo"}
-                </span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono font-bold border border-amber-500/30">
-                  6.25% E.A.
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 mt-0.5">
-                {marginPositions.length} {marginPositions.length === 1 ? (language === "EN" ? "position on margin" : "posición con margen") : (language === "EN" ? "positions on margin" : "posiciones con margen")} ({marginPositions.map(p => p.ticker).join(", ")}) • {language === "EN" ? "Financed Principal:" : "Capital financiado:"} <strong className="text-white font-mono">{formatValuation(marginCostBasis)}</strong> • {language === "EN" ? "Mkt Value:" : "Valor Mercado:"} <strong className="text-white font-mono">{formatValuation(marginMktValue)}</strong>
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 self-stretch sm:self-auto justify-between sm:justify-end">
-            <div className="bg-slate-900/90 border border-amber-500/20 px-3.5 py-1.5 rounded-xl text-right">
-              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">
-                {language === "EN" ? "Est. Monthly Interest" : "Interés Mensual Est."}
-              </span>
-              <span className="text-xs font-mono font-bold text-amber-400">
-                ~${marginMonthlyCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/m
-              </span>
-            </div>
-            <div className="bg-slate-900/90 border border-amber-500/20 px-3.5 py-1.5 rounded-xl text-right hidden md:block">
-              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">
-                {language === "EN" ? "Annual Cost (6.25%)" : "Costo Anual (6.25%)"}
-              </span>
-              <span className="text-xs font-mono font-bold text-amber-300">
-                ${marginAnnualCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/y
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Insights panel will be rendered below the tickers list */}
       {holdingsTabMode === "health" && sortedPositions.length > 0 && (
         <div className="bg-[#0a0c14]/40 border border-slate-900/40 p-6 rounded-2xl flex flex-col xl:flex-row items-center gap-6 justify-between">
@@ -2556,7 +2671,7 @@ export default function HoldingsTable({ positions, loading, onEditHoldings, lang
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl py-20 flex flex-col items-center justify-center gap-3 text-slate-400">
           <Loader2 className="animate-spin text-emerald-400" size={32} />
           <p className="text-sm font-medium">
-            {language === "EN" ? "Fetching live quotes from Yahoo Finance..." : "Obteniendo cotizaciones en vivo desde Yahoo Finance..."}
+            {language === "EN" ? "Fetching live market quotes..." : "Obteniendo cotizaciones de mercado en vivo..."}
           </p>
         </div>
       ) : sortedPositions.length === 0 ? (
@@ -2577,14 +2692,14 @@ export default function HoldingsTable({ positions, loading, onEditHoldings, lang
         <CompanyFinancials 
           language={language}
           tickers={Array.from(new Set(positions.filter(p => !p.isCash).map(p => p.ticker)))}
-          prefetchedData={financialsMap}
+          prefetchedData={effectiveFinancialsMap}
           viewMode={financialsViewMode}
           onViewModeChange={setFinancialsViewMode}
         />
       ) : viewMode === "table" ? (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl overflow-hidden">
           <div className="overflow-x-auto">
-          <table className={`w-full text-left border-collapse ${holdingsTabMode === "valuation" ? "min-w-[900px]" : "min-w-[850px]"}`}>
+          <table className={`w-full text-left border-collapse ${holdingsTabMode === "valuation" ? "min-w-[950px]" : "min-w-[850px]"}`}>
             <thead>
               <tr className="border-b border-slate-800 text-slate-400 text-[10px] md:text-xs font-semibold uppercase tracking-wider">
                 <th className={`py-2 px-1 md:px-2 ${holdingsTabMode === "valuation" ? "w-[160px]" : ""}`}>Ticker</th>
@@ -2618,8 +2733,8 @@ export default function HoldingsTable({ positions, loading, onEditHoldings, lang
                     <th className="py-2 px-1 md:px-2 text-right">{language === "EN" ? "High Target" : "Target Alto"}</th>
                     <th className="py-2 px-1 md:px-2 text-right">{language === "EN" ? "High Value" : "Val. Alto"}</th>
                     <th className="py-2 px-1 md:px-2 text-center border-r border-slate-700/50">{language === "EN" ? "High Upside" : "Upside Alto"}</th>
-                    <th className="py-2 px-1 md:px-2 text-right">{language === "EN" ? "DCF Intrinsic" : "Valor Intrínseco DCF"}</th>
-                    <th className="py-2 px-1 md:px-2 text-right">{language === "EN" ? "DCF Value" : "Valor DCF"}</th>
+                    <th className="py-2 px-1 md:px-2 text-right whitespace-nowrap">200d MA Price</th>
+                    <th className="py-2 px-1 md:px-2 text-right whitespace-nowrap">50d MA Price</th>
                   </>
                 ) : (
                   <>
@@ -2871,14 +2986,28 @@ export default function HoldingsTable({ positions, loading, onEditHoldings, lang
                           ) : "—"}
                         </td>
 
-                        {/* DCF Intrinsic */}
-                        <td className="py-2.5 px-1 md:px-2 text-right font-mono text-slate-300">
-                          {dcfIntrinsic !== null ? formatCurrency(dcfIntrinsic) : "—"}
+                        {/* 200d MA */}
+                        <td className="py-2.5 px-1 md:px-2 text-right font-mono text-slate-300 whitespace-nowrap">
+                          {pos.isCash || !pos.twoHundredDayAverage ? (
+                            "—"
+                          ) : (
+                            <div className="inline-flex items-center justify-end gap-1.5">
+                              <span>{formatCurrency(pos.twoHundredDayAverage)}</span>
+                              <DistancePill current={pos.price} target={pos.twoHundredDayAverage} />
+                            </div>
+                          )}
                         </td>
 
-                        {/* DCF Value */}
-                        <td className="py-2.5 px-1 md:px-2 text-right font-mono text-slate-400">
-                          {dcfValue !== null ? formatValuation(dcfValue) : "—"}
+                        {/* 50d MA */}
+                        <td className="py-2.5 px-1 md:px-2 text-right font-mono text-slate-300 whitespace-nowrap">
+                          {pos.isCash || !pos.fiftyDayAverage ? (
+                            "—"
+                          ) : (
+                            <div className="inline-flex items-center justify-end gap-1.5">
+                              <span>{formatCurrency(pos.fiftyDayAverage)}</span>
+                              <DistancePill current={pos.price} target={pos.fiftyDayAverage} />
+                            </div>
+                          )}
                         </td>
                       </>
                     ) : (
@@ -2895,9 +3024,9 @@ export default function HoldingsTable({ positions, loading, onEditHoldings, lang
                           <HealthMetricsTooltip 
                             title={language === "ES" ? "Crecimiento" : "Growth"}
                             metrics={[
-                              {key: "revenue_cagr", label: "Revenue AGR", suffix: "%"},
-                              {key: "eps_cagr", label: "EPS AGR", suffix: "%"},
-                              {key: "fcf_cagr", label: "FCF AGR", suffix: "%"},
+                              {key: "revenue_cagr", label: "Revenue CAGR", suffix: "%"},
+                              {key: "eps_cagr", label: "EPS CAGR", suffix: "%"},
+                              {key: "fcf_cagr", label: "Operating Cash Flow CAGR", suffix: "%"},
                             ]}
                             raw={scoredRow?.raw}
                             language={language}
@@ -3109,9 +3238,7 @@ export default function HoldingsTable({ positions, loading, onEditHoldings, lang
                         </span>
                       </td>
                       <td className="py-3 px-1 md:px-2 text-right font-mono text-slate-500">—</td>
-                      <td className="py-3 px-1 md:px-2 text-right font-mono text-slate-300 font-semibold">
-                        {formatValuation(totalDcfValue)}
-                      </td>
+                      <td className="py-3 px-1 md:px-2 text-right font-mono text-slate-500">—</td>
                     </>
                   )}
                 </tr>
@@ -3315,9 +3442,9 @@ export default function HoldingsTable({ positions, loading, onEditHoldings, lang
                         <HealthMetricsTooltip 
                           title={language === "ES" ? "Crecimiento" : "Growth"}
                           metrics={[
-                            {key: "revenue_cagr", label: "Revenue AGR", suffix: "%"},
-                            {key: "eps_cagr", label: "EPS AGR", suffix: "%"},
-                            {key: "fcf_cagr", label: "FCF AGR", suffix: "%"},
+                            {key: "revenue_cagr", label: "Revenue CAGR", suffix: "%"},
+                            {key: "eps_cagr", label: "EPS CAGR", suffix: "%"},
+                            {key: "fcf_cagr", label: "Operating Cash Flow CAGR", suffix: "%"},
                           ]}
                           raw={cardScoredRow?.raw}
                           language={language}
@@ -3602,7 +3729,678 @@ export default function HoldingsTable({ positions, loading, onEditHoldings, lang
         </div>
       )}
 
-      {/* 2.5 PORTFOLIO FUTURE PROJECTIONS & BREAKDOWN PANEL (REMOVED) */}
+      {/* 2.5 PORTFOLIO PROJECTION, FUTURE VALUE & SECTORS */}
+      {activePositions.length > 0 && (
+        <div className="space-y-4">
+          {/* Tabs Selector: Portfolio / Margin / Total (only show selector if margin positions exist) */}
+          {marginActivePositions.length > 0 && (
+            <div className="flex bg-[#121420] p-1 rounded-2xl border border-slate-800/80 w-fit text-xs font-bold font-mono">
+              <button
+                type="button"
+                onClick={() => setProjectionTab("portfolio")}
+                className={`px-4 py-1.5 rounded-xl transition-all cursor-pointer ${
+                  projectionTab === "portfolio"
+                    ? "bg-emerald-500 text-slate-950 font-black shadow-lg shadow-emerald-500/10"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                {language === "EN" ? "Portfolio" : "Portafolio"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setProjectionTab("margin")}
+                className={`px-4 py-1.5 rounded-xl transition-all cursor-pointer ${
+                  projectionTab === "margin"
+                    ? "bg-amber-500 text-slate-950 font-black shadow-lg shadow-amber-500/10"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                {language === "EN" ? "Margin" : "Margen"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setProjectionTab("total")}
+                className={`px-4 py-1.5 rounded-xl transition-all cursor-pointer ${
+                  projectionTab === "total"
+                    ? "bg-indigo-500 text-slate-950 font-black shadow-lg shadow-indigo-500/10"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                Total
+              </button>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Card 1: PORTFOLIO PROJECTION */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl flex flex-col justify-between">
+              <div className="space-y-4">
+                {/* Header */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">📊</span>
+                    <h3 className="font-display font-bold text-xs text-slate-400 tracking-wider uppercase">
+                      {projectionTab === "portfolio" 
+                        ? t.portfolioProjection 
+                        : (projectionTab === "margin" 
+                          ? (language === "EN" ? "MARGIN PROJECTION" : "PROYECCIÓN DE MARGEN") 
+                          : (language === "EN" ? "TOTAL PROJECTION" : "PROYECCIÓN TOTAL")
+                        )
+                      }
+                    </h3>
+                  </div>
+                  
+                  {/* Year Selectors */}
+                  <div className="flex bg-[#121420] p-1 rounded-xl border border-slate-800/60 text-[10px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setYears(5)}
+                      className={`px-3 py-1.5 rounded-lg transition-all duration-150 cursor-pointer ${
+                        years === 5 
+                          ? "bg-[#1c1e29] text-white shadow-inner" 
+                          : "text-slate-500 hover:text-slate-300"
+                      }`}
+                    >
+                      5Y
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setYears(10)}
+                      className={`px-3 py-1.5 rounded-lg transition-all duration-150 cursor-pointer ${
+                        years === 10 
+                          ? "bg-[#1c1e29] text-white shadow-inner" 
+                          : "text-slate-500 hover:text-slate-300"
+                      }`}
+                    >
+                      10Y
+                    </button>
+                  </div>
+                </div>
+
+                {/* Controls Row */}
+                <div className="flex items-center justify-between gap-2 text-xs text-slate-400 w-full whitespace-nowrap">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="truncate">{t.monthlyAddition}</span>
+                    <div className="flex items-center bg-[#121420] border border-slate-800/80 rounded-xl px-2.5 py-1 shrink-0">
+                      <span className="text-slate-500 font-mono mr-1">$</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="100"
+                        disabled={projectionTab === "margin"}
+                        value={projectionTab === "margin" ? 0 : monthlyAddition}
+                        onChange={(e) => setMonthlyAddition(Math.max(0, Number(e.target.value)))}
+                        className="bg-transparent text-white font-mono font-bold w-12 sm:w-14 focus:outline-none text-right disabled:opacity-50"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span>{t.cagr}</span>
+                    <div className="flex items-center bg-[#121420] border border-slate-800/80 rounded-xl px-2 py-1">
+                      <input
+                        type="number"
+                        min="0"
+                        max="200"
+                        step="0.1"
+                        value={cagr}
+                        onChange={(e) => setCagr(Math.max(0, Number(e.target.value)))}
+                        className="bg-transparent text-white font-mono font-bold w-10 focus:outline-none text-right mr-0.5"
+                      />
+                      <span className="text-slate-500 font-mono">%</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Main Value Display */}
+                <div className="grid grid-cols-3 gap-2 pt-2">
+                  <div className="text-left">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">{t.current}</span>
+                    <span className="text-lg md:text-xl font-mono font-bold text-white mt-1 block">
+                      {formatAbbreviatedK(selectedTotalMktValue)}
+                    </span>
+                  </div>
+                  <div className="text-center">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">
+                      {t.additions} ({years}Y)
+                    </span>
+                    <span className="text-lg md:text-xl font-mono font-bold text-slate-300 mt-1 block">
+                      {formatAbbreviatedK(projectionTab === "margin" ? 0 : (monthlyAddition * years * 12))}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">
+                      {t.projected} ({years}Y)
+                    </span>
+                    <span className="text-lg md:text-xl font-mono font-bold text-emerald-400 mt-1 block">
+                      {formatAbbreviatedK(projectedTotalValue)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Chart Container */}
+              <div className="h-44 w-full mt-6">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="colorValueHoldings" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={getTabColor(projectionTab)} stopOpacity={0.25} />
+                        <stop offset="95%" stopColor={getTabColor(projectionTab)} stopOpacity={0.0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1c1e29" vertical={false} opacity={0.1} />
+                    <XAxis 
+                      dataKey="year" 
+                      stroke="#475569" 
+                      fontSize={10}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <YAxis 
+                      stroke="#475569" 
+                      fontSize={10} 
+                      tickFormatter={(val) => `$${Math.round(val / 1000)}k`}
+                      tickLine={false}
+                      axisLine={false}
+                      width={35}
+                    />
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: "#0f111a", 
+                        borderColor: "#1e293b",
+                        borderRadius: "12px"
+                      }}
+                      itemStyle={{ color: getTabColor(projectionTab) }}
+                      labelStyle={{ color: "#94a3b8", fontFamily: "monospace" }}
+                      formatter={(val: any) => [formatCurrency(Number(val)), "Value"]}
+                    />
+                    <Area 
+                      type="monotone" 
+                      dataKey="value" 
+                      stroke={getTabColor(projectionTab)} 
+                      fillOpacity={1} 
+                      fill="url(#colorValueHoldings)" 
+                      strokeWidth={2}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Bottom Accent line */}
+              <div className="text-center mt-4">
+                <span className={`inline-flex items-center gap-1.5 font-mono text-[11px] px-4 py-1.5 rounded-full border ${getTabBadgeClass(projectionTab)}`}>
+                  <TrendingUp size={12} />
+                  CAGR {cagr.toFixed(1)}% · +{percentageReturnOnInvested.toFixed(1)}% {t.onInvested}
+                </span>
+              </div>
+            </div>
+
+            {/* Card 2: PORTFOLIO FUTURE VALUE */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl flex flex-col justify-between">
+              <div className="space-y-5">
+                {/* Header */}
+                <div className="flex items-center gap-2">
+                  <Rocket className="text-pink-500" size={16} />
+                  <h3 className="font-display font-bold text-xs text-slate-400 tracking-wider uppercase">
+                    {projectionTab === "portfolio" 
+                      ? t.portfolioFutureValue 
+                      : (projectionTab === "margin"
+                        ? (language === "EN" ? "MARGIN FUTURE VALUE" : "VALOR FUTURO CON MARGEN")
+                        : (language === "EN" ? "COMBINED FUTURE VALUE" : "VALOR FUTURO COMBINADO")
+                      )
+                    }
+                  </h3>
+                  <Info size={13} className="text-slate-500 hover:text-slate-300 cursor-pointer" />
+                </div>
+
+                {/* List Rows */}
+                <div className="space-y-4 pt-1">
+                  {/* Row 1: 52wk High */}
+                  <div className="flex items-center justify-between border-b border-slate-900 pb-3">
+                    <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                      <span>
+                        {projectionTab === "portfolio" 
+                          ? t.high52wk 
+                          : (projectionTab === "margin"
+                            ? (language === "EN" ? "52wk High Margin Portfolio" : "Máximo 52 Semanas Margen")
+                            : (language === "EN" ? "52wk High Combined Portfolio" : "Máximo 52 Semanas Combinado")
+                          )
+                        }
+                      </span>
+                      <Info size={12} className="text-slate-600 hover:text-slate-400 cursor-pointer" />
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="relative group/val cursor-help">
+                        <span className="text-sm font-mono font-bold text-white underline decoration-dotted decoration-slate-600 underline-offset-4 hover:decoration-emerald-400 hover:text-emerald-300 transition-colors">
+                          {formatCurrency(fiftyTwoWeekHighTotal)}
+                        </span>
+
+                        {/* Tooltip Card */}
+                        <div className="absolute right-0 bottom-full mb-2 hidden group-hover/val:block w-72 p-3.5 bg-[#0b0e17]/95 border border-slate-700/90 rounded-2xl shadow-2xl z-50 pointer-events-none text-left backdrop-blur-xl ring-1 ring-white/10">
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-800 pb-1.5 mb-2 flex items-center justify-between font-mono">
+                            <span>{language === "ES" ? "Desglose 52wk High" : "52wk High Breakdown"}</span>
+                            <span className="text-emerald-400">{total52wkGain >= 0 ? "+" : ""}{formatCurrency(total52wkGain)}</span>
+                          </div>
+
+                          <div className="space-y-1.5 text-xs">
+                            {/* Principal Gain */}
+                            {projectionTab !== "margin" && (
+                              <div className="flex items-center justify-between text-slate-300">
+                                <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                                  <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block shrink-0" />
+                                  {language === "ES" ? "Ganancia Principal:" : "Principal Gain:"}
+                                </span>
+                                <div className="text-right font-mono">
+                                  <span className="font-bold text-emerald-400 text-[11px]">
+                                    {principal52wk.gain >= 0 ? "+" : ""}{formatCurrency(principal52wk.gain)}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 ml-1">
+                                    ({principal52wk.gainPct >= 0 ? "+" : ""}{principal52wk.gainPct.toFixed(1)}%)
+                                  </span>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Margin Gain */}
+                            {(projectionTab === "margin" || (projectionTab === "total" && marginFinancedPrincipal > 0)) ? (
+                              <>
+                                <div className="flex items-center justify-between text-slate-300">
+                                  <span className="flex items-center gap-1.5 text-[11px] text-amber-400">
+                                    <span className="w-2 h-2 rounded-full bg-amber-400 inline-block shrink-0" />
+                                    {language === "ES" ? "Ganancia Margen:" : "Margin Gain:"}
+                                  </span>
+                                  <div className="text-right font-mono">
+                                    <span className="font-bold text-amber-300 text-[11px]">
+                                      {margin52wk.gain >= 0 ? "+" : ""}{formatCurrency(margin52wk.gain)}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 ml-1">
+                                      ({margin52wk.gainPct >= 0 ? "+" : ""}{margin52wk.gainPct.toFixed(1)}%)
+                                    </span>
+                                  </div>
+                                </div>
+                                
+                                <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1.5 border-t border-slate-800/80 font-mono">
+                                  <span>{language === "ES" ? "Deuda financiada restada:" : "Deducted financing:"}</span>
+                                  <span className="text-rose-400">-{formatCurrency(marginFinancedPrincipal)}</span>
+                                </div>
+                              </>
+                            ) : (
+                              projectionTab === "portfolio" && (
+                                <div className="text-[10px] text-slate-500 italic pt-0.5">
+                                  {language === "ES" ? "Pestaña Cartera Principal (Sin margen)" : "Portfolio Tab (No margin)"}
+                                </div>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded font-mono">
+                        +{high52wkUpside.toFixed(1)}%
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Row 2: Analyst Avg Target */}
+                  <div className="flex items-center justify-between border-b border-slate-900 pb-3">
+                    <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                      <span>{t.avgTargetValue}</span>
+                      <Info size={12} className="text-slate-600 hover:text-slate-400 cursor-pointer" />
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="relative group/val cursor-help">
+                        <span className="text-sm font-mono font-bold text-white underline decoration-dotted decoration-slate-600 underline-offset-4 hover:decoration-emerald-400 hover:text-emerald-300 transition-colors">
+                          {formatCurrency(avgTargetValueTotal)}
+                        </span>
+
+                        {/* Tooltip Card */}
+                        <div className="absolute right-0 bottom-full mb-2 hidden group-hover/val:block w-72 p-3.5 bg-[#0b0e17]/95 border border-slate-700/90 rounded-2xl shadow-2xl z-50 pointer-events-none text-left backdrop-blur-xl ring-1 ring-white/10">
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-800 pb-1.5 mb-2 flex items-center justify-between font-mono">
+                            <span>{language === "ES" ? "Desglose Avg Target" : "Avg Target Breakdown"}</span>
+                            <span className="text-emerald-400">{totalAvgTargetGain >= 0 ? "+" : ""}{formatCurrency(totalAvgTargetGain)}</span>
+                          </div>
+
+                          <div className="space-y-1.5 text-xs">
+                            {/* Principal Gain */}
+                            {projectionTab !== "margin" && (
+                              <div className="flex items-center justify-between text-slate-300">
+                                <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                                  <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block shrink-0" />
+                                  {language === "ES" ? "Ganancia Principal:" : "Principal Gain:"}
+                                </span>
+                                <div className="text-right font-mono">
+                                  <span className="font-bold text-emerald-400 text-[11px]">
+                                    {principalAvgTarget.gain >= 0 ? "+" : ""}{formatCurrency(principalAvgTarget.gain)}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 ml-1">
+                                    ({principalAvgTarget.gainPct >= 0 ? "+" : ""}{principalAvgTarget.gainPct.toFixed(1)}%)
+                                  </span>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Margin Gain */}
+                            {(projectionTab === "margin" || (projectionTab === "total" && marginFinancedPrincipal > 0)) ? (
+                              <>
+                                <div className="flex items-center justify-between text-slate-300">
+                                  <span className="flex items-center gap-1.5 text-[11px] text-amber-400">
+                                    <span className="w-2 h-2 rounded-full bg-amber-400 inline-block shrink-0" />
+                                    {language === "ES" ? "Ganancia Margen:" : "Margin Gain:"}
+                                  </span>
+                                  <div className="text-right font-mono">
+                                    <span className="font-bold text-amber-300 text-[11px]">
+                                      {marginAvgTarget.gain >= 0 ? "+" : ""}{formatCurrency(marginAvgTarget.gain)}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 ml-1">
+                                      ({marginAvgTarget.gainPct >= 0 ? "+" : ""}{marginAvgTarget.gainPct.toFixed(1)}%)
+                                    </span>
+                                  </div>
+                                </div>
+                                
+                                <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1.5 border-t border-slate-800/80 font-mono">
+                                  <span>{language === "ES" ? "Deuda financiada restada:" : "Deducted financing:"}</span>
+                                  <span className="text-rose-400">-{formatCurrency(marginFinancedPrincipal)}</span>
+                                </div>
+                              </>
+                            ) : (
+                              projectionTab === "portfolio" && (
+                                <div className="text-[10px] text-slate-500 italic pt-0.5">
+                                  {language === "ES" ? "Pestaña Cartera Principal (Sin margen)" : "Portfolio Tab (No margin)"}
+                                </div>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded font-mono">
+                        +{avgTargetUpside.toFixed(1)}%
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Row 3: Analyst High Target */}
+                  <div className="flex items-center justify-between border-b border-slate-900 pb-3">
+                    <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                      <span>{t.highTargetValue}</span>
+                      <Info size={12} className="text-slate-600 hover:text-slate-400 cursor-pointer" />
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="relative group/val cursor-help">
+                        <span className="text-sm font-mono font-bold text-white underline decoration-dotted decoration-slate-600 underline-offset-4 hover:decoration-emerald-400 hover:text-emerald-300 transition-colors">
+                          {formatCurrency(highTargetValueTotal)}
+                        </span>
+
+                        {/* Tooltip Card */}
+                        <div className="absolute right-0 bottom-full mb-2 hidden group-hover/val:block w-72 p-3.5 bg-[#0b0e17]/95 border border-slate-700/90 rounded-2xl shadow-2xl z-50 pointer-events-none text-left backdrop-blur-xl ring-1 ring-white/10">
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-800 pb-1.5 mb-2 flex items-center justify-between font-mono">
+                            <span>{language === "ES" ? "Desglose High Target" : "High Target Breakdown"}</span>
+                            <span className="text-emerald-400">{totalHighTargetGain >= 0 ? "+" : ""}{formatCurrency(totalHighTargetGain)}</span>
+                          </div>
+
+                          <div className="space-y-1.5 text-xs">
+                            {/* Principal Gain */}
+                            {projectionTab !== "margin" && (
+                              <div className="flex items-center justify-between text-slate-300">
+                                <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                                  <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block shrink-0" />
+                                  {language === "ES" ? "Ganancia Principal:" : "Principal Gain:"}
+                                </span>
+                                <div className="text-right font-mono">
+                                  <span className="font-bold text-emerald-400 text-[11px]">
+                                    {principalHighTarget.gain >= 0 ? "+" : ""}{formatCurrency(principalHighTarget.gain)}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 ml-1">
+                                    ({principalHighTarget.gainPct >= 0 ? "+" : ""}{principalHighTarget.gainPct.toFixed(1)}%)
+                                  </span>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Margin Gain */}
+                            {(projectionTab === "margin" || (projectionTab === "total" && marginFinancedPrincipal > 0)) ? (
+                              <>
+                                <div className="flex items-center justify-between text-slate-300">
+                                  <span className="flex items-center gap-1.5 text-[11px] text-amber-400">
+                                    <span className="w-2 h-2 rounded-full bg-amber-400 inline-block shrink-0" />
+                                    {language === "ES" ? "Ganancia Margen:" : "Margin Gain:"}
+                                  </span>
+                                  <div className="text-right font-mono">
+                                    <span className="font-bold text-amber-300 text-[11px]">
+                                      {marginHighTarget.gain >= 0 ? "+" : ""}{formatCurrency(marginHighTarget.gain)}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 ml-1">
+                                      ({marginHighTarget.gainPct >= 0 ? "+" : ""}{marginHighTarget.gainPct.toFixed(1)}%)
+                                    </span>
+                                  </div>
+                                </div>
+                                
+                                <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1.5 border-t border-slate-800/80 font-mono">
+                                  <span>{language === "ES" ? "Deuda financiada restada:" : "Deducted financing:"}</span>
+                                  <span className="text-rose-400">-{formatCurrency(marginFinancedPrincipal)}</span>
+                                </div>
+                              </>
+                            ) : (
+                              projectionTab === "portfolio" && (
+                                <div className="text-[10px] text-slate-500 italic pt-0.5">
+                                  {language === "ES" ? "Pestaña Cartera Principal (Sin margen)" : "Portfolio Tab (No margin)"}
+                                </div>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded font-mono">
+                        +{highTargetUpside.toFixed(1)}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Projection Breakdown Box */}
+                {projectionTab === "portfolio" ? (
+                  <div className="bg-[#121420]/60 border border-slate-900 rounded-2xl p-4 mt-2">
+                    <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block mb-3 font-mono">
+                      {t.projectionBreakdown} ({years}Y · CAGR {cagr.toFixed(1)}%)
+                    </span>
+                    
+                    <div className="space-y-2.5 text-xs">
+                      <div className="flex justify-between items-center text-slate-400">
+                        <span>{t.principal}</span>
+                        <span className="font-mono font-semibold text-white">
+                          {formatCurrency(selectedTotalMktValue)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center text-slate-400">
+                        <span>{t.additions} ({years}Y)</span>
+                        <span className="font-mono font-semibold text-slate-300">
+                          +{formatCurrency(totalAdditions)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center text-slate-400">
+                        <span className="flex items-center gap-1">
+                          {t.interestGains}
+                          <ChevronDown size={12} className="text-slate-500" />
+                        </span>
+                        <span className="font-mono font-bold text-emerald-400">
+                          +{formatCurrency(interestGains)}
+                        </span>
+                      </div>
+                      <div className="border-t border-slate-900/80 my-2 pt-2.5 flex justify-between items-center">
+                        <span className="font-bold text-white">{t.totalValue}</span>
+                        <span className="font-mono font-extrabold text-lg text-emerald-400">
+                          {formatCurrency(projectedTotalValue)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-[#121420]/60 border border-slate-900 rounded-2xl p-4 mt-2 space-y-3 animate-fade-in">
+                    <span className={`text-[9px] ${projectionTab === "margin" ? "text-amber-400" : "text-indigo-400"} font-bold uppercase tracking-wider block font-mono`}>
+                      {projectionTab === "margin"
+                        ? (language === "EN" ? "DEBT & MARGIN INTEREST ANALYSIS" : "ANÁLISIS DE DEUDA E INTERESES DE MARGEN")
+                        : (language === "EN" ? "COMBINED DEBT & INTEREST ANALYSIS" : "ANÁLISIS COMBINADO DE DEUDA E INTERESES")
+                      } ({years}Y · {language === "EN" ? "Rate 6.25%" : "Tasa 6.25%"})
+                    </span>
+                    
+                    <div className="space-y-2.5 text-xs">
+                      <div className="flex justify-between items-center text-slate-400">
+                        <span>
+                          {projectionTab === "margin"
+                            ? (language === "EN" ? "Gross Projected Margin Value" : "Valor Bruto Margen Proyectado")
+                            : (language === "EN" ? "Gross Projected Total Value" : "Valor Bruto Total Proyectado")
+                          }
+                        </span>
+                        <span className="font-mono font-semibold text-white">
+                          {formatCurrency(projectedTotalValue)}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between items-center text-slate-400">
+                        <span className="flex items-center gap-1 text-rose-400">
+                          {language === "EN" ? "Margin Loan (Debt)" : "Préstamo de Margen (Deuda)"}
+                        </span>
+                        <span className="font-mono font-semibold text-rose-400">
+                          -{formatCurrency(marginFinancedPrincipal)}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between items-center text-slate-400">
+                        <span>{language === "EN" ? "Margin Interest (1 Year)" : "Interés de Margen (1 Año)"}</span>
+                        <span className="font-mono text-slate-300">
+                          {formatCurrency(marginFinancedPrincipal * 0.0625)}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between items-center text-slate-400 border-b border-slate-900 pb-2">
+                        <span className="text-rose-400 font-medium">{language === "EN" ? "Total Interest" : "Intereses Totales"} ({years} {language === "EN" ? "Years" : "Años"})</span>
+                        <span className="font-mono font-semibold text-rose-400">
+                          -{formatCurrency(marginFinancedPrincipal * 0.0625 * years)}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between items-center text-slate-400 pt-1">
+                        <span>{language === "EN" ? "Net Value (Minus Loan)" : "Valor Neto (Menos Deuda)"}</span>
+                        <span className="font-mono font-bold text-emerald-400">
+                          {formatCurrency(Math.max(0, projectedTotalValue - marginFinancedPrincipal))}
+                        </span>
+                      </div>
+
+                      <div className="border-t border-slate-900/80 my-2 pt-2.5 flex justify-between items-center">
+                        <div>
+                          <span className="font-bold text-white block">
+                            {projectionTab === "margin"
+                              ? (language === "EN" ? "Final Net Value" : "Valor Neto Final")
+                              : (language === "EN" ? "Combined Net Value" : "Valor Neto Combinado")
+                            }
+                          </span>
+                          <span className="text-[10px] text-slate-500 block leading-none">{language === "EN" ? "(Minus Loan & Interest)" : "(Menos Deuda e Intereses)"}</span>
+                        </div>
+                        <span className="font-mono font-extrabold text-lg text-emerald-400">
+                          {formatCurrency(Math.max(0, projectedTotalValue - marginFinancedPrincipal - (marginFinancedPrincipal * 0.0625 * years)))}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Card 3: SECTORES S&P 500 */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl flex flex-col justify-between">
+              <div className="space-y-4">
+                {/* Header */}
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
+                    <PieChartIcon className="text-blue-400" size={16} />
+                  </div>
+                  <div>
+                    <h3 className="font-display font-bold text-xs text-slate-400 tracking-wider uppercase">
+                      {projectionTab === "portfolio"
+                        ? (language === "EN" ? "SECTOR DISTRIBUTION (PORTFOLIO)" : "DISTRIBUCIÓN POR SECTOR (PORTAFOLIO)")
+                        : projectionTab === "margin"
+                        ? (language === "EN" ? "SECTOR DISTRIBUTION (MARGIN)" : "DISTRIBUCIÓN POR SECTOR (MARGEN)")
+                        : (language === "EN" ? "SECTOR DISTRIBUTION (COMBINED)" : "DISTRIBUCIÓN POR SECTOR (COMBINADO)")
+                      }
+                    </h3>
+                    <p className="text-[10px] text-slate-500">
+                      {projectionTab === "portfolio"
+                        ? (language === "EN" ? "Weighting of portfolio by market value" : "Distribución del portafolio por valor de mercado")
+                        : projectionTab === "margin"
+                        ? (language === "EN" ? "Weighting of margin positions by market value" : "Distribución de posiciones con margen por valor de mercado")
+                        : (language === "EN" ? "Weighting of combined portfolio by market value" : "Distribución del portafolio combinado por valor de mercado")
+                      }
+                    </p>
+                  </div>
+                </div>
+
+                {/* Sectors List */}
+                <div className="space-y-3 pr-1">
+                  {sortedSectors.map((sector, sIdx) => {
+                    const isExpanded = !!expandedSectors[sector.name];
+                    const subsectors = sectorSubsectors[sector.name]
+                      ? (Object.entries(sectorSubsectors[sector.name]) as [string, { mktValue: number; weight: number }][]).sort((a, b) => b[1].weight - a[1].weight)
+                      : [];
+
+                    return (
+                      <div key={`${sector.name}-${sIdx}`} className="border-b border-slate-800/10 pb-2.5 last:border-0 last:pb-0">
+                        <div
+                          onClick={() => toggleSector(sector.name)}
+                          className="flex justify-between items-center text-xs cursor-pointer group hover:bg-slate-800/30 p-1 rounded-lg transition-all"
+                        >
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="text-slate-500 group-hover:text-slate-300 shrink-0">
+                              {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                            </span>
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${getSectorColor(sector.name)}`} />
+                            <span className="font-semibold text-slate-300 group-hover:text-white truncate text-xs" title={language === "EN" ? sector.name : getSectorSpanish(sector.name)}>
+                              {language === "EN" ? sector.name : getSectorSpanish(sector.name)}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2.5 font-mono shrink-0 text-xs">
+                            <span className="text-slate-400 font-medium">{formatCurrency(sector.mktValue)}</span>
+                            <span className="text-white font-extrabold">{sector.weight.toFixed(1)}%</span>
+                          </div>
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="pl-6 pr-1 mt-1">
+                          <div className="h-1.5 w-full bg-slate-800/60 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-500 ${getSectorColor(sector.name)}`}
+                              style={{ width: `${sector.weight}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Subsectors */}
+                        {isExpanded && subsectors.length > 0 && (
+                          <div className="pl-8 pr-1 mt-2 flex flex-col gap-1.5 border-l-2 border-slate-800/60 ml-4">
+                            {subsectors.map(([subName, subData], subIdx) => (
+                              <div key={`${subName}-${subIdx}`} className="flex justify-between items-center text-[11px]">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <span className="w-1 h-1 rounded-full bg-slate-600 shrink-0" />
+                                  <span className="text-slate-400 font-medium truncate">{subName}</span>
+                                </div>
+                                <div className="flex items-center gap-2 font-mono shrink-0">
+                                  <span className="text-slate-500 text-[10px]">{formatCurrency(subData.mktValue)}</span>
+                                  <span className="text-slate-300 font-semibold">{subData.weight.toFixed(1)}%</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {selectedTicker && (
         (() => {
@@ -3613,7 +4411,7 @@ export default function HoldingsTable({ positions, loading, onEditHoldings, lang
               position={pos} 
               language={language} 
               onClose={() => setSelectedTicker(null)} 
-              financialsData={financialsMap[pos.ticker.toUpperCase()]}
+              financialsData={effectiveFinancialsMap[pos.ticker.toUpperCase()]}
             />
           );
         })()

@@ -585,8 +585,8 @@ export function CompanyFinancials({
           </h2>
           <p className="text-xs text-theme-text-muted mt-1">
             {language === "EN" 
-              ? "Financial statements retrieved from Yahoo Finance" 
-              : "Estados financieros obtenidos de Yahoo Finance"}
+              ? "Audited financial statements (Annual & Quarterly)" 
+              : "Estados financieros consolidados (Anuales y Trimestrales)"}
           </p>
         </div>
 

@@ -1,16 +1,66 @@
+/// <reference types="vite/client" />
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore, doc, getDoc, setDoc, onSnapshot, Unsubscribe } from "firebase/firestore";
+import {
+  initializeFirestore,
+  getFirestore,
+  doc,
+  getDoc,
+  setDoc,
+  onSnapshot,
+  Unsubscribe,
+  setLogLevel,
+} from "firebase/firestore";
 import firebaseConfig from "../../firebase-applet-config.json";
 import { UserPortfolio } from "../types";
 
-// Initialize Firebase
+// Suppress benign internal gRPC idle stream / connection recycling messages from flooding the console
+try {
+  setLogLevel("silent");
+} catch {
+  // Ignore
+}
+
+// Filter benign internal Firestore WebChannel / gRPC stream idling from unhandled rejection handlers
+if (typeof window !== "undefined") {
+  window.addEventListener("unhandledrejection", (event) => {
+    const reason = event?.reason;
+    const msg = typeof reason === "string" ? reason : reason?.message || "";
+    if (
+      msg.includes("Disconnecting idle stream") ||
+      msg.includes("Timed out waiting for new targets") ||
+      msg.includes("1 CANCELLED")
+    ) {
+      event.preventDefault();
+    }
+  });
+}
+
+// Initialize Firebase App
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-// Get Firestore instance using custom database ID
-export const db = getFirestore(
-  app,
-  firebaseConfig.firestoreDatabaseId || "(default)"
-);
+const customDbId =
+  (import.meta as any).env?.VITE_FIREBASE_DATABASE_ID ||
+  firebaseConfig.firestoreDatabaseId ||
+  "ai-studio-investiando-7538016d-72da-4068-9c63-45731cbbc8c9";
+
+// Initialize Firestore with robust auto-detect long polling for web / iframe / sandbox environments
+export const db = (() => {
+  try {
+    return initializeFirestore(
+      app,
+      {
+        experimentalAutoDetectLongPolling: true,
+      },
+      customDbId
+    );
+  } catch {
+    try {
+      return getFirestore(app, customDbId);
+    } catch {
+      return getFirestore(app);
+    }
+  }
+})();
 
 export interface UserCloudData {
   email: string;
@@ -22,10 +72,99 @@ export interface UserCloudData {
   updatedAt?: string;
 }
 
+export function normalizeEmailToDocId(email: string): string {
+  if (!email) return "anonymous_user";
+  return email.trim().toLowerCase().replace(/[^a-z0-9@._-]/g, "_");
+}
+
 // Local cache keys and in-memory cache
 const memoryCache = new Map<string, UserCloudData>();
-let isQuotaExceeded = false;
 let quotaWarned = false;
+
+const QUOTA_RETRY_COOLDOWN_MS = 10 * 60 * 1000; // retry cadence instead of waiting a full day
+
+function isClientQuotaExceeded(): boolean {
+  try {
+    const failedAt = parseInt(localStorage.getItem("investiando_quota_failure_at") || "0", 10);
+    return Date.now() - failedAt < QUOTA_RETRY_COOLDOWN_MS;
+  } catch {
+    return false;
+  }
+}
+
+let isQuotaExceeded = isClientQuotaExceeded();
+
+function markQuotaExceeded() {
+  isQuotaExceeded = true;
+  try {
+    localStorage.setItem("investiando_quota_failure_at", String(Date.now()));
+  } catch {}
+  if (!quotaWarned) {
+    console.warn("[Firebase] Free tier quota reached. Working from local storage; will retry syncing automatically in the background.");
+    quotaWarned = true;
+  }
+}
+
+// --- Pending-sync tracking so local changes made while quota-limited are never silently lost ---
+const PENDING_SYNC_PREFIX = "investiando_pending_sync_";
+
+function markPendingSync(cleanEmail: string) {
+  try {
+    localStorage.setItem(PENDING_SYNC_PREFIX + cleanEmail, "1");
+  } catch {
+    // ignore
+  }
+}
+
+function clearPendingSync(cleanEmail: string) {
+  try {
+    localStorage.removeItem(PENDING_SYNC_PREFIX + cleanEmail);
+  } catch {
+    // ignore
+  }
+}
+
+function getAllPendingSyncEmails(): string[] {
+  const emails: string[] = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(PENDING_SYNC_PREFIX)) {
+        emails.push(key.slice(PENDING_SYNC_PREFIX.length));
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return emails;
+}
+
+// Pushes any locally-cached changes that never made it to Firestore. Safe to call often:
+// it no-ops unless something is pending and the quota cooldown has cleared. This is what
+// lets an open session recover automatically once the quota window resets, instead of a
+// user's edits staying stuck in local-only storage until they happen to edit again.
+function flushAllPendingSyncs() {
+  if (isQuotaExceeded) return;
+  getAllPendingSyncEmails().forEach((cleanEmail) => {
+    const cached = getStoredLocalData(cleanEmail);
+    if (!cached) {
+      clearPendingSync(cleanEmail);
+      return;
+    }
+    saveUserCloudData(cleanEmail, cached);
+  });
+}
+
+if (typeof window !== "undefined") {
+  setTimeout(() => {
+    isQuotaExceeded = isClientQuotaExceeded();
+    flushAllPendingSyncs();
+  }, 3000);
+  setInterval(() => {
+    isQuotaExceeded = isClientQuotaExceeded();
+    flushAllPendingSyncs();
+  }, 30 * 1000);
+}
 
 function getLocalCacheKey(cleanEmail: string): string {
   return `cloud_user_cache_${cleanEmail}`;
@@ -91,7 +230,8 @@ export async function getUserCloudData(email: string): Promise<UserCloudData | n
   }
 
   try {
-    const userRef = doc(db, "users", cleanEmail);
+    const docId = normalizeEmailToDocId(cleanEmail);
+    const userRef = doc(db, "users", docId);
     const snap = await getDoc(userRef);
     if (snap.exists()) {
       const data = snap.data() as UserCloudData;
@@ -102,22 +242,31 @@ export async function getUserCloudData(email: string): Promise<UserCloudData | n
   } catch (err: any) {
     const isQuota = err?.code === "resource-exhausted" || err?.message?.toLowerCase?.()?.includes("quota");
     if (isQuota) {
-      isQuotaExceeded = true;
-      if (!quotaWarned) {
-        console.warn("[Firebase] Free tier daily quota reached. Operating in seamless local cache mode.");
-        quotaWarned = true;
-      }
+      markQuotaExceeded();
     } else {
-      console.warn("Could not fetch user data from Firestore, using local data:", err?.message || err);
+      console.warn("Could not fetch user data from Firestore, checking server API:", err?.message || err);
     }
   }
+
+  // Try server endpoint fallback
+  try {
+    const res = await fetch(`/api/user/get-cloud-data?email=${encodeURIComponent(cleanEmail)}`);
+    if (res.ok) {
+      const json = await res.json();
+      if (json?.data) {
+        memoryCache.set(cleanEmail, json.data);
+        setStoredLocalData(cleanEmail, json.data);
+        return json.data;
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+
   return localData;
 }
 
-// Debounce map for writes
-const pendingWrites = new Map<string, { timeout: NodeJS.Timeout; data: Partial<UserCloudData> }>();
-
-// Save or update user data in Firestore
+// Save or update user data in Firestore and local/server caches
 export async function saveUserCloudData(email: string, data: Partial<UserCloudData>): Promise<void> {
   if (!email) return;
   const cleanEmail = email.toLowerCase().trim();
@@ -131,47 +280,64 @@ export async function saveUserCloudData(email: string, data: Partial<UserCloudDa
     updatedAt: new Date().toISOString(),
   };
 
+  memoryCache.set(cleanEmail, merged);
+  setStoredLocalData(cleanEmail, merged);
   notifySubscribers(cleanEmail, merged);
 
-  if (isQuotaExceeded) {
-    return;
-  }
+  const partialUpdate = {
+    ...data,
+    email: cleanEmail,
+    updatedAt: new Date().toISOString(),
+  };
 
-  // 2. Debounce cloud writes to prevent eating read/write units in bursts
-  const existingPending = pendingWrites.get(cleanEmail);
-  if (existingPending) {
-    clearTimeout(existingPending.timeout);
-    data = { ...existingPending.data, ...data };
-  }
-
-  const timeout = setTimeout(async () => {
-    pendingWrites.delete(cleanEmail);
-    try {
-      const userRef = doc(db, "users", cleanEmail);
-      await setDoc(
-        userRef,
-        {
-          email: cleanEmail,
-          ...data,
-          updatedAt: new Date().toISOString(),
-        },
-        { merge: true }
-      );
-    } catch (err: any) {
-      const isQuota = err?.code === "resource-exhausted" || err?.message?.toLowerCase?.()?.includes("quota");
-      if (isQuota) {
-        isQuotaExceeded = true;
-        if (!quotaWarned) {
-          console.warn("[Firebase] Free tier daily quota reached. Operating in seamless local cache mode.");
-          quotaWarned = true;
-        }
-      } else {
-        console.warn("Could not save user data to Firestore, kept in local cache:", err?.message || err);
+  // 2. Immediately persist via server endpoint (writes to both server users_db.json and Firestore)
+  const serverSyncPromise = fetch("/api/user/save-cloud-data", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: cleanEmail, data: partialUpdate }),
+  })
+    .then((res) => res.json())
+    .then((resData) => {
+      if (resData?.success) {
+        clearPendingSync(cleanEmail);
       }
-    }
-  }, 1000);
+      return resData;
+    })
+    .catch((err) => {
+      console.warn("Could not sync with /api/user/save-cloud-data:", err);
+      markPendingSync(cleanEmail);
+    });
 
-  pendingWrites.set(cleanEmail, { timeout, data });
+  // 3. Direct Firestore client write if available and quota not exceeded
+  let clientFirestorePromise = Promise.resolve();
+  if (!isQuotaExceeded) {
+    clientFirestorePromise = (async () => {
+      try {
+        const docId = normalizeEmailToDocId(cleanEmail);
+        const userRef = doc(db, "users", docId);
+        await setDoc(
+          userRef,
+          partialUpdate,
+          { merge: true }
+        );
+        clearPendingSync(cleanEmail);
+      } catch (err: any) {
+        const isQuota = err?.code === "resource-exhausted" || err?.message?.toLowerCase?.()?.includes("quota");
+        if (isQuota) {
+          markQuotaExceeded();
+          markPendingSync(cleanEmail);
+        } else {
+          console.warn("Could not save user data to client Firestore, kept in local/server cache:", err?.message || err);
+        }
+      }
+    })();
+  }
+
+  // Await server sync or timeout to ensure persistence before UI proceeds
+  await Promise.race([
+    Promise.allSettled([serverSyncPromise, clientFirestorePromise]),
+    new Promise((resolve) => setTimeout(resolve, 8000)),
+  ]);
 }
 
 // Subscribe to real-time updates for a user (multiplexed single listener per email)
@@ -212,7 +378,8 @@ export function subscribeUserCloudData(
   // If already connected to Firestore or if quota is exceeded, don't open duplicate listener
   if (!sub.unsubscribeFirestore && !isQuotaExceeded) {
     try {
-      const userRef = doc(db, "users", cleanEmail);
+      const docId = normalizeEmailToDocId(cleanEmail);
+      const userRef = doc(db, "users", docId);
       sub.unsubscribeFirestore = onSnapshot(
         userRef,
         (snap) => {
@@ -222,19 +389,29 @@ export function subscribeUserCloudData(
           }
         },
         (error: any) => {
-          const isQuota = error?.code === "resource-exhausted" || error?.message?.toLowerCase?.()?.includes("quota");
-          if (isQuota) {
-            isQuotaExceeded = true;
-            if (!quotaWarned) {
-              console.warn("[Firebase] Firestore quota limit reached. Gracefully falling back to local persistence.");
-              quotaWarned = true;
-            }
+          const errMsg = error?.message || "";
+          const isIdleOrCancelled =
+            error?.code === "cancelled" ||
+            errMsg.includes("Disconnecting idle stream") ||
+            errMsg.includes("CANCELLED") ||
+            errMsg.includes("idle stream");
+
+          if (isIdleOrCancelled) {
+            // Benign transport recycling by Firestore WebChannel/gRPC stream - ignore
+            return;
           }
-          // Clean up listener on quota exceeded so it doesn't keep generating errors
+
+          const isQuota =
+            error?.code === "resource-exhausted" ||
+            errMsg.toLowerCase().includes("quota");
+          if (isQuota) {
+            markQuotaExceeded();
+          }
+          // Clean up listener on quota exceeded or fatal error so it doesn't keep generating errors
           if (sub?.unsubscribeFirestore) {
             try {
               sub.unsubscribeFirestore();
-            } catch (e) {
+            } catch {
               // ignore
             }
             sub.unsubscribeFirestore = null;

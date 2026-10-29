@@ -33,6 +33,7 @@ export interface CreatePortfolioAIModalProps {
   theme?: "dark" | "light";
   userPortfolios?: UserPortfolio[];
   activePortfolioId?: string;
+  initialPortfolioName?: string;
 }
 
 interface GeneratedHolding {
@@ -48,6 +49,8 @@ interface GeneratedHolding {
   marketCapFormatted: string;
   pe: number | null;
   dividendYield: number | null;
+  dilutedEpsCagr?: number | null;
+  isDilutedEpsCagrPositive?: boolean;
   rationale: string;
   archetype: string;
 }
@@ -59,6 +62,9 @@ interface GenerationResult {
   totalTargetAmount: number;
   totalAllocatedAmount: number;
   cashRemaining: number;
+  isHypergrowthExempt?: boolean;
+  epsCagrFilterApplied?: boolean;
+  dilutedEpsCagrPositiveVerified?: boolean;
   holdings: GeneratedHolding[];
   summaryMetrics: {
     weightedPe: number;
@@ -77,9 +83,9 @@ const STRATEGY_OPTIONS = [
     badgeES: "Todo-Terreno",
     titleEN: "Balanced All-Weather Core",
     titleES: "Portafolio Equilibrado Todo-Terreno",
-    descEN: "Strategic multi-sector balance across growth engines, compounders, defensives, and cash flow pillars.",
-    descES: "Diversificación multisectorial estratégica equilibrando crecimiento, calidad y estabilidad.",
-    examples: "MSFT, AAPL, AMZN, JNJ, JPM, PG"
+    descEN: "Strategic multi-sector balance with strict Diluted EPS CAGR > 15% threshold across all compounders.",
+    descES: "Diversificación multisectorial estratégica con CAGR de BPA Diluido > 15% en todos los activos.",
+    examples: "MSFT, AAPL, AMZN, GOOGL, V, COST"
   },
   {
     id: "compounders",
@@ -88,19 +94,19 @@ const STRATEGY_OPTIONS = [
     badgeES: "Calidad & Moats",
     titleEN: "High-Quality Compounders",
     titleES: "Compounders de Alta Calidad",
-    descEN: "Focus on high-ROIC industry leaders with wide moats, pricing power, and fortress balance sheets.",
-    descES: "Líderes con altos retornos sobre capital (ROIC), ventajas competitivas duraderas y balances blindados.",
+    descEN: "Focus on high-ROIC industry leaders with wide moats, pricing power, and Diluted EPS CAGR > 15%.",
+    descES: "Líderes con altos retornos sobre capital (ROIC), ventajas competitivas y CAGR BPA Diluido > 15%.",
     examples: "MSFT, AAPL, GOOGL, NVDA, V, COST"
   },
   {
     id: "hypergrowth",
     icon: Zap,
-    badge: "AI & Tech",
-    badgeES: "IA & Tecnología",
+    badge: "AI & Tech (Exempt)",
+    badgeES: "IA & Tech (Exento)",
     titleEN: "Hyper-Growth & AI Leaders",
     titleES: "Hipercrecimiento & Líderes de IA",
-    descEN: "Fast-growing leaders in artificial intelligence, semiconductors, and next-gen cloud platforms (> $20B).",
-    descES: "Líderes de rápida expansión en infraestructura de IA, semiconductores y software en la nube (> $20B).",
+    descEN: "Fast-growing leaders in AI and cloud (> $20B). Exempt from the 15% Diluted EPS CAGR threshold.",
+    descES: "Líderes de rápida expansión en infraestructura de IA y nube (> $20B). Exento de regla CAGR EPS > 15%.",
     examples: "NVDA, AMZN, META, AVGO, TSM, NOW"
   },
   {
@@ -110,8 +116,8 @@ const STRATEGY_OPTIONS = [
     badgeES: "Crecimiento Razonable",
     titleEN: "Growth at a Reasonable Price (GARP)",
     titleES: "Crecimiento a Precio Razonable (GARP)",
-    descEN: "Companies with solid double-digit earnings growth trading at rational valuation multiples.",
-    descES: "Empresas con sólido crecimiento de beneficios cotizando a múltiplos razonables (PEG atractivo).",
+    descEN: "Companies with Diluted EPS CAGR > 15% trading at rational valuation multiples (attractive PEG).",
+    descES: "Empresas con CAGR BPA Diluido > 15% cotizando a múltiplos razonables (PEG atractivo).",
     examples: "GOOGL, META, QCOM, AMAT, BKNG, TXN"
   },
   {
@@ -121,9 +127,9 @@ const STRATEGY_OPTIONS = [
     badgeES: "Estilo Buffett",
     titleEN: "Wonderful Co. @ Fair Price",
     titleES: "Negocios Extraordinarios a Precio Justo",
-    descEN: "Durable franchises with heavy free cash flow conversion, high retention, and disciplined capital allocation.",
-    descES: "Negocios con alto flujo de caja libre, fidelidad de clientes y disciplina en asignación de capital.",
-    examples: "BRK-B, AAPL, KO, AXP, OXY, MCD"
+    descEN: "Durable franchises with heavy free cash flow conversion, high retention, and Diluted EPS CAGR > 15%.",
+    descES: "Negocios con alto flujo de caja libre, fidelidad de clientes y CAGR BPA Diluido superior al 15%.",
+    examples: "AAPL, AXP, BKNG, MSFT, GOOGL, V"
   },
   {
     id: "dividends",
@@ -132,9 +138,9 @@ const STRATEGY_OPTIONS = [
     badgeES: "Dividendos Crecientes",
     titleEN: "Dividend Growth & Defensive",
     titleES: "Dividendos Crecientes & Defensivos",
-    descEN: "Low-volatility large caps with consistent decades of dividend growth and resilient cash flows.",
-    descES: "Valores estables de baja volatilidad con décadas de incrementos continuos en dividendos.",
-    examples: "JNJ, PG, PEP, ABBV, MCD, MRK"
+    descEN: "Consistent dividend growers backed by solid Diluted EPS CAGR > 15% and fortress balance sheets.",
+    descES: "Líderes de dividendo seguro y creciente respaldados por CAGR de BPA Diluido superior al 15%.",
+    examples: "AVGO, MSFT, AAPL, V, COST, LLY"
   },
   {
     id: "deepvalue",
@@ -143,9 +149,9 @@ const STRATEGY_OPTIONS = [
     badgeES: "Alto Rendimiento FCF",
     titleEN: "Deep Value & Cash Flow Yield",
     titleES: "Valor Profundo & Alto Flujo de Caja",
-    descEN: "Large-cap leaders trading at attractive historical valuation discounts with robust cash generation.",
-    descES: "Compañías consolidadas cotizando con descuento y generando fuerte flujo de caja libre.",
-    examples: "BABA, PYPL, GM, CMCSA, CVS, INTC"
+    descEN: "Large-cap leaders trading at attractive valuation multiples while maintaining Diluted EPS CAGR > 15%.",
+    descES: "Líderes cotizando con múltiplos atractivos y manteniendo un CAGR BPA Diluido superior al 15%.",
+    examples: "GOOGL, META, QCOM, AMAT, BKNG, AXP"
   }
 ];
 
@@ -159,7 +165,8 @@ export default function CreatePortfolioAIModal({
   language = "EN",
   theme = "dark",
   userPortfolios = [],
-  activePortfolioId = "portfolio-1"
+  activePortfolioId = "portfolio-1",
+  initialPortfolioName
 }: CreatePortfolioAIModalProps) {
   const isES = language === "ES";
   const isLight = theme === "light";
@@ -188,8 +195,15 @@ export default function CreatePortfolioAIModal({
       : `Multi-Style Portfolio (${selectedOptions.length} Styles)`;
   };
 
-  const [portfolioName, setPortfolioName] = useState<string>(() => getDefaultStrategyName(["balanced"]));
-  const [hasUserEditedName, setHasUserEditedName] = useState<boolean>(false);
+  const [portfolioName, setPortfolioName] = useState<string>(() => initialPortfolioName || getDefaultStrategyName(["balanced"]));
+  const [hasUserEditedName, setHasUserEditedName] = useState<boolean>(Boolean(initialPortfolioName));
+
+  useEffect(() => {
+    if (isOpen && initialPortfolioName) {
+      setPortfolioName(initialPortfolioName);
+      setHasUserEditedName(true);
+    }
+  }, [isOpen, initialPortfolioName]);
 
   // Target Slot: "new" (if userPortfolios.length <= 1) or specific portfolio ID
   const [targetSlot, setTargetSlot] = useState<string>(() => {
@@ -278,7 +292,7 @@ export default function CreatePortfolioAIModal({
     try {
       // Periodic status updates for UI feedback
       const timer1 = setTimeout(() => {
-        setGeneratingStepText(isES ? "Evaluando factores fundamentales (Quality, Growth, Stability, Valuation)..." : "Evaluating fundamental factors (Quality, Growth, Stability, Valuation)...");
+        setGeneratingStepText(isES ? "Priorizando análisis fundamental: verificando CAGR de BPA Diluido estrictamente positivo (> 0%)..." : "Prioritizing fundamental analysis: verifying strictly positive Diluted EPS CAGR (> 0%)...");
       }, 1400);
 
       const timer2 = setTimeout(() => {
@@ -324,22 +338,12 @@ export default function CreatePortfolioAIModal({
   const handleApply = () => {
     if (!result || !Array.isArray(result.holdings)) return;
 
-    // Convert generated holdings to standard Holding[] format
+    // Convert generated holdings to standard Holding[] format (100% equity, no cash)
     const newHoldings: Holding[] = result.holdings.map((h) => ({
       ticker: h.ticker,
       shares: h.shares,
       avgCost: h.avgCost
     }));
-
-    // If there is cash remaining, add CASH position
-    if (result.cashRemaining && result.cashRemaining > 0) {
-      newHoldings.push({
-        ticker: "CASH",
-        shares: Math.round(result.cashRemaining * 100) / 100,
-        avgCost: 1,
-        isCash: true
-      });
-    }
 
     const finalName = portfolioName.trim() || result.strategyTitle || (isES ? "Portafolio IA" : "AI Portfolio");
     onApplyPortfolio(newHoldings, finalName, targetSlot);
@@ -419,6 +423,40 @@ export default function CreatePortfolioAIModal({
           {/* STEP 1: CONFIGURATION */}
           {step === "config" && (
             <div className="space-y-6">
+              {/* DILUTED EPS CAGR POSITIVE & INSTITUTIONAL GUARANTEE CALLOUT */}
+              <div className={`p-4 rounded-2xl border flex items-start gap-3 transition-colors ${
+                isLight 
+                  ? "bg-gradient-to-r from-emerald-500/10 via-[#fcfbf9] to-emerald-500/5 border-emerald-600/30 shadow-sm" 
+                  : "bg-gradient-to-r from-emerald-950/20 via-[#0f121a] to-teal-950/20 border-emerald-500/30"
+              }`}>
+                <div className={`p-2 rounded-xl shrink-0 mt-0.5 ${
+                  isLight ? "bg-emerald-500/20 text-emerald-800" : "bg-emerald-500/20 text-emerald-300"
+                }`}>
+                  <ShieldCheck size={18} />
+                </div>
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`text-xs font-bold uppercase tracking-wider ${
+                      isLight ? "text-emerald-900" : "text-emerald-300"
+                    }`}>
+                      {isES ? "Prioridad Fundamental: CAGR BPA Diluido Estrictamente Positivo" : "Fundamental Priority: Strictly Positive Diluted EPS CAGR"}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                      isLight 
+                        ? "bg-emerald-500/20 text-emerald-800 border-emerald-600/40" 
+                        : "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                    }`}>
+                      CAGR BPA &gt; 0% ✓
+                    </span>
+                  </div>
+                  <p className={`text-xs leading-relaxed ${isLight ? "text-[#3a3730]" : "text-slate-300"}`}>
+                    {isES
+                      ? "Todo activo seleccionado debe contar con un Crecimiento Compuesto Anual de BPA Diluido (Diluted EPS CAGR) estrictamente positivo (> 0.0%). Las empresas con contracción o decrecimiento en beneficios por acción son descalificadas automáticamente."
+                      : "Every selected asset must have a strictly positive Diluted EPS Compound Annual Growth Rate (Diluted EPS CAGR > 0.0%). Companies with contracting or negative earnings per share growth are disqualified automatically."}
+                  </p>
+                </div>
+              </div>
+
               {/* 1. PORTFOLIO NAME */}
               <div className={`p-5 rounded-2xl border space-y-3 transition-colors ${
                 isLight 
@@ -791,7 +829,21 @@ export default function CreatePortfolioAIModal({
                         ? "bg-emerald-500/10 text-emerald-800 border-emerald-600/30" 
                         : "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
                     }`}>
-                      Large-Cap Universe (&gt; $20B)
+                      Large-Cap (&gt; $20B)
+                    </span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border flex items-center gap-1 ${
+                      result.isHypergrowthExempt
+                        ? isLight
+                          ? "bg-amber-500/15 text-amber-800 border-amber-500/40"
+                          : "bg-amber-500/15 text-amber-300 border-amber-500/40"
+                        : isLight
+                          ? "bg-emerald-500/15 text-emerald-800 border-emerald-600/40"
+                          : "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
+                    }`}>
+                      <CheckCircle2 size={11} className={result.isHypergrowthExempt ? (isLight ? "text-amber-700" : "text-amber-400") : (isLight ? "text-emerald-700" : "text-emerald-400")} />
+                      {result.isHypergrowthExempt 
+                        ? (isES ? "Exento Regla CAGR EPS > 15%" : "Exempt: EPS CAGR > 15% Rule")
+                        : (isES ? "CAGR BPA Diluido > 15% Verificado" : "Diluted EPS CAGR > 15% Verified")}
                     </span>
                   </div>
 
@@ -836,7 +888,7 @@ export default function CreatePortfolioAIModal({
                 </p>
 
                 {/* Quick stats ribbon */}
-                <div className={`grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 pt-3 border-t ${
+                <div className={`grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-3 border-t ${
                   isLight ? "border-[#ded9cb]" : "border-slate-800/80"
                 }`}>
                   {/* GLOBAL SCORE CARD */}
@@ -902,17 +954,6 @@ export default function CreatePortfolioAIModal({
                       {result.summaryMetrics?.weightedDivYield ? `${result.summaryMetrics.weightedDivYield.toFixed(2)}%` : "1.65%"}
                     </span>
                   </div>
-
-                  <div className={`p-3 rounded-xl border flex flex-col justify-between col-span-2 sm:col-span-1 ${
-                    isLight 
-                      ? "bg-white border-[#ded9cb] shadow-sm" 
-                      : "bg-slate-950/60 border-slate-800/80"
-                  }`}>
-                    <span className={`text-[10px] font-medium block ${isLight ? "text-[#787366]" : "text-slate-400"}`}>{isES ? "Efectivo Libre (Cash)" : "Cash Buffer"}</span>
-                    <span className={`text-base font-mono font-bold mt-1 ${isLight ? "text-[#3a3730]" : "text-slate-300"}`}>
-                      ${result.cashRemaining.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
                 </div>
               </div>
 
@@ -939,6 +980,7 @@ export default function CreatePortfolioAIModal({
                       }`}>
                         <th className="py-2.5 px-3">{isES ? "Activo / Empresa" : "Asset / Company"}</th>
                         <th className="py-2.5 px-3 text-center">{isES ? "Score" : "Score"}</th>
+                        <th className="py-2.5 px-3 text-center">{isES ? "CAGR BPA Dil." : "Diluted EPS CAGR"}</th>
                         <th className="py-2.5 px-3">{isES ? "Sector" : "Sector"}</th>
                         <th className="py-2.5 px-3">{isES ? "Market Cap" : "Market Cap"}</th>
                         <th className="py-2.5 px-3 text-right">{isES ? "Precio Actual" : "Live Price"}</th>
@@ -950,6 +992,8 @@ export default function CreatePortfolioAIModal({
                     <tbody className={`divide-y ${isLight ? "divide-[#ded9cb]/60" : "divide-slate-800/60"}`}>
                       {result.holdings.map((h) => {
                         const sScore = getStockScore(h.ticker);
+                        const epsCagrVal = h.dilutedEpsCagr;
+                        const isExempt = result.isHypergrowthExempt;
                         return (
                           <tr key={h.ticker} className={`transition-colors ${
                             isLight ? "hover:bg-[#fcfbf9]" : "hover:bg-slate-900/50"
@@ -971,6 +1015,31 @@ export default function CreatePortfolioAIModal({
                               <span className={`inline-flex items-center justify-center min-w-[36px] px-2 py-0.5 rounded text-[11px] font-mono font-bold ${sScore.badgeBg} ${sScore.badgeText} border ${sScore.badgeBorder}`}>
                                 {sScore.score}
                               </span>
+                            </td>
+                            <td className="py-3 px-3 text-center">
+                              {epsCagrVal !== null && epsCagrVal !== undefined ? (
+                                <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded text-[11px] font-mono font-bold border ${
+                                  epsCagrVal >= 15
+                                    ? isLight
+                                      ? "bg-emerald-500/15 text-emerald-800 border-emerald-600/30"
+                                      : "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
+                                    : epsCagrVal > 0
+                                      ? isLight
+                                        ? "bg-emerald-500/10 text-emerald-700 border-emerald-600/20"
+                                        : "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
+                                      : isLight
+                                        ? "bg-rose-500/15 text-rose-800 border-rose-500/30"
+                                        : "bg-rose-500/15 text-rose-300 border-rose-500/40"
+                                }`}>
+                                  {epsCagrVal > 0 ? `+${epsCagrVal.toFixed(1)}%` : `${epsCagrVal.toFixed(1)}%`}
+                                </span>
+                              ) : (
+                                <span className={`inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                                  isLight ? "bg-emerald-500/15 text-emerald-800 border-emerald-600/30" : "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
+                                }`}>
+                                  —
+                                </span>
+                              )}
                             </td>
                             <td className={`py-3 px-3 text-[11px] ${isLight ? "text-[#787366]" : "text-slate-400"}`}>
                               {h.sector || "Large Cap"}
@@ -999,26 +1068,6 @@ export default function CreatePortfolioAIModal({
                           </tr>
                         );
                       })}
-
-                      {/* Cash Row if remaining */}
-                      {result.cashRemaining > 0 && (
-                        <tr className={`${isLight ? "bg-[#ebe8df]/40 text-[#787366]" : "bg-slate-950/40 text-slate-400"}`}>
-                          <td className={`py-2.5 px-3 font-mono font-bold ${isLight ? "text-[#1b1917]" : "text-slate-300"}`}>
-                            CASH <span className={`text-[10px] font-normal ${isLight ? "text-[#787366]" : "text-slate-400"}`}>({isES ? "Efectivo" : "Cash Buffer"})</span>
-                          </td>
-                          <td className="py-2.5 px-3 text-center text-[10px] font-mono">-</td>
-                          <td className="py-2.5 px-3 text-[11px]">{isES ? "Liquidez" : "Liquidity"}</td>
-                          <td className="py-2.5 px-3 text-[10px] font-mono">-</td>
-                          <td className="py-2.5 px-3 text-right font-mono">$1.00</td>
-                          <td className="py-2.5 px-3 text-right font-mono">{result.cashRemaining.toFixed(2)}</td>
-                          <td className={`py-2.5 px-3 text-right font-mono font-bold ${isLight ? "text-[#3a3730]" : "text-slate-300"}`}>
-                            ${result.cashRemaining.toFixed(2)}
-                          </td>
-                          <td className={`py-2.5 px-3 text-right font-mono ${isLight ? "text-[#787366]" : "text-slate-400"}`}>
-                            {((result.cashRemaining / result.totalTargetAmount) * 100).toFixed(1)}%
-                          </td>
-                        </tr>
-                      )}
                     </tbody>
                   </table>
                 </div>
