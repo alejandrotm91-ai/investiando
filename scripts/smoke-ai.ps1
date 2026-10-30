@@ -34,7 +34,7 @@ $r = Call POST /api/auth/signin @{ email = $email; password = $pass } $s
 Show "login" $r ($r.code -eq 200)
 
 $holdings = @(@{ ticker = "AAPL"; shares = 10; avgCost = 150 }, @{ ticker = "MSFT"; shares = 5; avgCost = 300 })
-$portfolio = @{ positions = @(@{ ticker = "AAPL"; name = "Apple"; shares = 10; price = 340; mktValue = 3400; weight = 60 }, @{ ticker = "MSFT"; name = "Microsoft"; shares = 5; price = 540; mktValue = 2700; weight = 40 }); totals = @{ mktValue = 6100 } }
+$portfolio = @{ positions = @(@{ ticker = "AAPL"; name = "Apple"; shares = 10; avgCost = 150; price = 340; mktValue = 3400; weight = 60; chgPct = 0.5; returnAmt = 1900; returnPct = 126.7; pe = 34 }, @{ ticker = "MSFT"; name = "Microsoft"; shares = 5; avgCost = 300; price = 540; mktValue = 2700; weight = 40; chgPct = -0.3; returnAmt = 1200; returnPct = 80; pe = 36 }); totals = @{ mktValue = 6100; costBasis = 3000; totalReturn = 3100; totalReturnPercent = 103.3; dailyPnL = 9; dailyPnLPercent = 0.15 } }
 
 $r = Call POST /api/chat @{ message = "¿Cuál es el principal riesgo de esta cartera? Responde en 2 frases."; history = @(); portfolio = $portfolio } $s
 Show "chat" $r ($r.code -eq 200 -and ($r.text | ConvertFrom-Json).text.Length -gt 20)
@@ -50,7 +50,7 @@ Show "financials-analysis" $r ($r.code -eq 200)
 $r = Call POST /api/hedgefund-analysis @{ portfolio = $portfolio } $s
 Show "hedgefund-analysis" $r ($r.code -eq 200)
 
-$r = Call POST /api/watchlist/scan-sector @{ sector = "Technology"; sectorEs = "Tecnología"; scoreType = "quality"; minScore = 70; matchedTickers = @("AAPL", "MSFT", "NVDA"); totalScanned = 20; language = "ES" } $s
+$r = Call POST /api/watchlist/scan-sector @{ sector = "Technology"; sectorEs = "Tecnología"; scoreType = "quality"; minScore = 70; matchedTickers = @(@{ symbol = "AAPL"; name = "Apple"; scoreQuality = 88 }, @{ symbol = "MSFT"; name = "Microsoft"; scoreQuality = 91 }, @{ symbol = "NVDA"; name = "NVIDIA"; scoreQuality = 85 }); totalScanned = 20; language = "ES" } $s
 Show "watchlist/scan-sector" $r ($r.code -eq 200)
 
 $r = Call POST /api/portfolio/generate-ai @{ amount = 10000; strategyType = "balanced"; holdingsCount = 5; language = "ES" } $s

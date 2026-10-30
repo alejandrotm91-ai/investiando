@@ -105,7 +105,8 @@ function cleanJson(text: string): string {
 }
 
 export async function generateContent({ contents, config, effort = "medium" }: GenerateParams): Promise<{ text: string }> {
-  const apiKey = (env as any).ANTHROPIC_API_KEY as string | undefined;
+  // trim: al pegar la clave en el panel o en la terminal es fácil que se cuele un espacio o salto de línea.
+  const apiKey = ((env as any).ANTHROPIC_API_KEY as string | undefined)?.trim();
   if (!apiKey) throw new Error("Falta el secreto ANTHROPIC_API_KEY en Cloudflare.");
   // El SDK ya reintenta errores temporales (429, 5xx, red).
   const client = new Anthropic({ apiKey, maxRetries: 3 });
