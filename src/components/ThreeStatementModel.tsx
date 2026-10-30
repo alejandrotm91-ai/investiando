@@ -26,6 +26,8 @@ import {
 import { 
   StatementPeriod, 
   ModelAssumptions, 
+  ModelCalibration,
+  ModelDrivers,
   CurrentYearStatus,
   HistoricalCAGRs,
   computeHistoricalCAGRs,
@@ -35,7 +37,10 @@ import {
   buildQuarterlyHistoricalStatements,
   projectStatements, 
   projectQuarterlyStatements,
-  computeDCFValuation 
+  computeDCFValuation,
+  calibrateModel,
+  baseDrivers,
+  buildScenarioAssumptions
 } from "../utils/threeStatementModel";
 
 interface ThreeStatementModelProps {
@@ -55,6 +60,7 @@ function formatCurrency(val: number | null | undefined): string {
 }
 
 function formatPercent(val: number): string {
+  if (typeof val !== "number" || !Number.isFinite(val)) return "—";
   const sign = val > 0 ? "+" : "";
   return `${sign}${(val * 100).toFixed(1)}%`;
 }
@@ -80,22 +86,16 @@ export default function ThreeStatementModel({
   const [rawQuarterly, setRawQuarterly] = useState<any[]>([]);
   const [stockQuote, setStockQuote] = useState<any>(null);
   const [historicalCAGRs, setHistoricalCAGRs] = useState<HistoricalCAGRs | null>(null);
+  const [calibration, setCalibration] = useState<ModelCalibration | null>(null);
 
-  // Model driver overrides
-  const [customDrivers, setCustomDrivers] = useState<{
-    revGrowth: number;
-    opMargin: number;
-    taxRate: number;
-    capexPct: number;
-    wacc: number;
-    gTerminal: number;
-  }>({
-    revGrowth: 15,
-    opMargin: 35,
-    taxRate: 17,
-    capexPct: 6,
+  // Drivers editables (escenario Personalizado). Se inicializan con la calibración del base.
+  const [customDrivers, setCustomDrivers] = useState<ModelDrivers>({
+    revGrowth: 0,
+    opMargin: 0,
+    taxRate: 21,
+    capexPct: 0,
     wacc: 10,
-    gTerminal: 3.0,
+    gTerminal: 2.5,
   });
 
   // Fetch company financials and quote
@@ -132,27 +132,20 @@ export default function ThreeStatementModel({
           setRawFinancials(fData);
           setRawQuarterly(qData);
           setStockQuote(sData);
+          setScenario("base");
 
-          // Calibrate CAGRs directly from financials as the Base Case projection
-          if (fData && fData.length > 0) {
-            const cagrs = computeHistoricalCAGRs(fData);
-            setHistoricalCAGRs(cagrs);
-
-            const latest = fData[0];
-            const rev = Number(latest.totalRevenue || 1);
-            const opInc = Number(latest.operatingIncome || 0);
-            const capex = Math.abs(Number(latest.capitalExpenditure || 0));
-            const calculatedMargin = rev > 0 ? (opInc / rev) * 100 : 30;
-            const calculatedCapexPct = rev > 0 ? (capex / rev) * 100 : 5;
-
-            setCustomDrivers({
-              revGrowth: Number(cagrs.revenueCAGR.toFixed(1)),
-              opMargin: Number(calculatedMargin.toFixed(1)),
-              taxRate: 17,
-              capexPct: Number(calculatedCapexPct.toFixed(1)),
-              wacc: sData?.beta && sData.beta > 1.8 ? 11.5 : 9.5,
-              gTerminal: 3.0,
-            });
+          // Calibración del escenario base con datos reportados (ver utils/threeStatementModel.ts)
+          const hist = buildHistoricalStatements(fData);
+          const ttm = buildTTMStatementPeriod(qData, fData);
+          const anchor = ttm || hist[hist.length - 1];
+          if (anchor) {
+            const cal = calibrateModel(fData, qData, sData, anchor);
+            setHistoricalCAGRs(computeHistoricalCAGRs(fData));
+            setCalibration(cal);
+            setCustomDrivers(baseDrivers(cal));
+          } else {
+            setHistoricalCAGRs(null);
+            setCalibration(null);
           }
         }
       } catch (err) {
@@ -176,182 +169,139 @@ export default function ThreeStatementModel({
     return historicalCAGRs || (rawFinancials.length >= 2 ? computeHistoricalCAGRs(rawFinancials) : null);
   }, [historicalCAGRs, rawFinancials]);
 
-  // Build active assumptions based on scenario
+  // Supuestos del escenario activo (Base/Alcista/Bajista parten de la calibración; Personalizado = controles)
   const assumptions: ModelAssumptions = useMemo(() => {
-    const baseRevGrowth = customDrivers.revGrowth;
-    const baseOpMargin = customDrivers.opMargin;
-    const baseWacc = customDrivers.wacc;
-
-    let revG = baseRevGrowth;
-    let opM = baseOpMargin;
-    let waccVal = baseWacc;
-    let gTerm = customDrivers.gTerminal;
-
-    if (scenario === "bull") {
-      revG = Number((baseRevGrowth * 1.35).toFixed(1));
-      opM = Math.min(65, Number((baseOpMargin + 4).toFixed(1)));
-      waccVal = Math.max(7.5, Number((baseWacc - 0.75).toFixed(1)));
-      gTerm = Math.min(4.0, Number((gTerm + 0.5).toFixed(1)));
-    } else if (scenario === "bear") {
-      revG = Math.max(2, Number((baseRevGrowth * 0.6).toFixed(1)));
-      opM = Math.max(10, Number((baseOpMargin - 5).toFixed(1)));
-      waccVal = Number((baseWacc + 1.25).toFixed(1));
-      gTerm = Math.max(1.8, Number((gTerm - 0.5).toFixed(1)));
-    }
-
-    const shares = Number(
-      stockQuote?.sharesOutstanding || 
-      rawFinancials[0]?.dilutedAverageShares || 
-      rawFinancials[0]?.ordinarySharesNumber || 
-      1000000000
-    );
-
-    const activeCAGRs = historicalCAGRs || (rawFinancials.length >= 2 ? computeHistoricalCAGRs(rawFinancials) : undefined);
-
+    if (calibration) return buildScenarioAssumptions(calibration, scenario, customDrivers, historicalCAGRs || undefined);
     return {
-      scenario,
-      historicalCAGRs: activeCAGRs,
-      revenueGrowthRate: revG,
-      grossMarginTarget: Math.min(90, opM + 25),
-      operatingMarginTarget: opM,
-      taxRateTarget: customDrivers.taxRate,
-      capexPercentRevenue: customDrivers.capexPct,
-      deprecPercentRevenue: Math.max(2, customDrivers.capexPct * 0.8),
-      nwcPercentRevenue: 10,
-      costOfDebtInterestRate: 4.5,
-      annualDebtRepaymentPct: 10,
-      dividendPayoutRatio: 15,
-
-      discountRateWacc: waccVal,
-      terminalGrowthRate: gTerm,
-      dilutedShares: shares,
-      riskFreeRate: 4.2,
-      equityRiskPremium: 5.5,
-      beta: stockQuote?.beta || 1.15,
+      scenario, revenueGrowthRate: 0, operatingMarginTarget: 0, grossMarginTarget: 0, taxRateTarget: 21,
+      capexPercentRevenue: 0, deprecPercentRevenue: 0, nwcPercentRevenue: 0, costOfDebtInterestRate: 5,
+      dividendPayoutRatio: 0, discountRateWacc: 10, terminalGrowthRate: 2.5, dilutedShares: 0,
+      riskFreeRate: 4.3, equityRiskPremium: 5.5, beta: 1,
     };
-  }, [scenario, customDrivers, stockQuote, rawFinancials, historicalCAGRs]);
+  }, [calibration, scenario, customDrivers, historicalCAGRs]);
 
-  // Build model periods according to chosen periodicity (Annual with TTM calibration vs Quarterly)
+  // Históricos, TTM y ancla del modelo (último dato: TTM si existe, si no el último ejercicio)
+  const annualHistory = useMemo(() => {
+    const hist = buildHistoricalStatements(rawFinancials);
+    const ttm = buildTTMStatementPeriod(rawQuarterly, rawFinancials);
+    return { hist, ttm, anchor: ttm || hist[hist.length - 1] };
+  }, [rawFinancials, rawQuarterly]);
+
+  // Proyección anual: es la que valora el DCF, se muestre la vista anual o la trimestral.
+  const annualProjection = useMemo(
+    () => (annualHistory.anchor && calibration ? projectStatements(annualHistory.anchor, assumptions, 5) : []),
+    [annualHistory, assumptions, calibration]
+  );
+
   const { historicalPeriods, projectedPeriods, allPeriods } = useMemo(() => {
     if (periodicity === "quarterly") {
-      const histQ = buildQuarterlyHistoricalStatements(rawQuarterly, assumptions.dilutedShares);
+      const histQ = buildQuarterlyHistoricalStatements(rawQuarterly);
       const latestQ = histQ[histQ.length - 1];
-      if (!latestQ) {
-        const hist = buildHistoricalStatements(rawFinancials, assumptions.dilutedShares);
-        const latest = hist[hist.length - 1];
-        const proj = projectStatements(latest, assumptions, 5);
-        return { historicalPeriods: hist, projectedPeriods: proj, allPeriods: [...hist, ...proj] };
+      if (latestQ && calibration) {
+        const projQ = projectQuarterlyStatements(latestQ, assumptions, 8, histQ);
+        return { historicalPeriods: histQ, projectedPeriods: projQ, allPeriods: [...histQ, ...projQ] };
       }
-      const projQ = projectQuarterlyStatements(latestQ, assumptions, 8);
-      return {
-        historicalPeriods: histQ,
-        projectedPeriods: projQ,
-        allPeriods: [...histQ, ...projQ]
-      };
     }
-
-    // Annual mode: include historicals + TTM (incorporating reported quarters of current year) + 5-year forecast
-    const hist = buildHistoricalStatements(rawFinancials, assumptions.dilutedShares);
-    const ttmPeriod = buildTTMStatementPeriod(rawQuarterly, rawFinancials);
-
-    const histWithTTM = ttmPeriod ? [...hist, ttmPeriod] : hist;
-    const anchorPeriod = ttmPeriod || hist[hist.length - 1];
-
-    if (!anchorPeriod) {
-      return { historicalPeriods: [], projectedPeriods: [], allPeriods: [] };
-    }
-
-    const proj = projectStatements(anchorPeriod, assumptions, 5);
+    const histWithTTM = annualHistory.ttm ? [...annualHistory.hist, annualHistory.ttm] : annualHistory.hist;
     return {
       historicalPeriods: histWithTTM,
-      projectedPeriods: proj,
-      allPeriods: [...histWithTTM, ...proj]
+      projectedPeriods: annualProjection,
+      allPeriods: [...histWithTTM, ...annualProjection],
     };
-  }, [rawFinancials, rawQuarterly, assumptions, periodicity]);
+  }, [rawQuarterly, assumptions, periodicity, annualHistory, annualProjection, calibration]);
 
-  // Compute DCF valuation based on RULE[AGENTS_md]
+  // Valoración DCF (AGENTS.md): FCFF de la proyección anual descontado al WACC
   const dcfValuation = useMemo(() => {
-    const curPrice = stockQuote?.price || 100;
-    const mktCap = stockQuote?.marketCap || curPrice * assumptions.dilutedShares;
-    const debt = stockQuote?.totalDebt;
-    const cash = stockQuote?.totalCash;
+    const curPrice = stockQuote?.price || 0;
+    const mktCap = calibration?.marketCap || curPrice * assumptions.dilutedShares;
     return computeDCFValuation(
-      historicalPeriods.length > 0 ? historicalPeriods : allPeriods.slice(0, 1),
-      projectedPeriods,
+      annualHistory.anchor,
+      annualProjection,
       assumptions,
       curPrice,
       mktCap,
-      debt,
-      cash,
-      periodicity === "quarterly"
+      stockQuote?.totalDebt,
+      stockQuote?.totalCash,
+      {
+        minorityInterest: calibration?.minorityInterest,
+        marketEvEbitda: stockQuote?.evEbitda ?? stockQuote?.enterpriseToEbitda ?? null,
+        historicalFcf: annualHistory.hist.map(h => h.freeCashFlow),
+        staleQuote: stockQuote?.isFallback === true,
+      }
     );
-  }, [historicalPeriods, projectedPeriods, assumptions, stockQuote, allPeriods, periodicity]);
+  }, [annualHistory, annualProjection, assumptions, stockQuote, calibration]);
 
-  // Generate standardized DCF calculation memory string (Rule 6 format)
+  // Memoria de cálculo DCF en el formato de AGENTS.md §6
   const standardMemoryText = useMemo(() => {
-    const curPrice = dcfValuation.currentPrice;
-    const latestHist = historicalPeriods[historicalPeriods.length - 1] || allPeriods[0];
+    const v = dcfValuation;
+    const a = assumptions;
+    const c = calibration;
+    const anchor = annualHistory.anchor;
     const dateStr = new Date().toISOString().split("T")[0];
+    const pct = (x: number | null | undefined, d = 1) => (typeof x === "number" && Number.isFinite(x) ? `${x.toFixed(d)}%` : "—");
+    const sharesB = a.dilutedShares > 0 ? `${(a.dilutedShares / 1e9).toFixed(3)}B` : "—";
+    const scenarioLabel = { base: "Base", bull: "Alcista", bear: "Bajista", custom: "Personalizado" }[scenario];
+    const p5 = annualProjection[4];
 
-    return `DCF — [${selectedTicker}]  |  Precio actual: $${curPrice.toFixed(2)}  |  Fecha: ${dateStr}
+    return `DCF — [${selectedTicker}]  |  Precio actual: $${v.currentPrice.toFixed(2)}  |  Fecha: ${dateStr}  |  Escenario: ${scenarioLabel}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-INPUTS BASE (investiando.app — Periodo: ${periodicity === "annual" ? "Anual (Calibrado TTM)" : "Trimestral"})
-  Free Cash Flow Base:            ${formatCurrency(latestHist?.freeCashFlow || 0)}
-  Operating Cash Flow:            ${formatCurrency(latestHist?.operatingCashFlow || 0)}
-  Capital Expenditure:            ${formatCurrency(latestHist?.capitalExpenditures || 0)}
-  FCF verificado (OCF − Capex):   ${formatCurrency((latestHist?.operatingCashFlow || 0) - (latestHist?.capitalExpenditures || 0))}
-  Total Revenue Base:             ${formatCurrency(latestHist?.revenue || 0)}
-  Margen FCF:                     ${((latestHist?.freeCashFlow / (latestHist?.revenue || 1)) * 100).toFixed(1)}%
-  Total Cash:                     ${formatCurrency(dcfValuation.totalCash)}
-  Total Debt:                     ${formatCurrency(dcfValuation.totalDebt)}
-  Net Debt:                       ${formatCurrency(dcfValuation.netDebt)} ${dcfValuation.netDebt < 0 ? "(net CASH positivo)" : ""}
-  Ordinary Shares Number:         ${(assumptions.dilutedShares / 1e9).toFixed(2)}B
-  Beta (5Y Vol):                  ${assumptions.beta.toFixed(2)}
-  Tax Rate:                       ${assumptions.taxRateTarget}%
+INPUTS BASE (${anchor?.isTTM ? "TTM, últimos 4 trimestres" : anchor?.yearLabel || "—"})
+  Total Revenue:                  ${formatCurrency(anchor?.revenue)}
+  Operating Income (EBIT):        ${formatCurrency(anchor?.operatingIncome)}  (margen ${pct((anchor?.operatingMargin ?? NaN) * 100)})
+  Operating Cash Flow:            ${formatCurrency(anchor?.operatingCashFlow)}
+  Capital Expenditure:            ${formatCurrency(anchor?.capitalExpenditures)}
+  FCF (OCF − Capex):              ${formatCurrency(anchor ? anchor.operatingCashFlow - anchor.capitalExpenditures : null)}
+  Margen FCF:                     ${pct(anchor && anchor.revenue > 0 ? ((anchor.operatingCashFlow - anchor.capitalExpenditures) / anchor.revenue) * 100 : NaN)}
+  SBC (tratada como coste):       ${formatCurrency(anchor?.stockBasedCompensation)}
+  Total Cash / Total Debt:        ${formatCurrency(v.totalCash)} / ${formatCurrency(v.totalDebt)}
+  Net Debt:                       ${formatCurrency(v.netDebt)}${v.netDebt < 0 ? " (caja neta)" : ""}
+  Acciones diluidas:              ${sharesB}${c ? ` (${c.sharesSource})` : ""}
+  Beta (5Y) → ajustada:           ${c?.beta?.toFixed(2) ?? "—"} → ${a.beta.toFixed(2)}
+  Tax rate:                       ${pct(a.taxRateTarget)}${c ? ` (${c.taxSource})` : ""}
 
-ESTADO AÑO EN CURSO (${currentYearStatus.currentFiscalYearLabel})
-  Trimestres reportados:          ${currentYearStatus.quartersReportedCount} de 4 (${currentYearStatus.quartersReportedLabels.join(", ")})
-  YTD Revenue / FCF:              ${formatCurrency(currentYearStatus.ytdRevenue)} / ${formatCurrency(currentYearStatus.ytdFcf)}
-  TTM Revenue / FCF (12 meses):   ${formatCurrency(currentYearStatus.ttmRevenue)} / ${formatCurrency(currentYearStatus.ttmFcf)}
-  Run-Rate Cierre Estimado:       ${formatCurrency(currentYearStatus.estimatedFullYearRevenue)}
+WACC (CAPM)
+  Rf / ERP:                       ${pct(a.riskFreeRate)} / ${pct(a.equityRiskPremium)}
+  Ke = Rf + β·ERP:                ${pct(v.costOfEquity, 2)}
+  Kd bruto / neto:                ${pct(a.costOfDebtInterestRate)} / ${pct(v.costOfDebtNet, 2)}
+  Pesos equity / deuda:           ${pct(v.weightEquity)} / ${pct(v.weightDebt)}
+  WACC calculado:                 ${pct(c?.waccRaw ?? v.calculatedWacc)}
+  WACC aplicado:                  ${pct(a.discountRateWacc)}${c?.waccNote ? `  ← ${c.waccNote}` : ""}
 
-WACC
-  Rf (10Y Treasury):              ${assumptions.riskFreeRate}%
-  Beta:                           ${assumptions.beta.toFixed(2)}
-  ERP:                            ${assumptions.equityRiskPremium}%
-  Ke (costo equity):              ${dcfValuation.costOfEquity.toFixed(2)}%
-  Kd_neto (post-tax):             ${dcfValuation.costOfDebtNet.toFixed(2)}%
-  Weight equity / deuda:          ${dcfValuation.weightEquity.toFixed(1)}% / ${dcfValuation.weightDebt.toFixed(1)}%
-  WACC:                           ${assumptions.discountRateWacc}%
+PROYECCIÓN (FCFF = EBIT·(1−t) + D&A − Capex − ΔNWC)
+  Crecimiento ventas:             CAGR ${pct(c?.revenueCagr)} | último ejercicio ${pct(c?.latestYoY)} | último trimestre ${pct(c?.latestQuarterYoY)}
+  g_fase1 (años 1–5):             ${pct(a.revenueGrowthRate)}${c?.growthNotes.length ? `  ← ${c.growthNotes.join("; ")}` : ""}
+  g_fase2 (años 6–10):            ${pct(v.phase2Growth.start)} → ${pct(v.phase2Growth.end)}
+  Margen EBIT año 5:              ${pct(a.operatingMarginTarget)}
+  Capex / D&A año 5 (% ventas):   ${pct(a.capexPercentRevenue)} / ${pct(a.deprecPercentRevenue)}
+  Remuneración al accionista:     ${pct(a.dividendPayoutRatio)} del beneficio (dividendos + recompras)
 
-PROYECCIÓN FCF (10 AÑOS)
-  g_fase1 (años 1–5):             ${assumptions.revenueGrowthRate}%
-  g_terminal:                     ${assumptions.terminalGrowthRate}%
+  Año   FCFF               g        Factor desc.   PV
+${v.pvFcfList.map(item => `   ${String(item.year).padStart(2, " ")}   ${formatCurrency(item.fcf).padEnd(16, " ")}   ${pct(item.growth * 100).padEnd(7, " ")}  ${item.discountFactor.toFixed(4).padEnd(12, " ")}   ${formatCurrency(item.pv)}`).join("\n")}
+  Σ PV FCFF (10 años):            ${formatCurrency(v.sumPvFcf)}
 
-  Año   FCF_proyectado     Factor_desc   PV_FCF
-${dcfValuation.pvFcfList.map(item => `   ${item.year.toString().padStart(2, " ")}   ${formatCurrency(item.fcf).padEnd(16, " ")}   ${item.discountFactor.toFixed(3).padEnd(11, " ")}   ${formatCurrency(item.pv)}`).join("\n")}
-  Σ PV FCF (10 años):             ${formatCurrency(dcfValuation.sumPvFcf)}
-
-VALOR TERMINAL (Gordon Growth)
-  FCF año 10:                     ${formatCurrency(dcfValuation.terminalFcf)}
-  g_terminal:                     ${assumptions.terminalGrowthRate}%
-  WACC − g:                       ${(assumptions.discountRateWacc - assumptions.terminalGrowthRate).toFixed(2)}%
-  VT bruto:                       ${formatCurrency(dcfValuation.terminalValueGross)}
-  PV del VT:                      ${formatCurrency(dcfValuation.pvTerminalValue)}
-  % VT sobre EV:                  ${dcfValuation.pctTerminalValue.toFixed(1)}% (rango saludable: 55–75%)
+VALOR TERMINAL (Gordon)
+  FCFF año 10:                    ${formatCurrency(v.terminalFcf)}
+  g_terminal:                     ${pct(v.terminalGrowthUsed)}
+  WACC − g:                       ${pct(a.discountRateWacc - v.terminalGrowthUsed, 2)}
+  VT bruto / PV del VT:           ${formatCurrency(v.terminalValueGross)} / ${formatCurrency(v.pvTerminalValue)}
+  % VT sobre EV:                  ${pct(v.pctTerminalValue)}
+  VT / EBITDA año 10:             ${v.terminalExitMultiple ? `${v.terminalExitMultiple.toFixed(1)}×` : "—"}
 
 EQUITY BRIDGE
-  Σ PV FCF:                       ${formatCurrency(dcfValuation.sumPvFcf)}
-  + PV Valor Terminal:            ${formatCurrency(dcfValuation.pvTerminalValue)}
-  = Enterprise Value:             ${formatCurrency(dcfValuation.enterpriseValue)}
-  − Net Debt:                     ${formatCurrency(dcfValuation.netDebt)} ${dcfValuation.netDebt < 0 ? "[net cash → SUMA]" : ""}
-  = Equity Value:                 ${formatCurrency(dcfValuation.equityValue)}
-  ÷ Shares:                       ${(assumptions.dilutedShares / 1e9).toFixed(2)}B
-  = Fair Value por acción:        $${dcfValuation.fairValuePerShare.toFixed(2)}
-  vs. Precio Actual:              $${curPrice.toFixed(2)} (${dcfValuation.upsideDownsidePct >= 0 ? "+" : ""}${dcfValuation.upsideDownsidePct.toFixed(1)}%)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
-  }, [dcfValuation, selectedTicker, historicalPeriods, allPeriods, assumptions, periodicity, currentYearStatus]);
+  Σ PV FCFF + PV VT = EV:         ${formatCurrency(v.enterpriseValue)}
+  − Net Debt:                     ${formatCurrency(v.netDebt)}
+  − Minoritarios:                 ${formatCurrency(v.minorityInterest)}
+  = Equity Value:                 ${formatCurrency(v.equityValue)}
+  ÷ Acciones diluidas:            ${sharesB}
+  = Fair Value por acción:        $${v.fairValuePerShare.toFixed(2)}  (${v.upsideDownsidePct >= 0 ? "+" : ""}${v.upsideDownsidePct.toFixed(1)}% vs. precio)
+
+SANITY CHECKS
+${v.flags.map(f => `  ${f.level === "ok" ? "✓" : f.level === "warn" ? "⚠" : "✗"} ${f.text}`).join("\n")}
+${p5 ? `  Año 5: ingresos ${formatCurrency(p5.revenue)}, EBIT ${formatCurrency(p5.operatingIncome)}, FCFF ${formatCurrency(p5.fcff)}` : ""}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+No constituye asesoría de inversión.`;
+  }, [dcfValuation, assumptions, calibration, annualHistory, annualProjection, selectedTicker, scenario]);
 
   const handleCopyMemo = () => {
     navigator.clipboard.writeText(standardMemoryText);
@@ -888,7 +838,7 @@ EQUITY BRIDGE
                       <div className="text-[9px] font-normal text-slate-400">
                         {p.isTTM ? (language === "EN" ? "Last 12 Mos" : "Últimos 12M") :
                          p.isHistorical ? (language === "EN" ? "Reported" : "Reportado") : 
-                         scenario === "base" ? (language === "EN" ? "Forecast (CAGR)" : "Proy. (CAGR Base)") :
+                         scenario === "base" ? (language === "EN" ? "Forecast (Base)" : "Proy. (Base)") :
                          scenario === "bull" ? (language === "EN" ? "Forecast (Bull)" : "Proy. (Alcista)") :
                          scenario === "bear" ? (language === "EN" ? "Forecast (Bear)" : "Proy. (Bajista)") :
                          (language === "EN" ? "Forecast (Custom)" : "Proy. (Custom)")}
@@ -1223,7 +1173,7 @@ EQUITY BRIDGE
                 <Calculator size={15} />
                 <span>{language === "EN" ? "DCF VALUATION SUMMARY" : "RESUMEN DE VALORACIÓN DCF"}</span>
                 <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-normal">
-                  {periodicity === "annual" ? "Base Anual / TTM" : "Base Trimestral Anualizada"}
+                  {annualHistory.anchor?.isTTM ? (language === "EN" ? "Annual model · TTM anchor" : "Modelo anual · base TTM") : (language === "EN" ? "Annual model" : "Modelo anual")}
                 </span>
               </div>
               <div className="flex items-baseline gap-4">
@@ -1264,15 +1214,15 @@ EQUITY BRIDGE
             {/* Step 1: FCF Projection */}
             <div className="bg-[#0f111a]/70 border border-slate-800/80 p-5 rounded-2xl space-y-3">
               <div className="text-[11px] font-mono text-emerald-400 font-bold uppercase">
-                {language === "EN" ? "Step 1: 10-Yr FCF Forecast" : "Paso 1: Proyección FCF 10 Años"}
+                {language === "EN" ? "Step 1: 10-Yr FCFF Forecast" : "Paso 1: FCFF a 10 Años"}
               </div>
               <div className="text-xl font-bold font-mono text-white">
                 {formatCurrency(dcfValuation.sumPvFcf)}
               </div>
               <p className="text-xs text-slate-400 leading-relaxed">
                 {language === "EN" 
-                  ? "Sum of discounted free cash flows over 10 years (calibrated with latest reported quarters and TTM run-rate)."
-                  : "Suma de FCF proyectados descontados a 10 años (anclados en el TTM real con trimestres reportados del año en curso)."}
+                  ? `Unlevered FCF (EBIT·(1−t) + D&A − Capex − ΔNWC). Years 1–5 at ${assumptions.revenueGrowthRate}% revenue growth; years 6–10 fading ${dcfValuation.phase2Growth.start.toFixed(1)}% → ${dcfValuation.phase2Growth.end.toFixed(1)}%.`
+                  : `Flujo de caja libre no apalancado (EBIT·(1−t) + D&A − Capex − ΔNWC). Años 1–5 con ventas al ${assumptions.revenueGrowthRate}%; años 6–10 desacelerando ${dcfValuation.phase2Growth.start.toFixed(1)}% → ${dcfValuation.phase2Growth.end.toFixed(1)}%.`}
               </p>
             </div>
 
@@ -1285,7 +1235,9 @@ EQUITY BRIDGE
                 {assumptions.discountRateWacc}%
               </div>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Ke: {dcfValuation.costOfEquity.toFixed(1)}% | Kd neto: {dcfValuation.costOfDebtNet.toFixed(1)}% | Rf: {assumptions.riskFreeRate}% | Beta: {assumptions.beta.toFixed(2)}
+                Ke: {dcfValuation.costOfEquity.toFixed(1)}% (Rf {assumptions.riskFreeRate}% + β {assumptions.beta.toFixed(2)} × {assumptions.equityRiskPremium}%) | Kd neto: {dcfValuation.costOfDebtNet.toFixed(1)}% | E/D: {dcfValuation.weightEquity.toFixed(0)}/{dcfValuation.weightDebt.toFixed(0)}
+                {calibration?.waccNote && <span className="block text-amber-400/90 mt-1">{calibration.waccNote}</span>}
+                {scenario !== "base" && calibration && <span className="block text-slate-500 mt-1">{language === "EN" ? `Base WACC: ${calibration.wacc}%` : `WACC base: ${calibration.wacc}%`}</span>}
               </p>
             </div>
 
@@ -1299,10 +1251,10 @@ EQUITY BRIDGE
               </div>
               <div className="flex items-center gap-1.5 text-xs text-slate-400">
                 <span>{language === "EN" ? "Weight in EV:" : "% VT sobre EV:"}</span>
-                <span className={`font-bold ${dcfValuation.pctTerminalValue >= 55 && dcfValuation.pctTerminalValue <= 75 ? "text-emerald-400" : "text-amber-400"}`}>
-                  {dcfValuation.pctTerminalValue.toFixed(1)}%
+                <span className={`font-bold ${dcfValuation.pctTerminalValue >= 40 && dcfValuation.pctTerminalValue <= 80 ? "text-emerald-400" : "text-amber-400"}`}>
+                  {Number.isFinite(dcfValuation.pctTerminalValue) ? `${dcfValuation.pctTerminalValue.toFixed(1)}%` : "—"}
                 </span>
-                <span className="text-[10px] text-slate-500">(55-75% óptimo)</span>
+                <span className="text-[10px] text-slate-500">(g {dcfValuation.terminalGrowthUsed.toFixed(1)}%{dcfValuation.terminalExitMultiple ? ` · ${dcfValuation.terminalExitMultiple.toFixed(1)}× EBITDA` : ""})</span>
               </div>
             </div>
 
@@ -1315,10 +1267,36 @@ EQUITY BRIDGE
                 {formatCurrency(dcfValuation.equityValue)}
               </div>
               <p className="text-xs text-slate-400 leading-relaxed">
-                EV: {formatCurrency(dcfValuation.enterpriseValue)} − Net Debt: {formatCurrency(dcfValuation.netDebt)} {dcfValuation.netDebt < 0 ? "(net cash +)" : ""}
+                EV: {formatCurrency(dcfValuation.enterpriseValue)} − Net Debt: {formatCurrency(dcfValuation.netDebt)} {dcfValuation.netDebt < 0 ? "(net cash +)" : ""}{dcfValuation.minorityInterest ? ` − ${language === "EN" ? "Minority" : "Minoritarios"}: ${formatCurrency(dcfValuation.minorityInterest)}` : ""} ÷ {(assumptions.dilutedShares / 1e9).toFixed(2)}B {language === "EN" ? "diluted shares" : "acciones diluidas"}
               </p>
             </div>
           </div>
+
+          {/* Comprobaciones de coherencia (AGENTS.md §9) */}
+          {dcfValuation.flags.length > 0 && (
+            <div className="bg-[#0b0d14] border border-slate-800/80 rounded-3xl p-5 shadow-xl space-y-2.5">
+              <h3 className="text-xs font-mono font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                <ShieldCheck size={15} className="text-emerald-400" />
+                <span>{language === "EN" ? "Model sanity checks" : "Comprobaciones del modelo"}</span>
+              </h3>
+              <ul className="space-y-1.5">
+                {dcfValuation.flags.map((f, i) => (
+                  <li key={i} className="flex items-start gap-2 text-xs">
+                    {f.level === "ok" ? <Check size={13} className="text-emerald-400 mt-0.5 shrink-0" />
+                      : f.level === "warn" ? <AlertTriangle size={13} className="text-amber-400 mt-0.5 shrink-0" />
+                      : <AlertTriangle size={13} className="text-rose-400 mt-0.5 shrink-0" />}
+                    <span className={f.level === "bad" ? "text-rose-300" : f.level === "warn" ? "text-amber-200" : "text-slate-300"}>{f.text}</span>
+                  </li>
+                ))}
+                {calibration?.growthNotes.map((n, i) => (
+                  <li key={`g${i}`} className="flex items-start gap-2 text-xs">
+                    <Info size={13} className="text-sky-400 mt-0.5 shrink-0" />
+                    <span className="text-slate-400">{language === "EN" ? "Growth normalization: " : "Normalización del crecimiento: "}{n}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {/* Detailed Year-by-Year FCF Discount Table */}
           <div className="bg-[#0b0d14] border border-slate-800/80 rounded-3xl p-6 shadow-xl space-y-4">
@@ -1332,7 +1310,8 @@ EQUITY BRIDGE
                 <thead>
                   <tr className="border-b border-slate-800 text-slate-400 text-[11px]">
                     <th className="py-2.5 px-3">{language === "EN" ? "Year" : "Año"}</th>
-                    <th className="py-2.5 px-3 text-right">{language === "EN" ? "Projected FCF" : "FCF Proyectado"}</th>
+                    <th className="py-2.5 px-3 text-right">{language === "EN" ? "Projected FCFF" : "FCFF Proyectado"}</th>
+                    <th className="py-2.5 px-3 text-right">{language === "EN" ? "Growth" : "Crecimiento"}</th>
                     <th className="py-2.5 px-3 text-right">{language === "EN" ? "Discount Factor" : "Factor de Descuento"}</th>
                     <th className="py-2.5 px-3 text-right text-emerald-400">{language === "EN" ? "Present Value (PV)" : "Valor Presente (PV)"}</th>
                   </tr>
@@ -1342,13 +1321,14 @@ EQUITY BRIDGE
                     <tr key={item.year} className="hover:bg-slate-800/20">
                       <td className="py-2 px-3 text-white font-bold">{language === "EN" ? `Year ${item.year}` : `Año ${item.year}`}</td>
                       <td className="py-2 px-3 text-right text-slate-200">{formatCurrency(item.fcf)}</td>
+                      <td className="py-2 px-3 text-right text-slate-400">{formatPercent(item.growth)}</td>
                       <td className="py-2 px-3 text-right text-slate-400">{item.discountFactor.toFixed(3)}</td>
                       <td className="py-2 px-3 text-right text-emerald-400 font-bold">{formatCurrency(item.pv)}</td>
                     </tr>
                   ))}
                   <tr className="bg-slate-900/60 font-bold border-t-2 border-slate-800">
                     <td className="py-2.5 px-3 text-white">{language === "EN" ? "Σ Sum PV of FCFs" : "Σ Suma PV de FCFs"}</td>
-                    <td colSpan={2} />
+                    <td colSpan={3} />
                     <td className="py-2.5 px-3 text-right text-emerald-300 font-black text-sm">{formatCurrency(dcfValuation.sumPvFcf)}</td>
                   </tr>
                 </tbody>
@@ -1383,14 +1363,21 @@ EQUITY BRIDGE
                 <tbody className="divide-y divide-slate-850">
                   {dcfValuation.sensitivityMatrix.map((row, rIdx) => {
                     const rowWacc = row[0]?.wacc;
-                    const isBaseWacc = Math.abs(rowWacc - assumptions.discountRateWacc) < 0.1;
+                    const isBaseWacc = Math.abs(rowWacc - assumptions.discountRateWacc) < 0.05;
                     return (
                       <tr key={rIdx} className={isBaseWacc ? "bg-slate-800/40" : ""}>
                         <td className="py-2.5 px-3 text-left font-bold text-slate-300 border-r border-slate-800">
                           {rowWacc.toFixed(1)}% {isBaseWacc ? "(Base)" : ""}
                         </td>
                         {row.map((cell, cIdx) => {
-                          const isBaseCell = isBaseWacc && Math.abs(cell.terminalGrowth - assumptions.terminalGrowthRate) < 0.1;
+                          const isBaseCell = isBaseWacc && Math.abs(cell.terminalGrowth - dcfValuation.terminalGrowthUsed) < 0.05;
+                          if (!cell.valid) {
+                            return (
+                              <td key={cIdx} className="py-2 px-3 border border-slate-850 text-slate-600" title={language === "EN" ? "Invalid: g must be < WACC − 3%" : "No válido: g debe ser < WACC − 3%"}>
+                                n/a
+                              </td>
+                            );
+                          }
                           const upside = dcfValuation.currentPrice > 0 ? ((cell.fairValue - dcfValuation.currentPrice) / dcfValuation.currentPrice) * 100 : 0;
                           return (
                             <td 
@@ -1425,77 +1412,65 @@ EQUITY BRIDGE
       {/* ========================================================
           SUB-TAB 3: SOLVENCY & FINANCIAL HEALTH
           ======================================================== */}
-      {!loading && activeSubTab === "solvency" && (
+      {!loading && activeSubTab === "solvency" && (() => {
+        const an = annualHistory.anchor;
+        const ebitda = an ? an.operatingIncome + an.depreciationAmortization : 0;
+        const nd = dcfValuation.netDebt;
+        const ndEbitda = ebitda > 0 ? nd / ebitda : NaN;
+        const cr = an?.currentRatio ?? NaN;
+        const cov = an?.interestCoverage ?? NaN;
+        const badge = (label: string, tone: "good" | "mid" | "bad") => (
+          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${tone === "good" ? "bg-emerald-500/20 text-emerald-300" : tone === "mid" ? "bg-amber-500/20 text-amber-300" : "bg-rose-500/20 text-rose-300"}`}>{label}</span>
+        );
+        const ndTone = nd <= 0 ? "good" : ndEbitda < 2.5 ? "good" : ndEbitda < 4 ? "mid" : "bad";
+        const crTone = cr >= 1.5 ? "good" : cr >= 1 ? "mid" : "bad";
+        const covTone = !Number.isFinite(cov) || cov >= 8 ? "good" : cov >= 3 ? "mid" : "bad";
+        return (
         <div className="space-y-6">
+          <p className="text-xs text-slate-400 font-mono">
+            {language === "EN" ? "Based on" : "Basado en"} {an?.isTTM ? (language === "EN" ? "the last twelve months (TTM)" : "los últimos doce meses (TTM)") : an?.yearLabel || "—"}.
+          </p>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {/* Net Debt / EBITDA */}
             <div className="bg-[#0f111a]/70 border border-slate-800/80 p-6 rounded-3xl space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-mono font-bold text-slate-400 uppercase">
-                  {language === "EN" ? "Net Debt / EBITDA" : "Deuda Neta / EBITDA"}
-                </span>
-                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                  dcfValuation.netDebt <= 0 
-                    ? "bg-emerald-500/20 text-emerald-300" 
-                    : dcfValuation.netDebt / (historicalPeriods[0]?.operatingIncome || 1) < 2.5
-                    ? "bg-sky-500/20 text-sky-300"
-                    : "bg-rose-500/20 text-rose-300"
-                }`}>
-                  {dcfValuation.netDebt <= 0 ? "NET CASH (FORTRESS)" : "HEALTHY"}
-                </span>
+                <span className="text-xs font-mono font-bold text-slate-400 uppercase">{language === "EN" ? "Net Debt / EBITDA" : "Deuda Neta / EBITDA"}</span>
+                {badge(nd <= 0 ? (language === "EN" ? "NET CASH" : "CAJA NETA") : ndTone === "good" ? (language === "EN" ? "HEALTHY" : "SANO") : ndTone === "mid" ? (language === "EN" ? "ELEVATED" : "ELEVADO") : (language === "EN" ? "HIGH" : "ALTO"), ndTone)}
               </div>
               <div className="text-3xl font-display font-black text-white">
-                {dcfValuation.netDebt <= 0 ? "Net Cash" : `${(dcfValuation.netDebt / (allPeriods[0]?.operatingIncome || 1)).toFixed(2)}x`}
+                {nd <= 0 ? formatCurrency(-nd) : Number.isFinite(ndEbitda) ? `${ndEbitda.toFixed(2)}x` : "—"}
               </div>
               <p className="text-xs text-slate-400">
-                {language === "EN"
-                  ? "Net cash balance means the company holds more liquid reserves than total outstanding debt, providing supreme downside resilience."
-                  : "Posición de caja neta positiva: la compañía dispone de más reservas de caja líquida que deuda bruta total, confiriendo máxima solvencia."}
+                {nd <= 0
+                  ? (language === "EN" ? "Cash exceeds total debt: net cash position." : "La caja supera a la deuda total: posición de caja neta.")
+                  : (language === "EN" ? "Years of EBITDA needed to repay net debt (< 2.5x is comfortable)." : "Años de EBITDA necesarios para pagar la deuda neta (< 2,5x es holgado).")}
               </p>
             </div>
 
-            {/* Current Ratio */}
             <div className="bg-[#0f111a]/70 border border-slate-800/80 p-6 rounded-3xl space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-mono font-bold text-slate-400 uppercase">
-                  {language === "EN" ? "Current Ratio (Liquidity)" : "Ratio Corriente (Liquidez)"}
-                </span>
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300">
-                  OPTIMAL
-                </span>
+                <span className="text-xs font-mono font-bold text-slate-400 uppercase">{language === "EN" ? "Current Ratio (Liquidity)" : "Ratio Corriente (Liquidez)"}</span>
+                {badge(crTone === "good" ? (language === "EN" ? "SOLID" : "SÓLIDO") : crTone === "mid" ? (language === "EN" ? "TIGHT" : "AJUSTADO") : (language === "EN" ? "WEAK" : "DÉBIL"), crTone)}
               </div>
-              <div className="text-3xl font-display font-black text-white">
-                {(projectedPeriods[0]?.currentRatio || 2.4).toFixed(2)}x
-              </div>
+              <div className="text-3xl font-display font-black text-white">{Number.isFinite(cr) && cr > 0 ? `${cr.toFixed(2)}x` : "—"}</div>
               <p className="text-xs text-slate-400">
-                {language === "EN"
-                  ? "Short-term assets adequately cover immediate short-term obligations (>1.5x is the safety threshold)."
-                  : "Los activos corrientes cubren holgadamente las obligaciones a corto plazo (umbral de seguridad > 1.5x)."}
+                {language === "EN" ? "Current assets / current liabilities (> 1.5x is comfortable; some cash-rich businesses run below 1x by design)." : "Activo corriente / pasivo corriente (> 1,5x es holgado; algunos negocios con cobro anticipado operan por debajo de 1x)."}
               </p>
             </div>
 
-            {/* Interest Coverage Ratio */}
             <div className="bg-[#0f111a]/70 border border-slate-800/80 p-6 rounded-3xl space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-mono font-bold text-slate-400 uppercase">
-                  {language === "EN" ? "Interest Coverage (EBIT / Interest)" : "Cobertura de Intereses"}
-                </span>
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300">
-                  HIGH
-                </span>
+                <span className="text-xs font-mono font-bold text-slate-400 uppercase">{language === "EN" ? "Interest Coverage (EBIT / Interest)" : "Cobertura de Intereses"}</span>
+                {badge(covTone === "good" ? (language === "EN" ? "HIGH" : "ALTA") : covTone === "mid" ? (language === "EN" ? "ADEQUATE" : "SUFICIENTE") : (language === "EN" ? "LOW" : "BAJA"), covTone)}
               </div>
-              <div className="text-3xl font-display font-black text-white">
-                {(projectedPeriods[0]?.interestCoverage || 25).toFixed(1)}x
-              </div>
+              <div className="text-3xl font-display font-black text-white">{Number.isFinite(cov) ? `${cov.toFixed(1)}x` : (language === "EN" ? "No interest" : "Sin intereses")}</div>
               <p className="text-xs text-slate-400">
-                {language === "EN"
-                  ? "Operating earnings comfortably service interest charges (>5x indicates low default risk)."
-                  : "El beneficio operativo cubre con amplio margen los gastos financieros por deuda (un ratio >5x es conservador)."}
+                {language === "EN" ? "Operating earnings / interest expense (> 8x indicates low default risk)." : "Beneficio operativo / gasto financiero (> 8x indica bajo riesgo de impago)."}
               </p>
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* ========================================================
           SUB-TAB 4: DRIVERS & EDITABLE ASSUMPTIONS
@@ -1529,25 +1504,22 @@ EQUITY BRIDGE
                 </div>
                 <button
                   onClick={() => {
-                    if (cagrDisplay) {
-                      setCustomDrivers(prev => ({
-                        ...prev,
-                        revGrowth: cagrDisplay.revenueCAGR
-                      }));
+                    if (calibration) {
+                      setCustomDrivers(baseDrivers(calibration));
                       setScenario("base");
                     }
                   }}
                   className="px-3.5 py-1.5 bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer flex items-center gap-1.5 self-start sm:self-auto shadow-sm"
                 >
                   <RefreshCw size={13} />
-                  <span>{language === "EN" ? "Reset Drivers to Base CAGRs" : "Restablecer Drivers a CAGRs Base"}</span>
+                  <span>{language === "EN" ? "Reset to Base Case" : "Restablecer escenario base"}</span>
                 </button>
               </div>
 
               <p className="text-xs text-slate-400 leading-relaxed">
                 {language === "EN"
-                  ? "In the Base Case, the 3-Statement Model anchors all multi-year projections directly on the respective CAGR computed in the company's Financial Statements (Revenue, Gross Profit, Operating Expenses, Operating Income, Capex, and Cash Flows)."
-                  : "En el Escenario Base, el Modelo de 3 Estados ancla las proyecciones directamente en el CAGR histórico respectivo calculado en los Estados Financieros de la empresa (Ingresos, Margen Bruto, Gastos Operativos, EBIT, Capex y Flujos de Caja)."}
+                  ? "Historical CAGRs are shown for reference only. Projections are driven by revenue: growth is the average of the multi-year CAGR, last fiscal year and last quarter YoY, normalized per AGENTS.md (30% haircut above 40%, 25% cap). Margin, capex, D&A and working capital move as % of revenue from the latest figures to the year-5 targets."
+                  : "Los CAGR históricos son solo de referencia. La proyección depende de las ventas: el crecimiento es la media del CAGR plurianual, el último ejercicio y el último trimestre interanual, normalizada según AGENTS.md (recorte del 30% por encima del 40%, tope del 25%). Margen, capex, D&A y circulante evolucionan como % de ventas desde el último dato hasta el objetivo del año 5."}
               </p>
 
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-1 text-xs font-mono">
@@ -1575,17 +1547,38 @@ EQUITY BRIDGE
             </div>
           )}
 
+          {calibration && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
+              {[
+                [language === "EN" ? "Base growth" : "Crecimiento base", `${calibration.growthNormalized}%`, calibration.growthRaw !== null ? `${language === "EN" ? "raw" : "bruto"} ${calibration.growthRaw}%` : ""],
+                [language === "EN" ? "EBIT margin (latest)" : "Margen EBIT (último)", `${calibration.opMargin}%`, `${language === "EN" ? "gross" : "bruto"} ${calibration.grossMargin}%`],
+                [language === "EN" ? "Capex % rev." : "Capex % ventas", `${calibration.capexPct}% → ${calibration.capexTarget}%`, `${language === "EN" ? "avg" : "media"} ${calibration.capexHistAvg}%`],
+                [language === "EN" ? "D&A % rev." : "D&A % ventas", `${calibration.daPct}% → ${assumptions.deprecPercentRevenue}%`, ""],
+                [language === "EN" ? "Working capital" : "Circulante operativo", `${calibration.nwcPct}%`, language === "EN" ? "of revenue" : "de las ventas"],
+                [language === "EN" ? "Effective tax" : "Tipo efectivo", `${calibration.taxRate}%`, calibration.taxSource],
+                [language === "EN" ? "Payout (div + buybacks)" : "Reparto (div. + recompras)", `${calibration.payoutRatio}%`, language === "EN" ? "of net income" : "del beneficio"],
+                ["WACC (CAPM)", `${calibration.wacc}%`, `β ${calibration.beta?.toFixed(2) ?? "—"} → ${calibration.betaAdjusted.toFixed(2)}`],
+              ].map(([label, value, sub]) => (
+                <div key={label} className="bg-[#0b0d14] p-3 rounded-xl border border-slate-800">
+                  <span className="text-[10px] text-slate-400 uppercase block">{label}</span>
+                  <span className="text-white font-bold text-sm">{value}</span>
+                  {sub && <span className="text-[10px] text-slate-500 block">{sub}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-4 border-t border-slate-800">
             {/* Driver: Revenue Growth */}
             <div className="space-y-2">
               <div className="flex justify-between text-xs font-mono">
-                <span className="text-slate-300 font-bold">{periodicity === "annual" ? (language === "EN" ? "Annual Revenue Growth Rate:" : "Crecimiento Anual de Ingresos:") : (language === "EN" ? "Compounded Annual Growth Rate:" : "Tasa Anualizada de Crecimiento:")}</span>
+                <span className="text-slate-300 font-bold">{language === "EN" ? "Revenue Growth (Years 1–5):" : "Crecimiento de ventas (años 1–5):"}</span>
                 <span className="text-emerald-400 font-black">{customDrivers.revGrowth}%</span>
               </div>
               <input 
                 type="range"
-                min="0"
-                max="60"
+                min="-10"
+                max="40"
                 step="0.5"
                 value={customDrivers.revGrowth}
                 onChange={e => {
@@ -1599,13 +1592,13 @@ EQUITY BRIDGE
             {/* Driver: Operating Margin */}
             <div className="space-y-2">
               <div className="flex justify-between text-xs font-mono">
-                <span className="text-slate-300 font-bold">{language === "EN" ? "Operating Margin Target:" : "Margen Operativo Objetivo:"}</span>
+                <span className="text-slate-300 font-bold">{language === "EN" ? "EBIT Margin (Year 5):" : "Margen EBIT (año 5):"}</span>
                 <span className="text-emerald-400 font-black">{customDrivers.opMargin}%</span>
               </div>
               <input 
                 type="range"
-                min="5"
-                max="65"
+                min="-20"
+                max="80"
                 step="0.5"
                 value={customDrivers.opMargin}
                 onChange={e => {
@@ -1619,13 +1612,13 @@ EQUITY BRIDGE
             {/* Driver: Capex % of Revenue */}
             <div className="space-y-2">
               <div className="flex justify-between text-xs font-mono">
-                <span className="text-slate-300 font-bold">{language === "EN" ? "Capex % of Revenue:" : "Capex % sobre Ingresos:"}</span>
+                <span className="text-slate-300 font-bold">{language === "EN" ? "Capex % of Revenue (Year 5):" : "Capex % sobre ventas (año 5):"}</span>
                 <span className="text-emerald-400 font-black">{customDrivers.capexPct}%</span>
               </div>
               <input 
                 type="range"
-                min="1"
-                max="25"
+                min="0"
+                max="45"
                 step="0.5"
                 value={customDrivers.capexPct}
                 onChange={e => {
@@ -1644,9 +1637,9 @@ EQUITY BRIDGE
               </div>
               <input 
                 type="range"
-                min="6"
+                min="5"
                 max="16"
-                step="0.25"
+                step="0.1"
                 value={customDrivers.wacc}
                 onChange={e => {
                   setCustomDrivers(prev => ({ ...prev, wacc: parseFloat(e.target.value) }));
@@ -1684,9 +1677,9 @@ EQUITY BRIDGE
               </div>
               <input 
                 type="range"
-                min="10"
-                max="30"
-                step="1"
+                min="0"
+                max="35"
+                step="0.5"
                 value={customDrivers.taxRate}
                 onChange={e => {
                   setCustomDrivers(prev => ({ ...prev, taxRate: parseFloat(e.target.value) }));

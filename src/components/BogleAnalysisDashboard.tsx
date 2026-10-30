@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { buildBogleInputs, computeBogle, defaultHurdle, BogleInputs, EXIT_PE_CAP_BASE } from "../utils/bogleEngine";
 import { PortfolioData, Position } from "../types";
 import {
   Compass,
@@ -30,7 +31,6 @@ import {
   Award,
   FileSpreadsheet
 } from "lucide-react";
-import { getIndustryEpsBenchmark } from "../data/industryEpsBenchmarks";
 import { TICKER_CLASSIFICATION } from "../data/tickerClassification";
 import ThreeStatementModel from "./ThreeStatementModel";
 
@@ -40,43 +40,6 @@ interface BogleAnalysisDashboardProps {
   theme?: "dark" | "light";
 }
 
-interface StockMetrics {
-  symbol: string;
-  name: string;
-  price: number;
-  marketCap: number;
-  peTrailing: number | null;
-  peForward: number | null;
-  pegRatio: number | null;
-  priceToSales: number | null;
-  priceToBook: number | null;
-  evToEbitda: number | null;
-  trailingEps: number | null;
-  forwardEps: number | null;
-  operatingMargin: number | null;
-  netMargin: number | null;
-  roe: number | null;
-  roa: number | null;
-  totalCash: number | null;
-  totalDebt: number | null;
-  freeCashFlow: number | null;
-  currentRatio: number | null;
-  debtToEquity: number | null;
-  sharesOutstanding: number | null;
-  dividendRate: number | null;
-  dividendYield: number | null;
-  payoutRatio: number | null;
-  beta: number | null;
-  basicEpsCagrAnnual: number | null;
-  shareholderYield: number | null;
-  buybackYield: number | null;
-  fScore?: number | null;
-  netIncome?: number | null;
-  sector?: string;
-  industry?: string;
-  avgPe?: number | null;
-  peHistory?: Array<{ year: number | string; date?: string; eps: number; price: number; pe: number; isCurrentYear?: boolean; quarterDate?: string }>;
-}
 
 export default function BogleAnalysisDashboard({
   portfolio,
@@ -94,8 +57,8 @@ export default function BogleAnalysisDashboard({
   const [loading, setLoading] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
 
-  // Live stock data
-  const [stockMetrics, setStockMetrics] = useState<StockMetrics | null>(null);
+  // Datos del valor seleccionado (entradas del motor Bogle compartido)
+  const [stockMetrics, setStockMetrics] = useState<BogleInputs | null>(null);
 
   // Model parameters (Customizable)
   const [horizonYears, setHorizonYears] = useState<number>(5);
@@ -104,10 +67,9 @@ export default function BogleAnalysisDashboard({
   const [peExitBearOverride, setPeExitBearOverride] = useState<number | null>(null);
   const [peExitBaseOverride, setPeExitBaseOverride] = useState<number | null>(null);
   const [peExitBullOverride, setPeExitBullOverride] = useState<number | null>(null);
-  const [applyNetDebtAdjustment, setApplyNetDebtAdjustment] = useState<boolean>(true);
 
   // Multi-stock cache for portfolio rollup
-  const [portfolioMetricsMap, setPortfolioMetricsMap] = useState<Record<string, StockMetrics>>({});
+  const [portfolioMetricsMap, setPortfolioMetricsMap] = useState<Record<string, BogleInputs>>({});
   const [loadingPortfolioMap, setLoadingPortfolioMap] = useState<boolean>(false);
 
   // Fetch single stock metrics
@@ -125,7 +87,7 @@ export default function BogleAnalysisDashboard({
           sData = await stockRes.json();
         }
 
-        // Fetch financials to compute exact annual EPS CAGR and Shareholder Yield
+        // Estados financieros: BPA diluido histórico, acciones e histórico de PER
         let finData: any = null;
         try {
           const finRes = await fetch("/api/portfolio/financials", {
@@ -143,117 +105,15 @@ export default function BogleAnalysisDashboard({
 
         if (!isMounted) return;
 
-        // Process fields according to calculation memory
-        const price = sData?.price || 100;
-        const trailingEps = sData?.trailingEps ?? (sData?.eps || 4.5);
-        const forwardEps = sData?.forwardEps ?? (trailingEps ? trailingEps * 1.12 : 5.0);
-        const peTrailing = sData?.pe ?? (trailingEps > 0 ? price / trailingEps : 25);
-        const peForward = sData?.forwardPE ?? (forwardEps > 0 ? price / forwardEps : 22);
-        const marketCap = sData?.marketCap || 50000000000;
-        const totalCash = sData?.totalCash || 15000000000;
-        const totalDebt = sData?.totalDebt || 10000000000;
-        const freeCashFlow = sData?.freeCashFlow || 8000000000;
-        const beta = sData?.beta ?? 1.1;
-        const divYieldRaw = sData?.dividendYield ? (sData.dividendYield > 1 ? sData.dividendYield : sData.dividendYield * 100) : 0;
-        const payoutRatio = sData?.payoutRatio ? (sData.payoutRatio > 1 ? sData.payoutRatio : sData.payoutRatio * 100) : 0;
-
-        // Compute annual Basic EPS CAGR
-        let basicEpsCagrAnnual = 12.5;
-        let buybackYield = 1.2;
-        let sharesOut = sData?.sharesOutstanding || (marketCap && price ? marketCap / price : 1000000000);
-
-        if (finData?.annual && finData.annual.length >= 2) {
-          const sortFn = (a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime();
-          const sorted = [...finData.annual].sort(sortFn);
-
-          // Diluted EPS CAGR from annual data (matching Financials Income Statement Annual CAGR column)
-          const validEps = sorted
-            .map((col: any, idx: number) => ({
-              val: (col.dilutedEPS !== undefined && col.dilutedEPS !== null) ? col.dilutedEPS : col.basicEPS,
-              idx
-            }))
-            .filter(item => typeof item.val === "number" && !isNaN(item.val as number) && item.val > 0);
-
-          if (validEps.length >= 2) {
-            const latest = validEps[0];
-            const oldestPositive = [...validEps].reverse().find(item => item.val > 0 && item.idx > latest.idx);
-            if (oldestPositive) {
-              const n = oldestPositive.idx - latest.idx;
-              if (n > 0) {
-                basicEpsCagrAnnual = (Math.pow(latest.val / oldestPositive.val, 1 / n) - 1) * 100;
-              }
-            }
-          }
-
-          // Buyback Yield via shares reduction CAGR
-          const validShares = sorted
-            .map((col: any, idx: number) => ({ val: col.ordinarySharesNumber ?? col.shareIssued, idx }))
-            .filter(item => typeof item.val === "number" && !isNaN(item.val as number) && item.val > 0);
-
-          if (validShares.length >= 2) {
-            const latestS = validShares[0];
-            const oldestS = [...validShares].reverse().find(item => item.val > 0 && item.idx > latestS.idx);
-            if (oldestS && latestS.val > 0) {
-              const n = oldestS.idx - latestS.idx;
-              if (n > 0) {
-                const shareReduction = (Math.pow(latestS.val / oldestS.val, 1 / n) - 1) * 100;
-                buybackYield = shareReduction < 0 ? Math.abs(shareReduction) : 0;
-              }
-            }
-          }
-
-          if (sorted[0]?.ordinarySharesNumber) {
-            sharesOut = sorted[0].ordinarySharesNumber;
-          }
-        }
-
-        const shareholderYield = divYieldRaw + buybackYield;
-
-        const metrics: StockMetrics = {
-          symbol: selectedTicker.toUpperCase(),
-          name: sData?.name || selectedTicker,
-          price,
-          marketCap,
-          peTrailing,
-          peForward,
-          pegRatio: sData?.pegRatio ?? (peTrailing && basicEpsCagrAnnual > 0 ? peTrailing / basicEpsCagrAnnual : 1.5),
-          priceToSales: sData?.priceToSales ?? 6.2,
-          priceToBook: sData?.priceToBook ?? 8.5,
-          evToEbitda: sData?.evToEbitda ?? 18.0,
-          trailingEps,
-          forwardEps,
-          operatingMargin: sData?.operatingMargins ? sData.operatingMargins * 100 : 35.0,
-          netMargin: sData?.profitMargins ? sData.profitMargins * 100 : 28.0,
-          roe: sData?.returnOnEquity ? sData.returnOnEquity * 100 : 42.0,
-          roa: sData?.returnOnAssets ? sData.returnOnAssets * 100 : 18.0,
-          totalCash,
-          totalDebt,
-          freeCashFlow,
-          currentRatio: sData?.currentRatio ?? 1.4,
-          debtToEquity: sData?.debtToEquity ? sData.debtToEquity / 100 : 0.6,
-          sharesOutstanding: sharesOut,
-          dividendRate: sData?.dividendRate ?? 0,
-          dividendYield: divYieldRaw,
-          payoutRatio,
-          beta,
-          basicEpsCagrAnnual,
-          shareholderYield,
-          buybackYield,
-          fScore: sData?.piotroskiScore ?? 8,
-          netIncome: sData?.netIncome ?? freeCashFlow * 0.95,
-          avgPe: finData?.avgPe ?? null,
-          peHistory: finData?.peHistory ?? []
-        };
-
-        setStockMetrics(metrics);
-        // Reset overrides on new stock unless custom
+        // Entradas del modelo sin valores de relleno (utils/bogleEngine.ts)
+        const inputs = buildBogleInputs(selectedTicker.toUpperCase(), sData, finData);
+        setStockMetrics(inputs);
         setModelCagrOverride(null);
         setPeExitBearOverride(null);
         setPeExitBaseOverride(null);
         setPeExitBullOverride(null);
-
-        // Default hurdle rate set to 10%
-        setHurdleRate(10);
+        // Tasa exigida por defecto: coste del capital por CAPM (mínimo 8%)
+        setHurdleRate(defaultHurdle(inputs.beta));
 
       } catch (err) {
         console.error("Error loading stock for Bogle analysis:", err);
@@ -290,112 +150,25 @@ export default function BogleAnalysisDashboard({
         ]);
 
         const fins = (finRes && finRes.ok) ? await finRes.json() : {};
+        // Si alguna cotización falla (Yahoo o red), se reintenta una vez antes de excluirla.
         const stockDataList = await Promise.all(
-          stockResponses.map(async (res) => (res && res.ok ? await res.json() : null))
+          stockResponses.map(async (res, i) => {
+            if (res && res.ok) return await res.json().catch(() => null);
+            const retry = await fetch(`/api/stock/${activePositions[i].ticker}`).catch(() => null);
+            return retry && retry.ok ? await retry.json().catch(() => null) : null;
+          })
         );
 
-        const map: Record<string, StockMetrics> = {};
-
+        const map: Record<string, BogleInputs> = {};
         activePositions.forEach((pos, idx) => {
           const sData = stockDataList[idx];
           const sym = pos.ticker.toUpperCase();
           const finData = fins[pos.ticker] || fins[sym] || fins[pos.ticker.replace(/\./g, "-")] || null;
-          const sector = sData?.profile?.sector || TICKER_CLASSIFICATION[sym]?.sector || "";
-          const industry = sData?.profile?.industry || TICKER_CLASSIFICATION[sym]?.subsector || "";
-
-          const price = pos.price || sData?.price || 100;
-          const trailingEps = sData?.trailingEps ?? (sData?.eps || 4.0);
-          const forwardEps = sData?.forwardEps ?? (trailingEps * 1.1);
-          const peTrailing = sData?.pe ?? (trailingEps > 0 ? price / trailingEps : 24);
-          const peForward = sData?.forwardPE ?? (forwardEps > 0 ? price / forwardEps : 20);
-          const divYield = sData?.dividendYield ? (sData.dividendYield > 1 ? sData.dividendYield : sData.dividendYield * 100) : 0;
-          
-          let epsCagr = 12.0;
-          let buybackYield = 0.0;
-
-          if (finData?.annual && Array.isArray(finData.annual) && finData.annual.length >= 2) {
-            const sorted = [...finData.annual].sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
-            
-            // Diluted EPS CAGR from annual data (matching Financials Income Statement Annual CAGR column)
-            const valid = sorted
-              .map((c: any, i: number) => ({
-                val: (c.dilutedEPS !== undefined && c.dilutedEPS !== null) ? c.dilutedEPS : c.basicEPS,
-                idx: i
-              }))
-              .filter(x => typeof x.val === "number" && !isNaN(x.val as number) && x.val > 0);
-
-            if (valid.length >= 2) {
-              const latest = valid[0];
-              const oldestPositive = [...valid].reverse().find(item => item.val > 0 && item.idx > latest.idx);
-              if (oldestPositive) {
-                const n = oldestPositive.idx - latest.idx;
-                if (n > 0) {
-                  epsCagr = (Math.pow(latest.val / oldestPositive.val, 1 / n) - 1) * 100;
-                }
-              }
-            } else if (valid.length === 1 && sorted.length >= 2) {
-              // Fallback to revenue or net income growth if only 1 positive EPS
-              const rev0 = sorted[0]?.totalRevenue;
-              const revN = sorted[sorted.length - 1]?.totalRevenue;
-              if (rev0 > 0 && revN > 0) {
-                const n = sorted.length - 1;
-                epsCagr = (Math.pow(rev0 / revN, 1 / n) - 1) * 100;
-              }
-            }
-
-            const validS = sorted.map((c: any, i: number) => ({ val: c.ordinarySharesNumber ?? c.shareIssued, idx: i })).filter(x => typeof x.val === "number" && x.val > 0);
-            if (validS.length >= 2) {
-              const latestS = validS[0];
-              const oldestS = [...validS].reverse().find(item => item.val > 0 && item.idx > latestS.idx);
-              if (oldestS) {
-                const n = oldestS.idx - latestS.idx;
-                if (n > 0) {
-                  const shareReduction = (Math.pow(latestS.val / oldestS.val, 1 / n) - 1) * 100;
-                  buybackYield = shareReduction < 0 ? Math.abs(shareReduction) : 0;
-                }
-              }
-            }
-          } else if (sData?.earningsGrowth) {
-            epsCagr = sData.earningsGrowth * 100;
-          } else if (sData?.revenueGrowth) {
-            epsCagr = sData.revenueGrowth * 100;
-          }
-
-          map[pos.ticker] = {
-            symbol: pos.ticker,
-            name: sData?.name || pos.name || pos.ticker,
-            price,
-            marketCap: sData?.marketCap || 50000000000,
-            peTrailing,
-            peForward,
-            pegRatio: sData?.pegRatio ?? 1.5,
-            priceToSales: sData?.priceToSales ?? 5.0,
-            priceToBook: sData?.priceToBook ?? 6.0,
-            evToEbitda: sData?.evToEbitda ?? 16.0,
-            trailingEps,
-            forwardEps,
-            operatingMargin: 30,
-            netMargin: 20,
-            roe: 25,
-            roa: 12,
-            totalCash: sData?.totalCash || 10000000000,
-            totalDebt: sData?.totalDebt || 5000000000,
-            freeCashFlow: sData?.freeCashFlow || 4000000000,
-            currentRatio: 1.5,
-            debtToEquity: 0.5,
-            sharesOutstanding: sData?.sharesOutstanding || 1000000000,
-            dividendRate: sData?.dividendRate ?? 0,
-            dividendYield: divYield,
-            payoutRatio: sData?.payoutRatio ? sData.payoutRatio * 100 : 0,
-            beta: sData?.beta ?? 1.0,
-            basicEpsCagrAnnual: epsCagr,
-            shareholderYield: divYield + buybackYield,
-            buybackYield,
-            sector,
-            industry,
-            avgPe: finData?.avgPe ?? null,
-            peHistory: finData?.peHistory ?? []
-          };
+          const inputs = buildBogleInputs(pos.ticker, sData, finData, pos.price || null);
+          if (!inputs.sector) inputs.sector = TICKER_CLASSIFICATION[sym]?.sector || "";
+          if (!inputs.industry) inputs.industry = TICKER_CLASSIFICATION[sym]?.subsector || "";
+          if (!sData?.name && pos.name) inputs.name = pos.name;
+          map[pos.ticker] = inputs;
         });
 
         if (isMounted) setPortfolioMetricsMap(map);
@@ -411,388 +184,178 @@ export default function BogleAnalysisDashboard({
     }
   }, [portfolio, viewMode]);
 
-  // Calculations for Single Stock Analysis
+  // Cálculo individual con el motor compartido
   const calc = useMemo(() => {
     if (!stockMetrics) return null;
+    const res = computeBogle(stockMetrics, {
+      horizon: horizonYears,
+      hurdle: hurdleRate,
+      growth: modelCagrOverride,
+      peExitBear: peExitBearOverride,
+      peExitBase: peExitBaseOverride,
+      peExitBull: peExitBullOverride,
+    });
+    if (!res) return null;
+    const m = stockMetrics;
+    const PE0 = m.pe0 as number;
+    const contribE1 = res.g;
+    const contribE2 = res.DY;
+    const netDebt = (m.totalDebt ?? 0) - (m.totalCash ?? 0);
 
-    const {
-      price: P0,
-      trailingEps: EPS_TTM_raw,
-      forwardEps: EPS_fwd_raw,
-      peTrailing: PE0_raw,
-      peForward: PE_fwd_raw,
-      basicEpsCagrAnnual,
-      shareholderYield: SY_raw,
-      dividendYield: DY,
-      buybackYield: BBY,
-      totalCash,
-      totalDebt,
-      sharesOutstanding,
-      marketCap,
-      payoutRatio,
-      debtToEquity,
-      freeCashFlow,
-      netIncome,
-      pegRatio,
-      beta,
-      fScore
-    } = stockMetrics;
-
-    const EPS_TTM = EPS_TTM_raw && EPS_TTM_raw > 0 ? EPS_TTM_raw : 1;
-    const EPS_fwd = EPS_fwd_raw && EPS_fwd_raw > 0 ? EPS_fwd_raw : EPS_TTM * 1.1;
-    const PE0 = PE0_raw && PE0_raw > 0 ? PE0_raw : P0 / EPS_TTM;
-    const PE_fwd = PE_fwd_raw && PE_fwd_raw > 0 ? PE_fwd_raw : P0 / EPS_fwd;
-
-    // 1. ENGINE 1 — EPS CAGR (Strictly Diluted EPS CAGR from Annual Financials)
-    const EPS_CAGR_hist = basicEpsCagrAnnual ?? 12.0;
-    const EPS_CAGR_fwd_1Y = ((EPS_fwd / EPS_TTM) - 1) * 100;
-
-    const defaultModelCagr = Number(EPS_CAGR_hist.toFixed(1));
-    const EPS_CAGR_modelo = modelCagrOverride !== null ? modelCagrOverride : defaultModelCagr;
-
-    const H = horizonYears;
-    const EPS_H = EPS_TTM * Math.pow(1 + EPS_CAGR_modelo / 100, H);
-    const contribE1 = EPS_CAGR_modelo;
-
-    // 2. ENGINE 2 — Shareholder Yield
-    const SY = SY_raw ?? (DY + (BBY || 0));
-    const contribE2 = SY;
-
-    // 3. ENGINE 3 — P/E Multiple Change & Scenarios
-    // Historical benchmarks
-    const avgPe = (typeof stockMetrics.avgPe === "number" && !isNaN(stockMetrics.avgPe) && stockMetrics.avgPe > 0)
-      ? stockMetrics.avgPe
-      : Number((PE0 * 0.92).toFixed(1));
-    const PE_avg10Y = avgPe;
-    const PE_min10Y = Number((avgPe * 0.72).toFixed(1));
-
-    // Defaults:
-    // Base Case: E3 = 0% (Exit P/E = Current P/E)
-    // Bull Case: Mean reversion to AVG P/E (Exit P/E = avgPe)
-    // Bear Case: Multiple compression (Exit P/E = PE0 * 0.80)
-    const defaultPeExitBase = Number(PE0.toFixed(1));
-    const defaultPeExitBull = Number(avgPe.toFixed(1));
-    const defaultPeExitBear = Math.max(8, Number((PE0 * 0.80).toFixed(1)));
-
-    const peExitBear = peExitBearOverride !== null ? peExitBearOverride : defaultPeExitBear;
-    const peExitBase = peExitBaseOverride !== null ? peExitBaseOverride : defaultPeExitBase;
-    const peExitBull = peExitBullOverride !== null ? peExitBullOverride : defaultPeExitBull;
-
-    // Net Debt Adjustment
-    const netDebt = (totalDebt || 0) - (totalCash || 0);
-    const shares = sharesOutstanding && sharesOutstanding > 0 ? sharesOutstanding : (marketCap / P0);
-    const netDebtPerShare = shares > 0 ? netDebt / shares : 0;
-    const isNetDebtMaterial = marketCap > 0 ? Math.abs(netDebt) / marketCap > 0.05 : false;
-
-    const r = hurdleRate / 100;
-
-    // Scenario Calculator Helper
-    const computeScenario = (peExit: number) => {
-      let P_H: number;
-      let retorno_precio_anual: number;
-      let contribE3: number;
-
-      // Base case: multiple stays flat at Current P/E -> E3 is strictly 0%
-      if (Math.abs(peExit - PE0) < 0.05 || peExit === defaultPeExitBase) {
-        retorno_precio_anual = contribE1;
-        contribE3 = 0;
-        P_H = P0 * Math.pow(1 + contribE1 / 100, H);
-      } else {
-        P_H = EPS_H * peExit;
-        retorno_precio_anual = (Math.pow(P_H / P0, 1 / H) - 1) * 100;
-        contribE3 = retorno_precio_anual - contribE1;
-      }
-      const retorno_total = retorno_precio_anual + SY;
-
-      // Fair value today discounted at hurdle rate
-      const P_star = P_H / Math.pow(1 + r, H);
-      const P_star_ajustado = (applyNetDebtAdjustment && isNetDebtMaterial) ? P_star - netDebtPerShare : P_star;
-      const upside = ((P_star_ajustado - P0) / P0) * 100;
-
-      return {
-        peExit,
-        P_H,
-        retorno_precio_anual,
-        contribE3,
-        retorno_total,
-        P_star,
-        P_star_ajustado,
-        upside
-      };
-    };
-
-    const bear = computeScenario(peExitBear);
-    const base = computeScenario(peExitBase);
-    const bull = computeScenario(peExitBull);
-
-    // Verdicts
+    // Veredicto por TIR frente a la tasa exigida (equivale a valor justo vs. precio)
     let verdict: "UNDERVALUED" | "FAIRLY VALUED" | "OVERVALUED" = "FAIRLY VALUED";
-    if (base.retorno_total >= hurdleRate + 3) {
-      verdict = "UNDERVALUED";
-    } else if (base.retorno_total < hurdleRate - 2) {
-      verdict = "OVERVALUED";
-    }
+    if (res.base.retorno_total >= hurdleRate + 3) verdict = "UNDERVALUED";
+    else if (res.base.retorno_total < hurdleRate - 2) verdict = "OVERVALUED";
+    const robustThesis = contribE1 + contribE2 >= hurdleRate;
 
-    // Robust thesis test: E1 + E2 >= Hurdle
-    const robustThesis = (contribE1 + contribE2) >= hurdleRate;
-
-    // Alert Flags Check
+    const normalized = m.growthNotes.some(n => n.includes("recorte") || n.includes("tope") || n.includes("descartado"));
     const flags = [
       {
-        id: "eps_cagr_outlier",
-        condition: EPS_CAGR_hist > 50,
+        id: "eps_growth_normalized",
+        condition: normalized,
         type: "warning",
-        label: language === "EN" ? "Outlier EPS CAGR (>50%)" : "EPS CAGR atípico (>50%)",
-        desc: language === "EN" ? "High base effect from depressed comparison period. Conservative model haircut applied." : "Efecto base por periodo deprimido. Se aplica haircut conservador al modelo."
+        label: language === "EN" ? "EPS growth normalized" : "Crecimiento del BPA normalizado",
+        desc: m.growthNotes.join(" · ")
       },
       {
         id: "payout_ratio",
-        condition: payoutRatio !== null && payoutRatio > 80,
+        condition: m.payoutRatio !== null && m.payoutRatio > 80,
         type: "warning",
         label: language === "EN" ? "High Payout Ratio (>80%)" : "Payout Ratio Elevado (>80%)",
-        desc: language === "EN" ? "Dividend capacity may be constrained; buyback/dividend sustainability should be monitored." : "Capacidad de dividendo ajustada; monitorear sostenibilidad de caja."
+        desc: language === "EN" ? "Dividend capacity may be constrained; monitor cash coverage." : "Capacidad de dividendo ajustada; vigilar la cobertura con caja."
       },
       {
         id: "high_leverage",
-        condition: (debtToEquity !== null && debtToEquity > 2.0) && (marketCap > 0 && netDebt / marketCap > 0.15),
+        condition: m.debtToEquity !== null && m.debtToEquity > 2.0 && m.marketCap !== null && m.marketCap > 0 && netDebt / m.marketCap > 0.15,
         type: "warning",
         label: language === "EN" ? "High Financial Leverage" : "Apalancamiento Elevado",
-        desc: language === "EN" ? "Net debt > 15% market cap and Debt/Equity > 2x. Net Debt adjustment is critical." : "Deuda neta > 15% de Market Cap. El ajuste por Net Debt es fundamental."
+        desc: language === "EN" ? "Net debt > 15% of market cap and Debt/Equity > 2x: equity returns are more volatile." : "Deuda neta > 15% de la capitalización y Deuda/Patrimonio > 2x: el retorno del accionista es más volátil."
       },
       {
         id: "value_trap",
-        condition: PE0 < 15 && debtToEquity !== null && debtToEquity > 1.5,
+        condition: PE0 < 15 && m.debtToEquity !== null && m.debtToEquity > 1.5,
         type: "warning",
         label: language === "EN" ? "Potential Value Trap" : "Posible Trampa de Valor",
         desc: language === "EN" ? "Low P/E coupled with substantial debt load. Verify FCF stability." : "Múltiplo bajo acompañado de deuda sustancial. Verificar estabilidad de FCF."
       },
       {
         id: "fcf_quality",
-        condition: freeCashFlow !== null && netIncome !== null && freeCashFlow < netIncome * 0.7,
+        condition: m.freeCashFlow !== null && m.netIncome !== null && m.netIncome > 0 && m.freeCashFlow < m.netIncome * 0.7,
         type: "warning",
         label: language === "EN" ? "Earnings Quality Flag" : "Alerta Calidad de Beneficios",
         desc: language === "EN" ? "Free Cash Flow lags GAAP Net Income. Working capital or CapEx drag." : "El Free Cash Flow es inferior al Beneficio Neto. Revisar intensidad de CapEx."
       },
       {
         id: "peg_undervalued",
-        condition: pegRatio !== null && pegRatio > 0 && pegRatio < 1.0,
+        condition: m.pegRatio !== null && m.pegRatio > 0 && m.pegRatio < 1.0,
         type: "positive",
         label: language === "EN" ? "Attractive PEG Ratio (< 1.0)" : "PEG Ratio Atractivo (< 1.0)",
-        desc: language === "EN" ? "Growth-adjusted valuation provides margin of safety for Engine 3." : "Valoración ajustada por crecimiento ofrece margen de seguridad para Engine 3."
+        desc: language === "EN" ? "Growth-adjusted valuation provides margin of safety for Engine 3." : "Valoración ajustada por crecimiento ofrece margen de seguridad para el Motor 3."
       },
       {
         id: "piotroski_strength",
-        condition: fScore !== null && fScore >= 8,
+        condition: m.piotroskiScore !== null && m.piotroskiScore >= 8,
         type: "positive",
         label: language === "EN" ? "Elite Financial Health (F-Score 8-9)" : "Salud Financiera Élite (F-Score 8-9)",
         desc: language === "EN" ? "Top-tier operational efficiency and balance sheet resilience." : "Máxima resiliencia de balance y rentabilidad operativa."
       },
       {
         id: "high_beta",
-        condition: beta !== null && beta > 1.5,
+        condition: m.beta !== null && m.beta > 1.5,
         type: "warning",
-        label: language === "EN" ? `High Volatility Beta (${beta.toFixed(2)})` : `Beta de Alta Volatilidad (${beta.toFixed(2)})`,
-        desc: language === "EN" ? "Recommended hurdle rate is 12–14% to compensate for equity risk." : "Hurdle rate recomendado de 12–14% para compensar el riesgo de mercado."
+        label: language === "EN" ? `High Volatility Beta (${(m.beta ?? 0).toFixed(2)})` : `Beta de Alta Volatilidad (${(m.beta ?? 0).toFixed(2)})`,
+        desc: language === "EN" ? `Default hurdle already uses the CAPM cost of equity (${defaultHurdle(m.beta)}%).` : `La tasa exigida por defecto ya usa el coste del capital por CAPM (${defaultHurdle(m.beta)}%).`
       }
     ].filter(f => f.condition);
 
     return {
-      P0,
-      EPS_TTM,
-      EPS_fwd,
+      P0: m.price as number,
+      EPS_TTM: m.epsTTM as number,
+      EPS_fwd: m.epsFwd,
       PE0,
-      PE_fwd,
-      EPS_CAGR_hist,
-      EPS_CAGR_fwd_1Y,
-      EPS_CAGR_modelo,
-      EPS_H,
+      PE_fwd: m.peFwd,
+      EPS_CAGR_hist: m.epsCagrHist,
+      EPS_CAGR_fwd_1Y: m.epsGrowthFwd1Y,
+      EPS_CAGR_modelo: res.g,
+      EPS_H: res.base.EPS_H,
       contribE1,
-      SY,
-      DY,
-      BBY,
+      SY: res.DY,
+      DY: m.dividendYield,
+      BBY: m.buybackYield,
       contribE2,
-      PE_avg10Y,
-      PE_min10Y,
-      avgPe,
-      peHistory: stockMetrics.peHistory || [],
-      peExitBear,
-      peExitBase,
-      peExitBull,
+      PE_avg10Y: m.peMedianHist ?? PE0,
+      PE_min10Y: res.defaults.bear,
+      avgPe: m.peMedianHist ?? PE0,
+      peHistory: m.peHistory || [],
+      peExitBear: res.bear.peExit,
+      peExitBase: res.base.peExit,
+      peExitBull: res.bull.peExit,
       netDebt,
-      netDebtPerShare,
-      isNetDebtMaterial,
-      r,
-      H,
-      bear,
-      base,
-      bull,
+      r: res.r,
+      H: res.H,
+      bear: res.bear,
+      base: res.base,
+      bull: res.bull,
       verdict,
       robustThesis,
-      flags
+      flags,
+      growthNotes: m.growthNotes
     };
-  }, [
-    stockMetrics,
-    horizonYears,
-    hurdleRate,
-    modelCagrOverride,
-    peExitBearOverride,
-    peExitBaseOverride,
-    peExitBullOverride,
-    applyNetDebtAdjustment,
-    language
-  ]);
+  }, [stockMetrics, horizonYears, hurdleRate, modelCagrOverride, peExitBearOverride, peExitBaseOverride, peExitBullOverride, language]);
 
-  // Calculations for Portfolio-Level Rollup
+  // Agregado de cartera: mismo motor y mismos criterios por posición (sin datos → se excluye)
   const portfolioRollup = useMemo(() => {
     const activePositions = portfolio.positions.filter(p => !p.isCash && p.shares > 0);
-    const totalInvested = activePositions.reduce((acc, p) => acc + (p.mktValue || (p.shares * (p.price || p.avgCost))), 0) || 1;
+    const excluded: { ticker: string; reason: string }[] = [];
 
-    let weightedE1 = 0;
-    let weightedE2 = 0;
-    let weightedAvgPe = 0;
-    let weightedCurrentPe = 0;
-    
-    const weightedScenarios = {
-      bear: { e3: 0, totalReturn: 0, upside: 0 },
-      base: { e3: 0, totalReturn: 0, upside: 0 },
-      bull: { e3: 0, totalReturn: 0, upside: 0 },
-    };
-
-    const rows = activePositions.map(pos => {
+    const computed = activePositions.map(pos => {
       const m = portfolioMetricsMap[pos.ticker];
       const mktVal = pos.mktValue || (pos.shares * (pos.price || pos.avgCost));
-      const weight = (mktVal / totalInvested) * 100;
-
-      if (!m) {
-        return {
-          ticker: pos.ticker,
-          name: pos.name || pos.ticker,
-          weight,
-          mktVal,
-          e1: 12.0,
-          rawE1: 12.0,
-          isE1Capped: false,
-          benchmarkIndustry: "",
-          benchmarkCagr: 0,
-          e2: 1.5,
-          avgPe: 20.0,
-          peTrailing: 20.0,
-          peHistory: [],
-          scenarios: {
-            bear: { e3: -5.0, totalReturn: 8.5, fairValue: pos.price || 100, upside: -10.0 },
-            base: { e3: -1.0, totalReturn: 12.5, fairValue: pos.price || 100, upside: 5.0 },
-            bull: { e3: 2.0, totalReturn: 15.5, fairValue: pos.price || 100, upside: 15.0 },
-          }
-        };
+      if (!m) return null;
+      const res = computeBogle(m, { horizon: 5, hurdle: defaultHurdle(m.beta) });
+      if (!res) {
+        excluded.push({ ticker: pos.ticker, reason: m.issues.join(", ") || "sin datos" });
+        return null;
       }
-
-      const P0 = pos.price || m.price;
-      const EPS_TTM = m.trailingEps && m.trailingEps > 0 ? m.trailingEps : 1;
-      const EPS_fwd = m.forwardEps && m.forwardEps > 0 ? m.forwardEps : EPS_TTM * 1.1;
-      const PE0 = m.peTrailing && m.peTrailing > 0 ? m.peTrailing : P0 / EPS_TTM;
-      
-      // Engine 1: Exact Diluted EPS CAGR from the Annual Financials CAGR column
-      const EPS_CAGR_hist = m.basicEpsCagrAnnual ?? 12.0;
-      const rawE1 = Number(EPS_CAGR_hist.toFixed(1));
-      let e1 = rawE1;
-      let isE1Capped = false;
-      let benchmarkIndustry = "";
-      let benchmarkCagr = 0;
-
-      // Rule: In Portfolio 3 engines rollup, any E1 (EPS) > 80% must use the industry average EPS CAGR
-      if (rawE1 > 80) {
-        const benchmark = getIndustryEpsBenchmark(m.industry, m.sector, pos.ticker);
-        if (benchmark) {
-          e1 = Number(benchmark.cagr.toFixed(1));
-          isE1Capped = true;
-          benchmarkIndustry = benchmark.industry;
-          benchmarkCagr = benchmark.cagr;
-        }
-      }
-
-      const e2 = Number((m.shareholderYield ?? (m.dividendYield + (m.buybackYield || 0))).toFixed(2));
-
-      // AVG P/E: Historical annual P/E average (diluted EPS / year close, current price for ongoing year)
-      const avgPe = (typeof m.avgPe === "number" && !isNaN(m.avgPe) && m.avgPe > 0)
-        ? m.avgPe
-        : Number(PE0.toFixed(1));
-
-      const EPS_H = EPS_TTM * Math.pow(1 + e1 / 100, 5);
-      
-      const defaultPeExitBase = Number(PE0.toFixed(1));
-      const defaultPeExitBull = Number(avgPe.toFixed(1));
-      const defaultPeExitBear = Math.max(8, Number((PE0 * 0.80).toFixed(1)));
-
-      const calcScenario = (PE_exit: number) => {
-        let retPrecio: number;
-        let e3: number;
-        let P_H: number;
-
-        if (Math.abs(PE_exit - PE0) < 0.05 || PE_exit === defaultPeExitBase) {
-          retPrecio = e1;
-          e3 = 0;
-          P_H = P0 * Math.pow(1 + e1 / 100, 5);
-        } else {
-          P_H = EPS_H * PE_exit;
-          retPrecio = (Math.pow(P_H / P0, 1 / 5) - 1) * 100;
-          e3 = retPrecio - e1;
-        }
-        const totalReturn = retPrecio + e2;
-        const fairValue = P_H / Math.pow(1.10, 5); // 10% hurdle rate assumption for portfolio rollup
-        const upside = ((fairValue - P0) / P0) * 100;
-        return { e3, totalReturn, fairValue, upside };
-      };
-
-      const bear = calcScenario(defaultPeExitBear);
-      const base = calcScenario(defaultPeExitBase);
-      const bull = calcScenario(defaultPeExitBull);
-
-      weightedE1 += (weight / 100) * e1;
-      weightedE2 += (weight / 100) * e2;
-      weightedAvgPe += (weight / 100) * avgPe;
-      weightedCurrentPe += (weight / 100) * PE0;
-      
-      weightedScenarios.bear.e3 += (weight / 100) * bear.e3;
-      weightedScenarios.bear.totalReturn += (weight / 100) * bear.totalReturn;
-      weightedScenarios.bear.upside += (weight / 100) * bear.upside;
-
-      weightedScenarios.base.e3 += (weight / 100) * base.e3;
-      weightedScenarios.base.totalReturn += (weight / 100) * base.totalReturn;
-      weightedScenarios.base.upside += (weight / 100) * base.upside;
-
-      weightedScenarios.bull.e3 += (weight / 100) * bull.e3;
-      weightedScenarios.bull.totalReturn += (weight / 100) * bull.totalReturn;
-      weightedScenarios.bull.upside += (weight / 100) * bull.upside;
-
+      const sc = (x: typeof res.base) => ({ e3: x.contribE3, totalReturn: x.retorno_total, fairValue: x.P_star, upside: x.upside });
       return {
         ticker: pos.ticker,
         name: m.name,
-        weight,
         mktVal,
-        e1,
-        rawE1,
-        isE1Capped,
-        benchmarkIndustry,
-        benchmarkCagr,
-        e2,
-        avgPe,
-        peTrailing: Number(PE0.toFixed(1)),
+        weight: 0,
+        e1: res.g,
+        rawE1: m.epsCagrHist ?? res.g,
+        isE1Capped: m.growthNotes.some(n => n.includes("recorte") || n.includes("tope") || n.includes("descartado")),
+        growthNotes: m.growthNotes,
+        hurdle: res.r * 100,
+        e2: res.DY,
+        avgPe: m.peMedianHist ?? (m.pe0 as number),
+        peTrailing: Number((m.pe0 as number).toFixed(1)),
         peHistory: m.peHistory || [],
-        scenarios: { bear, base, bull }
+        scenarios: { bear: sc(res.bear), base: sc(res.base), bull: sc(res.bull) }
       };
     });
+    const rows = computed.filter((r): r is NonNullable<typeof r> => r !== null);
+    const totalInvested = rows.reduce((acc, r) => acc + r.mktVal, 0) || 1;
+    rows.forEach(r => { r.weight = (r.mktVal / totalInvested) * 100; });
 
-    const hasCappedHoldings = rows.some(r => r.isE1Capped);
+    const wavg = (f: (r: typeof rows[number]) => number) => rows.reduce((acc, r) => acc + (r.weight / 100) * f(r), 0);
+    const scen = (k: "bear" | "base" | "bull") => ({
+      e3: wavg(r => r.scenarios[k].e3),
+      totalReturn: wavg(r => r.scenarios[k].totalReturn),
+      upside: wavg(r => r.scenarios[k].upside),
+    });
 
     return {
       totalInvested,
-      weightedE1,
-      weightedE2,
-      weightedAvgPe,
-      weightedCurrentPe,
-      weightedScenarios,
-      hasCappedHoldings,
-      rows
+      weightedE1: wavg(r => r.e1),
+      weightedE2: wavg(r => r.e2),
+      weightedAvgPe: wavg(r => r.avgPe),
+      weightedCurrentPe: wavg(r => r.peTrailing),
+      weightedScenarios: { bear: scen("bear"), base: scen("base"), bull: scen("bull") },
+      hasCappedHoldings: rows.some(r => r.isE1Capped),
+      rows,
+      excluded
     };
   }, [portfolio, portfolioMetricsMap]);
 
@@ -806,53 +369,48 @@ export default function BogleAnalysisDashboard({
       day: "numeric"
     });
 
-    return `ANÁLISIS BOGLE (3 ENGINES OF RETURN) — ${stockMetrics.symbol}
-Precio Actual: $${calc.P0.toFixed(2)}  |  Fecha: ${dateStr}
+    const pct = (v: number | null | undefined, d = 1) => (typeof v === "number" && Number.isFinite(v) ? `${v >= 0 ? "+" : ""}${v.toFixed(d)}%` : "—");
+    const m = stockMetrics;
+    return `ANÁLISIS BOGLE (3 MOTORES DE RETORNO) — ${m.symbol}
+Precio Actual: $${calc.P0.toFixed(2)}  |  Fecha: ${dateStr}  |  Horizonte: ${calc.H} años  |  Tasa exigida: ${(calc.r * 100).toFixed(1)}%
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 INPUTS (investiando.app)
-  Trailing EPS (TTM):      $${calc.EPS_TTM.toFixed(2)}
-  Forward EPS:             $${calc.EPS_fwd.toFixed(2)}
-  Trailing P/E (TTM):       ${calc.PE0.toFixed(2)}×
-  Forward P/E:              ${calc.PE_fwd.toFixed(2)}×
-  Basic EPS CAGR (Annual): +${calc.EPS_CAGR_hist.toFixed(1)}%
-  Shareholder Yield:        ${calc.SY.toFixed(2)}%
-  Free Cash Flow:          $${((stockMetrics.freeCashFlow || 0) / 1e9).toFixed(2)}B
-  Total Cash:              $${((stockMetrics.totalCash || 0) / 1e9).toFixed(2)}B
-  Total Debt:              $${((stockMetrics.totalDebt || 0) / 1e9).toFixed(2)}B
-  Beta (5Y Vol):            ${(stockMetrics.beta || 1).toFixed(2)}
+  BPA últimos 12 meses (contable): $${calc.EPS_TTM.toFixed(2)}
+  BPA consenso próximo ejercicio:  ${calc.EPS_fwd !== null ? `$${calc.EPS_fwd.toFixed(2)}` : "—"}
+  PER actual (precio / BPA TTM):    ${calc.PE0.toFixed(1)}×
+  PER forward:                      ${calc.PE_fwd !== null ? `${calc.PE_fwd.toFixed(1)}×` : "—"}
+  PER mediano histórico:            ${m.peMedianHist !== null ? `${m.peMedianHist.toFixed(1)}×` : "— (sin histórico)"}
+  Beta (5Y):                        ${m.beta !== null ? m.beta.toFixed(2) : "—"}
 
-ENGINE 1 — INVESTMENT RETURN (EPS CAGR)
-  Histórico (Basic EPS CAGR Annual):    +${calc.EPS_CAGR_hist.toFixed(1)}% / año
-  Forward implícito (EPS_fwd/EPS_TTM−1):+${calc.EPS_CAGR_fwd_1Y.toFixed(1)}% / año
-  CAGR modelo asumido:                 +${calc.EPS_CAGR_modelo.toFixed(1)}% / año
-  EPS proyectado (Año ${calc.H}):              $${calc.EPS_H.toFixed(2)}
-  Contribución E1:                     +${calc.contribE1.toFixed(1)}% / año
+MOTOR 1 — CRECIMIENTO DEL BPA
+  Histórico (BPA diluido):          ${pct(calc.EPS_CAGR_hist)} / año
+  Consenso a 1 año:                 ${pct(calc.EPS_CAGR_fwd_1Y)}
+  Crecimiento del modelo:           ${pct(calc.EPS_CAGR_modelo)} / año
+    ${calc.growthNotes.join("\n    ")}
+  BPA proyectado (año ${calc.H}):        $${calc.EPS_H.toFixed(2)}
 
-ENGINE 2 — SHAREHOLDER RETURN (SHAREHOLDER YIELD)
-  Shareholder Yield Total:              ${calc.SY.toFixed(2)}% / año
-    ├ Dividend Yield:                   ${calc.DY.toFixed(2)}%
-    └ Buyback Yield:                    ${(calc.BBY || 0).toFixed(2)}%
-  Contribución E2:                     +${calc.contribE2.toFixed(2)}% / año
+MOTOR 2 — DIVIDENDO
+  Rentabilidad por dividendo:       ${calc.DY.toFixed(2)}% (crece con el BPA)
+  Recompras:                        ${(calc.BBY || 0).toFixed(2)}% / año (ya incluidas en el BPA por acción; no se suman)
 
-ENGINE 3 — SPECULATIVE RETURN (CAMBIO MÚLTIPLO P/E)
-  P/E actual vs. referencia:           ${calc.PE0.toFixed(1)}× vs ${calc.PE_avg10Y.toFixed(1)}×
-  Horizonte de proyección:             ${calc.H} años
+MOTOR 3 — CAMBIO DEL PER
                           Bajista         Base          Alcista
-  PE Exit:                 ${calc.bear.peExit.toFixed(1)}×           ${calc.base.peExit.toFixed(1)}×          ${calc.bull.peExit.toFixed(1)}×
-  Precio Año ${calc.H}:            $${calc.bear.P_H.toFixed(1)}        $${calc.base.P_H.toFixed(1)}       $${calc.bull.P_H.toFixed(1)}
-  Contrib. E3 (anual):   ${calc.bear.contribE3 >= 0 ? "+" : ""}${calc.bear.contribE3.toFixed(1)}%         ${calc.base.contribE3 >= 0 ? "+" : ""}${calc.base.contribE3.toFixed(1)}%        ${calc.bull.contribE3 >= 0 ? "+" : ""}${calc.bull.contribE3.toFixed(1)}%
+  PER de salida:           ${calc.bear.peExit.toFixed(1)}×           ${calc.base.peExit.toFixed(1)}×          ${calc.bull.peExit.toFixed(1)}×
+  Precio año ${calc.H}:            $${calc.bear.P_H.toFixed(1)}        $${calc.base.P_H.toFixed(1)}       $${calc.bull.P_H.toFixed(1)}
+  Motor 3 (anual):        ${pct(calc.bear.contribE3)}          ${pct(calc.base.contribE3)}         ${pct(calc.bull.contribE3)}
 
-RETORNO TOTAL ANUALIZADO (E1 + E2 + E3)
+RETORNO TOTAL (TIR con dividendos y venta al final)
                          Bajista         Base          Alcista
-  Retorno Total:          ${calc.bear.retorno_total.toFixed(1)}%          ${calc.base.retorno_total.toFixed(1)}%         ${calc.bull.retorno_total.toFixed(1)}%
-  Fair Value (${(calc.r * 100).toFixed(0)}%):    $${calc.bear.P_star_ajustado.toFixed(1)}        $${calc.base.P_star_ajustado.toFixed(1)}       $${calc.bull.P_star_ajustado.toFixed(1)}
-  Upside vs Precio:      ${calc.bear.upside >= 0 ? "+" : ""}${calc.bear.upside.toFixed(1)}%        ${calc.base.upside >= 0 ? "+" : ""}${calc.base.upside.toFixed(1)}%       ${calc.bull.upside >= 0 ? "+" : ""}${calc.bull.upside.toFixed(1)}%
+  TIR:                    ${pct(calc.bear.retorno_total)}          ${pct(calc.base.retorno_total)}         ${pct(calc.bull.retorno_total)}
+  Valor justo:           $${calc.bear.P_star.toFixed(1)}        $${calc.base.P_star.toFixed(1)}       $${calc.bull.P_star.toFixed(1)}
+  vs. precio:            ${pct(calc.bear.upside)}         ${pct(calc.base.upside)}        ${pct(calc.bull.upside)}
 
-VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
-  Escenario Base implica ${calc.base.retorno_total.toFixed(1)}% → [${calc.verdict}]
-  Tesis robusta sin E3 (E1 + E2 = ${(calc.contribE1 + calc.contribE2).toFixed(1)}% vs ${(calc.r * 100).toFixed(0)}%): [${calc.robustThesis ? "SÍ" : "NO"}]
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+VEREDICTO (tasa exigida ${(calc.r * 100).toFixed(1)}%)
+  Escenario base: TIR ${pct(calc.base.retorno_total)} → [${calc.verdict}]
+  Tesis robusta sin el Motor 3 (M1 + M2 = ${(calc.contribE1 + calc.contribE2).toFixed(1)}%): [${calc.robustThesis ? "SÍ" : "NO"}]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+No constituye asesoría de inversión.`;
   }, [calc, stockMetrics, language]);
 
   const handleCopyReport = () => {
@@ -878,8 +436,8 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
           </h2>
           <p className="text-xs sm:text-sm text-slate-400 max-w-2xl">
             {language === "EN" 
-              ? "Decompose long-term expected returns into fundamental business growth (EPS CAGR), cash return (Shareholder Yield), and speculative multiple repricing (Δ P/E)."
-              : "Descompone el retorno esperado a largo plazo en crecimiento real (EPS CAGR), retorno de caja (Shareholder Yield) y cambio especulativo de múltiplo (Δ P/E)."}
+              ? "Decompose long-term expected returns into EPS growth (buybacks included), dividend yield and speculative multiple repricing (Δ P/E). Total return is the IRR of the investment."
+              : "Descompone el retorno esperado a largo plazo en crecimiento del BPA (incluye recompras), rentabilidad por dividendo y cambio especulativo del múltiplo (Δ PER). El retorno total es la TIR de la inversión."}
           </p>
         </div>
 
@@ -987,6 +545,17 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
               <RefreshCw size={24} className="animate-spin text-emerald-400" />
               <span className="text-xs font-mono">{language === "EN" ? "Computing 3 Engines of Return & Financials..." : "Calculando los 3 Motores de Retorno y Estados Financieros..."}</span>
             </div>
+          ) : stockMetrics && !calc ? (
+            <div className="py-12 flex flex-col items-center justify-center gap-2 text-center text-slate-400">
+              <Info size={22} className="text-amber-400" />
+              <span className="text-sm font-bold text-slate-200">
+                {language === "EN" ? "The 3 Engines model cannot be computed for" : "El modelo de los 3 motores no se puede calcular para"} {stockMetrics.symbol}
+              </span>
+              <span className="text-xs font-mono">{stockMetrics.issues.join(" · ")}</span>
+              <span className="text-[11px] text-slate-500 max-w-md">
+                {language === "EN" ? "It needs a price and positive trailing EPS. No placeholder values are used." : "Necesita precio y un BPA positivo de los últimos 12 meses. No se usan valores de relleno."}
+              </span>
+            </div>
           ) : calc && stockMetrics ? (
             <div className="space-y-6">
               
@@ -1042,10 +611,10 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
                   <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
                     <span className="flex items-center gap-1.5 text-blue-400">
                       <DollarSign size={14} />
-                      {language === "EN" ? "ENGINE 2 · SHAREHOLDER" : "MOTOR 2 · RETORNO CAJA"}
+                      {language === "EN" ? "ENGINE 2 · DIVIDEND" : "MOTOR 2 · DIVIDENDO"}
                     </span>
                     <span className="font-mono text-[10px] bg-slate-950 px-2 py-0.5 rounded border border-slate-800 text-slate-400">
-                      DIV + BUYBACK
+                      DIV
                     </span>
                   </div>
                   <div className="text-2xl sm:text-3xl font-mono font-extrabold text-white">
@@ -1053,8 +622,8 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
                     <span className="text-xs font-sans font-medium text-slate-400 ml-1.5">{language === "EN" ? "/ yr" : "/ año"}</span>
                   </div>
                   <div className="mt-2 text-[11px] text-slate-400 flex items-center justify-between border-t border-slate-800/60 pt-2 font-mono">
-                    <span>{language === "EN" ? "Div / Buyback Breakdown:" : "Desglose Div / Buyback:"}</span>
-                    <span className="text-blue-400 font-bold">{calc.DY.toFixed(1)}% + {(calc.BBY || 0).toFixed(1)}%</span>
+                    <span title={language === "EN" ? "Buybacks raise EPS per share: already in Engine 1" : "Las recompras suben el BPA por acción: ya están en el Motor 1"} className="cursor-help">{language === "EN" ? "Buybacks (in EPS):" : "Recompras (en el BPA):"}</span>
+                    <span className="text-blue-400 font-bold">{(calc.BBY || 0).toFixed(1)}%</span>
                   </div>
                 </div>
 
@@ -1116,7 +685,7 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
                     <span className="text-xs font-sans font-medium text-slate-400 ml-1.5">{language === "EN" ? `/ yr (${activeScenario})` : `/ año (${activeScenario})`}</span>
                   </div>
                   <div className="mt-2 text-[11px] text-slate-300 flex items-center justify-between border-t border-slate-800/60 pt-2 font-mono">
-                    <span>{language === "EN" ? `Fair Value (${(calc.r * 100).toFixed(0)}% Hurdle):` : `Valor Razonable (Hurdle ${(calc.r * 100).toFixed(0)}%):`}</span>
+                    <span>{language === "EN" ? `Fair Value (${(calc.r * 100).toFixed(1)}% Hurdle):` : `Valor Razonable (tasa ${(calc.r * 100).toFixed(1)}%):`}</span>
                     <span className="text-white font-extrabold">${calc[activeScenario].P_star_ajustado.toFixed(1)} ({calc[activeScenario].upside >= 0 ? "+" : ""}{calc[activeScenario].upside.toFixed(1)}%)</span>
                   </div>
                 </div>
@@ -1137,7 +706,7 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
                       setPeExitBaseOverride(null);
                       setPeExitBullOverride(null);
                       setHorizonYears(5);
-                      setHurdleRate(stockMetrics.beta && stockMetrics.beta > 1.5 ? 12.5 : 10);
+                      setHurdleRate(defaultHurdle(stockMetrics.beta));
                     }}
                     className="text-[11px] font-mono text-slate-400 hover:text-emerald-400 transition-colors flex items-center gap-1 cursor-pointer"
                   >
@@ -1206,29 +775,24 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
                       className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1 text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
                     />
                     <div className="text-[10px] font-mono text-slate-500 truncate">
-                      {language === "EN" ? `Hist: +${calc.EPS_CAGR_hist.toFixed(1)}% | Fwd: +${calc.EPS_CAGR_fwd_1Y.toFixed(1)}%` : `Hist: +${calc.EPS_CAGR_hist.toFixed(1)}% | Fwd: +${calc.EPS_CAGR_fwd_1Y.toFixed(1)}%`}
+                      <span title={calc.growthNotes.join("\n")} className="cursor-help">
+                        {`Hist: ${calc.EPS_CAGR_hist !== null ? `${calc.EPS_CAGR_hist.toFixed(1)}%` : "—"} | ${language === "EN" ? "Cons. 1Y" : "Cons. 1A"}: ${calc.EPS_CAGR_fwd_1Y !== null ? `${calc.EPS_CAGR_fwd_1Y.toFixed(1)}%` : "—"} ⓘ`}
+                      </span>
                     </div>
                   </div>
 
-                  {/* Net Debt Bridge Toggle */}
+                  {/* Deuda neta: informativo (un PER ya valora solo las acciones) */}
                   <div className="bg-slate-950/60 border border-slate-900 p-3.5 rounded-xl space-y-2 flex flex-col justify-between">
                     <div className="flex justify-between text-xs font-bold">
-                      <span className="text-slate-400">{language === "EN" ? "Net Debt Adjustment:" : "Ajuste Deuda Neta:"}</span>
+                      <span className="text-slate-400">{language === "EN" ? "Net Debt:" : "Deuda Neta:"}</span>
                       <span className="font-mono text-slate-300">
-                        {calc.netDebt >= 0 ? `-$${(calc.netDebt / 1e9).toFixed(1)}B` : `+$${(Math.abs(calc.netDebt) / 1e9).toFixed(1)}B`}
+                        {calc.netDebt >= 0 ? `$${(calc.netDebt / 1e9).toFixed(1)}B` : `${language === "EN" ? "Net cash" : "Caja neta"} $${(Math.abs(calc.netDebt) / 1e9).toFixed(1)}B`}
                       </span>
                     </div>
-                    <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-300 mt-1">
-                      <input
-                        type="checkbox"
-                        checked={applyNetDebtAdjustment}
-                        onChange={(e) => setApplyNetDebtAdjustment(e.target.checked)}
-                        className="rounded accent-emerald-500 cursor-pointer"
-                      />
-                      <span>{language === "EN" ? "Bridge to Equity Value" : "Ajustar al Equity Value"}</span>
-                    </label>
-                    <div className="text-[10px] font-mono text-slate-500">
-                      {calc.isNetDebtMaterial ? (language === "EN" ? "Material impact (>5% MktCap)" : "Impacto material (>5% MktCap)") : (language === "EN" ? "Immaterial (<5% MktCap)" : "No material (<5% MktCap)")}
+                    <div className="text-[10px] font-mono text-slate-500 leading-relaxed">
+                      {language === "EN"
+                        ? "Not deducted: a P/E already values equity only (debt is reflected in EPS through interest)."
+                        : "No se resta: un PER ya valora solo las acciones (la deuda está en el BPA vía intereses)."}
                     </div>
                   </div>
 
@@ -1262,14 +826,14 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
                     </div>
                     <span className="text-slate-700">|</span>
                     <div className="flex items-center gap-1.5">
-                      <span className="text-purple-300 font-semibold">{language === "EN" ? "AVG P/E:" : "AVG P/E:"}</span>
+                      <span className="text-purple-300 font-semibold">{language === "EN" ? "Median hist. P/E:" : "PER mediano hist.:"}</span>
                       <span
                         className="font-bold text-purple-300 bg-purple-500/15 px-2 py-0.5 rounded border border-purple-500/25 cursor-help"
                         title={
                           calc.peHistory && calc.peHistory.length > 0
-                            ? `AVG P/E: ${calc.avgPe.toFixed(1)}×\n` +
+                            ? `${language === "EN" ? "Median historical P/E" : "PER mediano histórico"}: ${calc.avgPe.toFixed(1)}×\n` +
                               calc.peHistory.map(h => `${h.isCurrentYear ? (language === "EN" ? "Current P/E" : "P/E Actual") : `Año ${h.year}`}: ${h.pe.toFixed(1)}×${h.isCurrentYear ? "" : ` (Cierre: $${h.price} / EPS: $${h.eps})`}`).join("\n")
-                            : `AVG P/E: ${calc.avgPe.toFixed(1)}×`
+                            : (language === "EN" ? "No P/E history: current P/E used" : "Sin histórico de PER: se usa el actual")
                         }
                       >
                         {calc.avgPe > 0 ? `${calc.avgPe.toFixed(1)}×` : `${calc.PE0.toFixed(1)}×`}
@@ -1284,7 +848,7 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
                     <div className="flex items-center gap-2">
                       <span className="text-purple-300 font-bold uppercase text-[11px] flex items-center gap-1">
                         <Activity size={13} />
-                        AVG P/E Breakdown ({calc.peHistory.length} {language === "EN" ? "periods" : "datos"}):
+                        {language === "EN" ? "P/E history" : "Histórico de PER"} ({calc.peHistory.length} {language === "EN" ? "periods" : "datos"}):
                       </span>
                       <span className="text-slate-400 text-[11px] hidden md:inline">
                         ({language === "EN" ? "4 annual P/Es (Year Close / Diluted EPS) + Current P/E" : "4 P/E anuales (Cierre / BPA diluido) + P/E Actual"}):
@@ -1302,7 +866,7 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
                         </div>
                       ))}
                       <div className="px-2 py-0.5 rounded text-[11px] bg-purple-500/30 border border-purple-400/60 text-purple-100 font-extrabold ml-1">
-                        <span className="mr-1">AVG P/E:</span>
+                        <span className="mr-1">{language === "EN" ? "Median:" : "Mediana:"}</span>
                         <span>{calc.avgPe.toFixed(1)}×</span>
                       </div>
                     </div>
@@ -1316,15 +880,15 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
                         <th className="py-3 px-4 font-bold">{language === "EN" ? "Metric / Component" : "Métrica / Componente"}</th>
                         <th className="py-3 px-4 text-rose-300 font-bold bg-rose-950/10 border-l border-slate-900">
                           {language === "EN" ? "Bearish (Bajista)" : "Bajista"}
-                          <div className="text-[10px] font-normal text-rose-400/80 font-mono">P/E −20%</div>
+                          <div className="text-[10px] font-normal text-rose-400/80 font-mono">{language === "EN" ? "−20% on lower P/E" : "−20% s/ menor PER"}</div>
                         </th>
                         <th className="py-3 px-4 text-emerald-300 font-bold bg-emerald-950/10 border-l border-slate-900">
                           {language === "EN" ? "Base Case (Base)" : "Caso Base"}
-                          <div className="text-[10px] font-normal text-emerald-400/80 font-mono">E3 = 0% ({language === "EN" ? "Current P/E" : "P/E Actual"})</div>
+                          <div className="text-[10px] font-normal text-emerald-400/80 font-mono">{language === "EN" ? `Midpoint current–median (≤ ${EXIT_PE_CAP_BASE}×)` : `Punto medio actual–mediana (≤ ${EXIT_PE_CAP_BASE}×)`}</div>
                         </th>
                         <th className="py-3 px-4 text-blue-300 font-bold bg-blue-950/10 border-l border-slate-900">
                           {language === "EN" ? "Bullish (Alcista)" : "Alcista"}
-                          <div className="text-[10px] font-normal text-blue-400/80 font-mono">{language === "EN" ? "Mean Reversion to AVG P/E" : "Retorno a AVG P/E"}</div>
+                          <div className="text-[10px] font-normal text-blue-400/80 font-mono">{language === "EN" ? "Higher P/E (≤ 40×)" : "Mayor PER (≤ 40×)"}</div>
                         </th>
                       </tr>
                     </thead>
@@ -1396,7 +960,7 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
                       {/* Engine 2 Contribution */}
                       <tr>
                         <td className="py-2.5 px-4 font-sans font-medium text-slate-400">
-                          {language === "EN" ? "Engine 2 Contribution (Shareholder Yield)" : "Contribución Motor 2 (Shareholder Yield)"}
+                          {language === "EN" ? "Engine 2 Contribution (dividends)" : "Contribución Motor 2 (dividendos)"}
                         </td>
                         <td className="py-2.5 px-4 bg-rose-950/5 border-l border-slate-900 font-bold text-blue-400">+{calc.contribE2.toFixed(2)}%</td>
                         <td className="py-2.5 px-4 bg-emerald-950/5 border-l border-slate-900 font-bold text-blue-400">+{calc.contribE2.toFixed(2)}%</td>
@@ -1528,9 +1092,9 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
                 {portfolioRollup.hasCappedHoldings && (
                   <span 
                     className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20 font-bold tracking-tight"
-                    title={language === "EN" ? "High-growth assets (>80%) normalized to industry consensus average" : "Activos con E1 > 80% normalizados al promedio de la industria"}
+                    title={language === "EN" ? "Some EPS growth rates were normalized (30% haircut above 40%, 25% cap, or adjusted consensus discarded). Hover each row for details." : "Algunos crecimientos del BPA se normalizaron (recorte del 30% por encima del 40%, tope del 25% o consenso ajustado descartado). Pasa el ratón por cada fila para ver el detalle."}
                   >
-                    {language === "EN" ? "Industry Normalized" : "Normalizado x Industria"}
+                    {language === "EN" ? "Normalized" : "Normalizado"}
                   </span>
                 )}
               </div>
@@ -1540,14 +1104,14 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
             <div className="bg-[#0f111a]/70 border border-slate-900/60 p-5 rounded-2xl backdrop-blur-sm relative overflow-hidden">
               <div className="text-[11px] font-bold text-blue-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                 <DollarSign size={14} />
-                {language === "EN" ? "WEIGHTED ENGINE 2 (YIELD)" : "MOTOR 2 PONDERADO (CAJA)"}
+                {language === "EN" ? "WEIGHTED ENGINE 2 (DIVIDEND)" : "MOTOR 2 PONDERADO (DIVIDENDO)"}
               </div>
               <div className="text-2xl sm:text-3xl font-mono font-extrabold text-white">
                 {portfolioRollup.weightedE2 >= 0 ? "+" : ""}{portfolioRollup.weightedE2.toFixed(2)}%
                 <span className="text-xs font-sans font-medium text-slate-400 ml-1.5">{language === "EN" ? "/ yr" : "/ año"}</span>
               </div>
               <div className="mt-2 text-[11px] text-slate-400 font-mono border-t border-slate-800/60 pt-2">
-                {language === "EN" ? "Weighted Shareholder Yield" : "Shareholder Yield total ponderado"}
+                {language === "EN" ? "Weighted dividend yield" : "Dividendo ponderado"}
               </div>
             </div>
 
@@ -1567,7 +1131,7 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
               </div>
               <div className="mt-2 text-[11px] text-slate-400 font-mono border-t border-slate-800/60 pt-2 flex justify-between items-center">
                 <span>{language === "EN" ? `Multiple reversion (${activeScenario})` : `Reversión múltiplo (${activeScenario})`}</span>
-                <span className="text-purple-300 font-bold" title="P/E Actual ponderado vs AVG P/E ponderado">
+                <span className="text-purple-300 font-bold" title="PER actual ponderado vs. PER mediano histórico ponderado">
                   {portfolioRollup.weightedCurrentPe.toFixed(1)}× → {portfolioRollup.weightedAvgPe.toFixed(1)}×
                 </span>
               </div>
@@ -1596,7 +1160,7 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
                 <span className="text-xs font-sans font-medium text-slate-400 ml-1.5">{language === "EN" ? "/ yr" : "/ año"}</span>
               </div>
               <div className="mt-2 text-[11px] text-slate-300 font-mono border-t border-slate-800/60 pt-2 flex justify-between">
-                <span>{language === "EN" ? "Portfolio Upside (10%):" : "Upside Portafolio (10%):"}</span>
+                <span>{language === "EN" ? "Portfolio upside (CAPM hurdles):" : "Upside cartera (tasas CAPM):"}</span>
                 <span className="font-bold text-white">{portfolioRollup.weightedScenarios[activeScenario].upside >= 0 ? "+" : ""}{portfolioRollup.weightedScenarios[activeScenario].upside.toFixed(1)}%</span>
               </div>
             </div>
@@ -1613,8 +1177,8 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
                   {language === "EN" 
-                    ? `Individual contributions and fair value for every asset in your portfolio (${activeScenario} scenario). E1 values > 80% use industry consensus EPS.` 
-                    : `Contribuciones individuales y valor razonable para cada posición de tu portafolio (escenario ${activeScenario}). Valores E1 > 80% usan el promedio de su industria.`}
+                    ? `Individual contributions and fair value for every asset in your portfolio (${activeScenario} scenario). Each holding uses its own CAPM hurdle; amber growth rates were normalized.` 
+                    : `Contribuciones individuales y valor razonable para cada posición de tu portafolio (escenario ${activeScenario}). Cada posición usa su tasa exigida por CAPM; los crecimientos en ámbar se normalizaron.`}
                 </p>
               </div>
             </div>
@@ -1626,9 +1190,9 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
                     <th className="py-3 px-4 font-bold">{language === "EN" ? "Asset / Company" : "Activo / Empresa"}</th>
                     <th className="py-3 px-3 text-right font-bold">{language === "EN" ? "Weight" : "Peso"}</th>
                     <th className="py-3 px-3 text-right text-emerald-400 font-bold">{language === "EN" ? "E1 (EPS)" : "E1 (EPS)"}</th>
-                    <th className="py-3 px-3 text-right text-blue-400 font-bold">{language === "EN" ? "E2 (SY)" : "E2 (SY)"}</th>
+                    <th className="py-3 px-3 text-right text-blue-400 font-bold">{language === "EN" ? "E2 (DIV)" : "E2 (DIV)"}</th>
                     <th className="py-3 px-3 text-right text-purple-400 font-bold cursor-help" title={language === "EN" ? "Average annual P/E (Year-end close / Diluted EPS, ongoing year uses current price)" : "Promedio P/E anual (Cierre de año / BPA diluido, año en curso con precio actual)"}>
-                      {language === "EN" ? "AVG P/E" : "AVG P/E"}
+                      {language === "EN" ? "Median P/E" : "PER mediano"}
                     </th>
                     <th className="py-3 px-3 text-right text-purple-400 font-bold">{language === "EN" ? "E3 (ΔP/E)" : "E3 (ΔP/E)"}</th>
                     <th className="py-3 px-3 text-right text-white font-bold">{language === "EN" ? "Total Return" : "Retorno Total"}</th>
@@ -1649,9 +1213,7 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
                       <td className="py-3 px-3 text-right font-bold text-slate-300">{row.weight.toFixed(1)}%</td>
                       <td className={`py-3 px-3 text-right font-bold ${row.isE1Capped ? "text-amber-400" : row.e1 >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
                         <span
-                          title={row.isE1Capped ? (language === "EN"
-                            ? `Historical EPS CAGR (${row.rawE1.toFixed(1)}%) exceeds 80%. Normalized to ${row.benchmarkIndustry} consensus: ${row.e1.toFixed(1)}%`
-                            : `CAGR EPS histórico (${row.rawE1.toFixed(1)}%) supera el 80%. Normalizado al promedio de la industria ${row.benchmarkIndustry}: ${row.e1.toFixed(1)}%`) : undefined}
+                          title={row.growthNotes.join("\n")}
                         >
                           {row.e1 >= 0 ? "+" : ""}{row.e1.toFixed(1)}%
                         </span>
@@ -1664,9 +1226,9 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
                           className="hover:underline cursor-help"
                           title={
                             row.peHistory && row.peHistory.length > 0
-                              ? `AVG P/E: ${row.avgPe.toFixed(1)}×\n` +
+                              ? `${language === "EN" ? "Median P/E" : "PER mediano"}: ${row.avgPe.toFixed(1)}×\n` +
                                 row.peHistory.map(h => `${h.isCurrentYear ? (language === "EN" ? "Current P/E" : "P/E Actual") : `Año ${h.year}`}: ${h.pe.toFixed(1)}×${h.isCurrentYear ? "" : ` (Cierre: $${h.price} / EPS: $${h.eps})`}`).join("\n")
-                              : `AVG P/E: ${row.avgPe.toFixed(1)}× (P/E actual: ${row.peTrailing.toFixed(1)}×)`
+                              : `${language === "EN" ? "No P/E history; current" : "Sin histórico de PER; actual"}: ${row.peTrailing.toFixed(1)}×`
                           }
                         >
                           {row.avgPe > 0 ? `${row.avgPe.toFixed(1)}×` : `${row.peTrailing.toFixed(1)}×`}
@@ -1698,6 +1260,12 @@ VEREDICTO (Hurdle = ${(calc.r * 100).toFixed(0)}%)
                 </tbody>
               </table>
             </div>
+            {portfolioRollup.excluded.length > 0 && (
+              <div className="px-4 py-3 border-t border-slate-900/80 text-[11px] font-mono text-amber-300/90">
+                {language === "EN" ? "Excluded (missing data, weights recomputed without them): " : "Excluidos por falta de datos (pesos recalculados sin ellos): "}
+                {portfolioRollup.excluded.map(e => `${e.ticker} (${e.reason})`).join(" · ")}
+              </div>
+            )}
           </div>
 
         </div>

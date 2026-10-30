@@ -518,4 +518,48 @@ PV_FCF_acumulado(g_f1, g_f2, WACC)  +  [FCF_10 × (1+g_t) / (WACC − g_t)] / (1
 
 ---
 
+## 11. Implementación en la terminal (`src/utils/threeStatementModel.ts`)
+
+Cómo aplica el código esta memoria, para que la cifra de la pantalla se pueda reproducir a mano:
+
+| Paso | Regla implementada |
+|---|---|
+| Datos | Solo periodos con ingresos > 0 (Yahoo devuelve trimestres vacíos). Partida que falta = 0; nunca se inventa como % de ventas |
+| Ancla | TTM = suma de los 4 últimos trimestres consecutivos; si el último trimestre es el cierre anual, el ancla es ese ejercicio |
+| `g_fase1` | Media de: CAGR de ventas, crecimiento del último ejercicio y crecimiento interanual del último trimestre. Recorte del 30 % si > 40 %, tope 25 %, suelo −10 % (§2.3) |
+| Proyección 5 años | Ventas a `g_fase1` constante. Margen EBIT, capex y D&A en % de ventas, lineales desde el ancla hasta el objetivo del año 5. Circulante (clientes, inventario, proveedores) al % de ventas del ancla |
+| Capex objetivo | Punto medio entre el % actual y la media histórica; D&A converge a 0,75 × capex y el capex nunca queda por debajo de la D&A |
+| Balance | Cuadra por construcción: caja = caja previa + OCF − capex − reparto ± deuda; patrimonio += beneficio − reparto. Reparto (dividendos + recompras) = % histórico del beneficio, sin bajar la caja del 2 % de ventas |
+| Flujo descontado | FCFF = EBIT·(1−t) + D&A − capex − ΔNWC. La SBC no se suma (es coste real) |
+| `g_fase2` | §2.3: 0,6·g → 0,3·g (si g > 25 %, como mucho 0,5·g en el año 6); si g < 10 %, plana; nunca por debajo de `g_terminal` |
+| WACC | CAPM con beta ajustada de Blume (0,67·β + 0,33), Rf 4,3 %, ERP 5,5 %, Kd = intereses / deuda, tipo efectivo de 3 años. Se acota a 6–14 % y se documenta si se acota |
+| `g_terminal` | 3 % (2,5 % si `g_fase1` < 5 %), siempre ≤ WACC − 3 % (§4.1) |
+| Equity bridge | EV − deuda neta − minoritarios, ÷ acciones en circulación × dilución del último trimestre |
+| Escenarios | Alcista: g × 1,25 (tope 30 %), margen +2 pp, WACC −0,5 pp, g_terminal +0,5 pp. Bajista: g × 0,6, margen −3 pp, WACC +1 pp, g_terminal −0,5 pp |
+| Avisos | %VT fuera de 40–80 %, EV/EBITDA implícito vs. mercado > 30 %, VT/EBITDA año 10, FCFF negativo, FCF histórico negativo, datos de mercado de respaldo |
+
+La vista trimestral proyecta con estacionalidad (cada trimestre = mismo trimestre del año anterior × (1 + g)), pero el DCF siempre se calcula sobre la proyección anual.
+
+---
+
+## 12. Modelo Bogle de 3 motores (`src/utils/bogleEngine.ts`)
+
+```
+Retorno total ≈ Motor 1 (crecimiento del BPA) + Motor 2 (dividendo) + Motor 3 (cambio del PER)
+```
+
+| Elemento | Regla |
+|---|---|
+| Motor 1 | Mediana de: CAGR del BPA diluido histórico, consenso a 1 año (BPA forward / BPA TTM − 1, descartado si > 40 % porque compara BPA ajustado con contable) y ancla fundamental (crecimiento de ventas + recompras). Misma normalización que §2.3 |
+| Motor 2 | Solo dividendo. Las recompras ya suben el BPA por acción: sumarlas también sería contarlas dos veces |
+| Motor 3 | (PER salida / PER actual)^(1/H) − 1, con PER actual = precio / BPA TTM |
+| PER de salida | Base: punto medio entre PER actual y mediana histórica (sin el actual y sin valores > 80×), máximo 30×. Alcista: el mayor, máximo 40×. Bajista: −20 % sobre el menor, mínimo 8× |
+| Retorno total | TIR de: −precio hoy, dividendos que crecen con el BPA, y venta a BPA_H × PER de salida |
+| Valor justo | Los mismos flujos descontados a la tasa exigida ⇒ valor justo ≥ precio ⇔ TIR ≥ tasa exigida |
+| Tasa exigida | Por defecto, coste del capital por CAPM con beta ajustada, mínimo 8 % |
+| Deuda neta | No se resta: un PER ya valora solo las acciones |
+| Datos | Sin precio, sin BPA positivo o con datos de mercado de respaldo, el modelo no se calcula |
+
+---
+
 *Memoria de Cálculo DCF — investiando.app. Generada por Claude (Anthropic) — agosto 2026. No constituye asesoría de inversión.*

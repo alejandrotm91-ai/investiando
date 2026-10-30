@@ -13,6 +13,7 @@ con la misma estructura que el proyecto trackerz. Mientras dure, `server.ts` sig
   - `admin/routes.ts` — `/api/admin/*` y `/api/smtp/*` (Fase 5). Solo para `users.role = 'admin'` según la sesión (se ignora el `adminEmail` del cuerpo). El correo se configura con secretos de Resend: guardar SMTP responde 400 y la prueba usa Resend.
   - `email.ts` — correos con la API de Resend (`RESEND_API_KEY`, `EMAIL_FROM`). Sin ellos, solo se registran en el log.
 - `migrations/` — SQL de D1 (aplicar con `npx wrangler d1 migrations apply investiando-db --remote`); `0002` hace admin a alejandrotm91@gmail.com. Tabla `users`: datos de la app (carteras, watchlist, margen) como JSON en `data`; `/api/user/save-cloud-data` mezcla con `json_patch`.
+- `src/utils/threeStatementModel.ts` y `src/utils/bogleEngine.ts` — motores del modelo de 3 estados + DCF y de los 3 motores de Bogle (Stock Explorer y pestaña Analysis). La metodología está en `AGENTS.md` §11 y §12; si cambias un cálculo, actualízala.
 - `src/lib/cloudData.ts` — lado navegador de los datos del usuario (sustituye a `firebase.ts`): caché local, envío al servidor con reintento y consulta cada 60 s.
 - `scripts/smoke-market.ps1` y `scripts/smoke-auth.ps1` — pruebas de punta a punta contra el Worker publicado (la de auth crea y borra una cuenta @example.com). `scripts/smoke-ai.ps1` prueba las rutas de IA (cada llamada cuesta).
 - `scripts/import-firestore-users.mjs` — importa usuarios de Firestore a D1 cifrando sus contraseñas. Firestore no deja listar: se le pasa un archivo con los correos.

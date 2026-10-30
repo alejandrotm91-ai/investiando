@@ -1,7 +1,18 @@
 // src/utils/threeStatementModel.ts
-// Financial engine for 3-Statement Model with Annual & Quarterly projections,
-// current fiscal year tracking (quarters reported vs remaining), TTM calibration,
-// scenarios, and DCF valuation according to RULE[AGENTS_md].
+// Motor del modelo de 3 estados (resultados, balance y flujo de caja) y de la valoración DCF.
+// Metodología: AGENTS.md (memoria de cálculo DCF).
+//
+// Principios:
+//  - Solo datos reportados. Los periodos vacíos de Yahoo (ingresos 0 o nulos) se descartan y las
+//    partidas que faltan valen 0; nunca se inventan como % de ventas.
+//  - Las proyecciones dependen de las ventas: margen operativo, capex, D&A y circulante son % de
+//    ingresos que evolucionan de forma lineal desde el último dato (TTM) hasta el objetivo del año 5.
+//  - El crecimiento se normaliza (AGENTS.md §2.3): recorte del 30 % si supera el 40 %, tope del 25 %.
+//  - El balance proyectado cuadra por construcción: caja = caja anterior + flujo operativo − capex −
+//    remuneración al accionista ± deuda, y el patrimonio crece con el beneficio retenido.
+//  - El DCF descuenta el flujo de caja libre NO apalancado (FCFF = EBIT·(1−t) + D&A − capex − ΔNWC)
+//    al WACC por CAPM; la deuda se resta después, en el equity bridge.
+//  - La compensación en acciones (SBC) no se suma al flujo operativo proyectado: es un coste real.
 
 export interface StatementPeriod {
   yearLabel: string;
@@ -10,9 +21,9 @@ export interface StatementPeriod {
   periodType?: "annual" | "quarterly" | "ttm";
   date?: string;
 
-  // Income Statement
+  // Estado de resultados
   revenue: number;
-  revenueGrowth: number; // decimal (e.g. 0.15 for 15%)
+  revenueGrowth: number; // decimal
   costOfRevenue: number;
   grossProfit: number;
   grossMargin: number;
@@ -21,13 +32,13 @@ export interface StatementPeriod {
   operatingMargin: number;
   depreciationAmortization: number;
   netInterestExpense: number;
-  preTaxIncome: number; // EBT
+  preTaxIncome: number;
   taxExpense: number;
   taxRate: number;
   netIncome: number;
   netMargin: number;
 
-  // Balance Sheet
+  // Balance
   cashAndEquivalents: number;
   accountsReceivable: number;
   inventory: number;
@@ -48,39 +59,44 @@ export interface StatementPeriod {
   totalLiabilities: number;
   stockholdersEquity: number;
   totalLiabilitiesAndEquity: number;
-  balanceDiscrepancy: number; // Assets - (Liabilities + Equity)
+  balanceDiscrepancy: number; // Activos − (Pasivos + Patrimonio + minoritarios)
 
-  // Cash Flow Statement
+  // Flujo de caja
   netIncomeCF: number;
   depreciationCF: number;
-  changeInWorkingCapital: number;
+  changeInWorkingCapital: number; // aumento del circulante (resta caja)
   operatingCashFlow: number;
-  capitalExpenditures: number;
-  freeCashFlow: number;
+  capitalExpenditures: number; // en positivo
+  freeCashFlow: number; // FCF apalancado = OCF − capex
   investingCashFlow: number;
   debtNetIssuance: number;
-  equityRepurchaseDividends: number;
+  equityRepurchaseDividends: number; // dividendos + recompras (en positivo)
   financingCashFlow: number;
   netChangeInCash: number;
   endingCash: number;
 
-  // Solvency & Ratios
+  // Ratios
   currentRatio: number;
   netDebt: number;
   netDebtToEbitda: number;
   interestCoverage: number;
   debtToEquity: number;
-  fcfConversion: number; // FCF / Net Income
+  fcfConversion: number; // FCF / beneficio neto
+
+  // Extras
+  fcff?: number; // flujo de caja libre no apalancado
+  stockBasedCompensation?: number;
+  minorityInterest?: number;
 }
 
 export interface CurrentYearStatus {
   hasPartialYear: boolean;
-  quartersReportedCount: number; // e.g. 1, 2, 3
-  quartersRemainingCount: number; // e.g. 3, 2, 1
-  currentFiscalYearLabel: string; // e.g. "FY2026"
+  quartersReportedCount: number;
+  quartersRemainingCount: number;
+  currentFiscalYearLabel: string;
   latestAnnualDate: string;
   latestQuarterDate: string;
-  quartersReportedLabels: string[]; // e.g. ["Q1'26", "Q2'26"]
+  quartersReportedLabels: string[];
   ytdRevenue: number;
   ytdOperatingIncome: number;
   ytdNetIncome: number;
@@ -95,10 +111,11 @@ export interface CurrentYearStatus {
   ttmFcf: number;
   ttmCash: number;
   ttmDebt: number;
-  estimatedFullYearRevenue: number; // Run-rate or projected FY
+  estimatedFullYearRevenue: number;
   estimatedFullYearFcf: number;
 }
 
+/** CAGR históricos en %. NaN cuando no hay datos suficientes. */
 export interface HistoricalCAGRs {
   revenueCAGR: number;
   costOfRevenueCAGR: number;
@@ -115,44 +132,42 @@ export interface HistoricalCAGRs {
 export interface ModelAssumptions {
   scenario: "base" | "bull" | "bear" | "custom";
   historicalCAGRs?: HistoricalCAGRs;
-  // Drivers (percentages as 0-100 for display, handled as decimals in calculations)
-  revenueGrowthRate: number; // % annual
-  costGrowthRate?: number;
-  grossProfitGrowthRate?: number;
-  opexGrowthRate?: number;
-  opIncomeGrowthRate?: number;
-  capexGrowthRate?: number;
-  deprecGrowthRate?: number;
-  grossMarginTarget: number; // %
-  operatingMarginTarget: number; // %
-  taxRateTarget: number; // %
-  capexPercentRevenue: number; // %
-  deprecPercentRevenue: number; // %
-  nwcPercentRevenue: number; // %
-  costOfDebtInterestRate: number; // %
-  annualDebtRepaymentPct: number; // % of total debt
-  dividendPayoutRatio: number; // % of net income
+  revenueGrowthRate: number; // % crecimiento de ventas en la fase 1 (años 1–5)
+  operatingMarginTarget: number; // % margen EBIT que se alcanza en el año 5
+  grossMarginTarget: number; // % (informativo: el gasto operativo se mantiene en % de ventas)
+  taxRateTarget: number; // % tipo efectivo
+  capexPercentRevenue: number; // % capex/ventas en el año 5
+  deprecPercentRevenue: number; // % D&A/ventas en el año 5
+  nwcPercentRevenue: number; // % circulante operativo / ventas (informativo, sale del balance)
+  costOfDebtInterestRate: number; // % coste bruto de la deuda
+  annualDebtRepaymentPct?: number; // obsoleto: la deuda se mantiene
+  dividendPayoutRatio: number; // % del beneficio que se reparte (dividendos + recompras)
 
-  // DCF Valuation Drivers
   discountRateWacc: number; // %
-  terminalGrowthRate: number; // % (2.0 - 3.5%)
-  dilutedShares: number; // raw share count
-  riskFreeRate: number; // % (typically 4.2%)
-  equityRiskPremium: number; // % (typically 5.5%)
-  beta: number;
+  terminalGrowthRate: number; // %
+  dilutedShares: number;
+  riskFreeRate: number; // %
+  equityRiskPremium: number; // %
+  beta: number; // beta usada en el CAPM (ajustada)
+}
+
+export interface DCFFlag {
+  level: "ok" | "warn" | "bad";
+  text: string;
 }
 
 export interface DCFValuationResult {
-  pvFcfList: { year: number; fcf: number; discountFactor: number; pv: number }[];
+  pvFcfList: { year: number; fcf: number; growth: number; discountFactor: number; pv: number }[];
   sumPvFcf: number;
   terminalFcf: number;
   terminalValueGross: number;
   pvTerminalValue: number;
-  pctTerminalValue: number; // sanity check 55-75%
+  pctTerminalValue: number;
   enterpriseValue: number;
   totalDebt: number;
   totalCash: number;
   netDebt: number;
+  minorityInterest: number;
   equityValue: number;
   fairValuePerShare: number;
   currentPrice: number;
@@ -162,274 +177,167 @@ export interface DCFValuationResult {
   costOfDebtNet: number;
   weightEquity: number;
   weightDebt: number;
-  sensitivityMatrix: {
-    wacc: number;
-    terminalGrowth: number;
-    fairValue: number;
-  }[][];
-  isTerminalValid: boolean; // terminalGrowth < wacc - 0.02
+  terminalGrowthUsed: number; // %
+  phase2Growth: { start: number; end: number }; // %
+  impliedEvEbitda: number | null;
+  marketEvEbitda: number | null;
+  terminalExitMultiple: number | null; // VT / EBITDA del año 10
+  sensitivityMatrix: { wacc: number; terminalGrowth: number; fairValue: number; valid: boolean }[][];
+  isTerminalValid: boolean;
+  flags: DCFFlag[];
 }
 
-function getQuarterShortLabel(dateStr: string): string {
-  if (!dateStr) return "Qtr";
+export interface ModelCalibration {
+  revenueCagr: number | null; // %
+  latestYoY: number | null; // %
+  latestQuarterYoY: number | null; // %
+  growthRaw: number | null; // %
+  growthNormalized: number; // %
+  growthNotes: string[];
+  grossMargin: number; // %
+  opMargin: number; // %
+  daPct: number; // % (último dato)
+  daTarget: number; // % (año 5)
+  capexPct: number; // % (último dato)
+  capexHistAvg: number; // %
+  capexTarget: number; // % (año 5)
+  nwcPct: number; // %
+  taxRate: number; // %
+  taxSource: string;
+  costOfDebt: number; // %
+  payoutRatio: number; // %
+  sbcPct: number; // % SBC / ventas
+  beta: number | null;
+  betaAdjusted: number;
+  riskFreeRate: number; // %
+  equityRiskPremium: number; // %
+  costOfEquity: number; // %
+  costOfDebtNet: number; // %
+  weightEquity: number; // %
+  weightDebt: number; // %
+  waccRaw: number; // %
+  wacc: number; // %
+  waccNote: string | null;
+  dilutedShares: number;
+  sharesSource: string;
+  terminalGrowth: number; // %
+  minorityInterest: number;
+  marketCap: number;
+}
+
+// ---------------------------------------------------------------------------
+// Utilidades
+// ---------------------------------------------------------------------------
+
+const DAY = 24 * 60 * 60 * 1000;
+
+function num(v: any): number | undefined {
+  if (typeof v === "number") return Number.isFinite(v) ? v : undefined;
+  if (typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v))) return Number(v);
+  return undefined;
+}
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+const round1 = (v: number) => Math.round(v * 10) / 10;
+const time = (d: any) => new Date(d).getTime();
+
+/** Periodos válidos (con ingresos), sin fechas repetidas, del más reciente al más antiguo. */
+export function cleanPeriods(rows: any[] | undefined | null): any[] {
+  if (!Array.isArray(rows)) return [];
+  const seen = new Set<string>();
+  return rows
+    .filter((p) => p && p.date && !isNaN(time(p.date)) && (num(p.totalRevenue) ?? 0) > 0)
+    .sort((a, b) => time(b.date) - time(a.date))
+    .filter((p) => {
+      const key = String(p.date).slice(0, 10);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function fiscalYearOf(dateStr: string): number {
+  const d = new Date(dateStr);
+  return d.getUTCFullYear();
+}
+
+function monthLabel(dateStr: string): string {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return "";
+  const months = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+  return `${months[d.getUTCMonth()]} ${String(d.getUTCFullYear()).slice(-2)}`;
+}
+
+function quarterLabel(dateStr: string): string {
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return "Qtr";
-  const m = d.getUTCMonth(); // 0-11
-  const y = d.getUTCFullYear();
-  const q = Math.floor(m / 3) + 1;
-  const shortYear = y.toString().slice(-2);
-  const months = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
-  return `Q${q}'${shortYear} (${months[m]} ${shortYear})`;
+  const q = Math.floor(d.getUTCMonth() / 3) + 1;
+  return `Q${q}'${String(d.getUTCFullYear()).slice(-2)} (${monthLabel(dateStr)})`;
 }
 
-export function detectCurrentYearStatus(annualData: any[], quarterlyData: any[]): CurrentYearStatus {
-  if (!quarterlyData || quarterlyData.length === 0) {
-    return {
-      hasPartialYear: false,
-      quartersReportedCount: 0,
-      quartersRemainingCount: 0,
-      currentFiscalYearLabel: "FY2026",
-      latestAnnualDate: "",
-      latestQuarterDate: "",
-      quartersReportedLabels: [],
-      ytdRevenue: 0,
-      ytdOperatingIncome: 0,
-      ytdNetIncome: 0,
-      ytdOcf: 0,
-      ytdCapex: 0,
-      ytdFcf: 0,
-      ttmRevenue: 0,
-      ttmOperatingIncome: 0,
-      ttmNetIncome: 0,
-      ttmOcf: 0,
-      ttmCapex: 0,
-      ttmFcf: 0,
-      ttmCash: 0,
-      ttmDebt: 0,
-      estimatedFullYearRevenue: 0,
-      estimatedFullYearFcf: 0,
-    };
-  }
+/** Convierte un periodo de Yahoo en un StatementPeriod sin inventar partidas. */
+function statementFromRaw(
+  p: any,
+  prevRevenue: number | undefined,
+  yearLabel: string,
+  periodType: "annual" | "quarterly",
+  prevCash?: number
+): StatementPeriod {
+  const rev = num(p.totalRevenue) ?? 0;
+  const reportedGross = num(p.grossProfit);
+  const reportedCost = num(p.costOfRevenue);
+  const costOfRevenue = reportedCost ?? (reportedGross !== undefined ? rev - reportedGross : 0);
+  const grossProfit = reportedGross ?? rev - costOfRevenue;
+  const opInc = num(p.operatingIncome) ?? num(p.EBIT) ?? 0;
+  const opEx = num(p.operatingExpense) ?? grossProfit - opInc;
+  const da = Math.abs(num(p.reconciledDepreciation) ?? num(p.depreciationAndAmortization) ?? 0);
+  const interest = Math.abs(num(p.interestExpense) ?? 0);
+  const preTax = num(p.pretaxIncome) ?? opInc - interest;
+  const taxExp = num(p.taxProvision) ?? 0;
+  const netInc = num(p.netIncomeCommonStockholders) ?? num(p.netIncome) ?? preTax - taxExp;
 
-  const sortedQuarterly = [...quarterlyData].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  const sortedAnnual = [...(annualData || [])].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const cash = num(p.cashAndCashEquivalents) ?? 0;
+  const ar = num(p.accountsReceivable) ?? num(p.receivables) ?? 0;
+  const inv = num(p.inventory) ?? 0;
+  const totalCA = num(p.currentAssets) ?? cash + ar + inv;
+  const otherCA = Math.max(0, totalCA - cash - ar - inv);
+  const netPPE = num(p.netPPE) ?? 0;
+  const gw = num(p.goodwillAndOtherIntangibleAssets) ?? 0;
+  const totalAssets = num(p.totalAssets) ?? totalCA + netPPE + gw;
+  const otherNCA = totalAssets - totalCA - netPPE - gw;
 
-  const latestAnnualDate = sortedAnnual[0]?.date || "";
-  const latestAnnualTime = latestAnnualDate ? new Date(latestAnnualDate).getTime() : 0;
-  const latestQuarterDate = sortedQuarterly[0]?.date || "";
+  const ap = num(p.accountsPayable) ?? num(p.payables) ?? 0;
+  const stDebt = num(p.currentDebt) ?? num(p.currentDebtAndCapitalLeaseObligation) ?? 0;
+  const totalDebt = num(p.totalDebt) ?? stDebt + (num(p.longTermDebt) ?? 0);
+  const ltDebt = Math.max(0, totalDebt - stDebt);
+  const totalCL = num(p.currentLiabilities) ?? ap + stDebt;
+  const otherCL = Math.max(0, totalCL - ap - stDebt);
+  const equity = num(p.stockholdersEquity) ?? num(p.commonStockEquity) ?? 0;
+  const minority = num(p.minorityInterest) ?? 0;
+  const totalLiab = num(p.totalLiabilitiesNetMinorityInterest) ?? totalAssets - equity - minority;
+  const otherNCL = totalLiab - totalCL - ltDebt;
 
-  // Quarters reported since the last closed annual period
-  const quartersInCurrentFY = sortedQuarterly.filter(q => {
-    if (!latestAnnualTime) return false;
-    return new Date(q.date).getTime() > latestAnnualTime;
-  });
+  const ocf = num(p.operatingCashFlow) ?? netInc + da;
+  const capex = Math.abs(num(p.capitalExpenditure) ?? 0);
+  const fcf = num(p.freeCashFlow) ?? ocf - capex;
+  const cfi = num(p.investingCashFlow) ?? -capex;
+  const cff = num(p.financingCashFlow) ?? 0;
+  const distributions = Math.abs(num(p.cashDividendsPaid) ?? 0) + Math.abs(num(p.repurchaseOfCapitalStock) ?? 0);
+  const changeWC = -(num(p.changeInWorkingCapital) ?? 0); // Yahoo: negativo = consume caja
+  const netChange = num(p.changesInCash) ?? (prevCash !== undefined ? cash - prevCash : ocf + cfi + cff);
+  const sbc = num(p.stockBasedCompensation) ?? 0;
 
-  const quartersReportedCount = quartersInCurrentFY.length > 0 && quartersInCurrentFY.length < 4
-    ? quartersInCurrentFY.length 
-    : (quartersInCurrentFY.length === 0 && sortedQuarterly.length >= 1 ? 1 : quartersInCurrentFY.length % 4 || 4);
-
-  const quartersRemainingCount = Math.max(0, 4 - quartersReportedCount);
-
-  // Compute TTM from the most recent 4 quarters
-  const last4Q = sortedQuarterly.slice(0, 4);
-  const ttmRevenue = last4Q.reduce((sum, q) => sum + Number(q.totalRevenue || 0), 0);
-  const ttmOperatingIncome = last4Q.reduce((sum, q) => sum + Number(q.operatingIncome || 0), 0);
-  const ttmNetIncome = last4Q.reduce((sum, q) => sum + Number(q.netIncomeCommonStockholders ?? q.netIncome ?? 0), 0);
-  const ttmOcf = last4Q.reduce((sum, q) => sum + Number(q.operatingCashFlow || 0), 0);
-  const ttmCapex = last4Q.reduce((sum, q) => sum + Math.abs(Number(q.capitalExpenditure || 0)), 0);
-  const ttmFcf = ttmOcf - ttmCapex;
-  const ttmCash = Number(sortedQuarterly[0]?.cashAndCashEquivalents || 0);
-  const ttmDebt = Number(sortedQuarterly[0]?.totalDebt || 0);
-
-  // YTD sums
-  const activeYTDQuarters = quartersInCurrentFY.length > 0 ? quartersInCurrentFY : sortedQuarterly.slice(0, 1);
-  const ytdRevenue = activeYTDQuarters.reduce((sum, q) => sum + Number(q.totalRevenue || 0), 0);
-  const ytdOperatingIncome = activeYTDQuarters.reduce((sum, q) => sum + Number(q.operatingIncome || 0), 0);
-  const ytdNetIncome = activeYTDQuarters.reduce((sum, q) => sum + Number(q.netIncomeCommonStockholders ?? q.netIncome ?? 0), 0);
-  const ytdOcf = activeYTDQuarters.reduce((sum, q) => sum + Number(q.operatingCashFlow || 0), 0);
-  const ytdCapex = activeYTDQuarters.reduce((sum, q) => sum + Math.abs(Number(q.capitalExpenditure || 0)), 0);
-  const ytdFcf = ytdOcf - ytdCapex;
-
-  const ytdCount = activeYTDQuarters.length || 1;
-  const estimatedFullYearRevenue = Math.round((ytdRevenue / ytdCount) * 4);
-  const estimatedFullYearFcf = Math.round((ytdFcf / ytdCount) * 4);
-
-  // Determine current fiscal year label
-  const latestQDate = new Date(latestQuarterDate);
-  const currentFiscalYearNum = !isNaN(latestQDate.getFullYear()) ? latestQDate.getFullYear() : 2026;
-
-  return {
-    hasPartialYear: quartersRemainingCount > 0,
-    quartersReportedCount,
-    quartersRemainingCount,
-    currentFiscalYearLabel: `FY${currentFiscalYearNum}`,
-    latestAnnualDate,
-    latestQuarterDate,
-    quartersReportedLabels: activeYTDQuarters.map(q => getQuarterShortLabel(q.date)).reverse(),
-    ytdRevenue,
-    ytdOperatingIncome,
-    ytdNetIncome,
-    ytdOcf,
-    ytdCapex,
-    ytdFcf,
-    ttmRevenue: ttmRevenue || sortedAnnual[0]?.totalRevenue || 0,
-    ttmOperatingIncome: ttmOperatingIncome || sortedAnnual[0]?.operatingIncome || 0,
-    ttmNetIncome: ttmNetIncome || sortedAnnual[0]?.netIncome || 0,
-    ttmOcf: ttmOcf || sortedAnnual[0]?.operatingCashFlow || 0,
-    ttmCapex: ttmCapex || Math.abs(sortedAnnual[0]?.capitalExpenditure || 0),
-    ttmFcf: ttmFcf || sortedAnnual[0]?.freeCashFlow || 0,
-    ttmCash: ttmCash || sortedAnnual[0]?.cashAndCashEquivalents || 0,
-    ttmDebt: ttmDebt || sortedAnnual[0]?.totalDebt || 0,
-    estimatedFullYearRevenue,
-    estimatedFullYearFcf,
-  };
-}
-
-export function computeHistoricalCAGRs(annualData: any[]): HistoricalCAGRs {
-  if (!annualData || annualData.length < 2) {
-    return {
-      revenueCAGR: 15.0,
-      costOfRevenueCAGR: 12.0,
-      grossProfitCAGR: 16.0,
-      operatingExpensesCAGR: 10.0,
-      operatingIncomeCAGR: 18.0,
-      netIncomeCAGR: 18.0,
-      depreciationCAGR: 10.0,
-      capexCAGR: 8.0,
-      fcfCAGR: 15.0,
-      operatingCashFlowCAGR: 15.0,
-    };
-  }
-
-  // Sorted newest to oldest
-  const sorted = [...annualData].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-  function getFieldValue(col: any, key: string): number | undefined | null {
-    if (!col) return undefined;
-    if (col[key] !== undefined && col[key] !== null) return col[key];
-    if (key === "freeCashFlow") {
-      const ocf = col.operatingCashFlow;
-      const capex = col.capitalExpenditure;
-      if (typeof ocf === "number") {
-        if (typeof capex === "number") {
-          return capex < 0 ? ocf + capex : ocf - capex;
-        }
-        return ocf;
-      }
-    }
-    return undefined;
-  }
-
-  const calcRowCAGR = (key: string, isAbsolute = false, fallback = 10.0): number => {
-    const valid = sorted
-      .map((p, idx) => {
-        let v = getFieldValue(p, key);
-        if (typeof v === "number" && isAbsolute) v = Math.abs(v);
-        return { val: v, idx };
-      })
-      .filter(item => typeof item.val === "number" && !isNaN(item.val as number));
-
-    if (valid.length < 2) return fallback;
-    const latestItem = valid[0];
-    if (latestItem.val !== undefined && latestItem.val > 0) {
-      const oldestPositive = [...valid].reverse().find(item => item.val !== undefined && item.val > 0 && item.idx > latestItem.idx);
-      if (oldestPositive && oldestPositive.val !== undefined && oldestPositive.val > 0) {
-        const n = oldestPositive.idx - latestItem.idx;
-        if (n > 0) {
-          const cagr = (Math.pow(latestItem.val / oldestPositive.val, 1 / n) - 1) * 100;
-          return Number(cagr.toFixed(1));
-        }
-      }
-    }
-    return fallback;
-  };
-
-  const revenueCAGR = calcRowCAGR("totalRevenue", false, 15.0);
-  const costOfRevenueCAGR = calcRowCAGR("costOfRevenue", false, Math.round(revenueCAGR * 0.9 * 10) / 10);
-  const grossProfitCAGR = calcRowCAGR("grossProfit", false, Math.round(revenueCAGR * 1.05 * 10) / 10);
-  const operatingExpensesCAGR = calcRowCAGR("operatingExpense", false, Math.round(revenueCAGR * 0.8 * 10) / 10);
-  const operatingIncomeCAGR = calcRowCAGR("operatingIncome", false, Math.round(revenueCAGR * 1.1 * 10) / 10);
-  const netIncomeCAGR = calcRowCAGR("netIncomeCommonStockholders", false, Math.round(revenueCAGR * 1.1 * 10) / 10);
-  const depreciationCAGR = calcRowCAGR("reconciledDepreciation", true, 8.0);
-  const capexCAGR = calcRowCAGR("capitalExpenditure", true, 8.0);
-  const fcfCAGR = calcRowCAGR("freeCashFlow", false, revenueCAGR);
-  const operatingCashFlowCAGR = calcRowCAGR("operatingCashFlow", false, revenueCAGR);
-
-  return {
-    revenueCAGR,
-    costOfRevenueCAGR,
-    grossProfitCAGR,
-    operatingExpensesCAGR,
-    operatingIncomeCAGR,
-    netIncomeCAGR,
-    depreciationCAGR,
-    capexCAGR,
-    fcfCAGR,
-    operatingCashFlowCAGR,
-  };
-}
-
-export function buildTTMStatementPeriod(quarterlyData: any[], annualData: any[]): StatementPeriod | null {
-  if (!quarterlyData || quarterlyData.length < 2) return null;
-  const sortedQ = [...quarterlyData].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  const last4Q = sortedQ.slice(0, 4);
-  const latestQ = sortedQ[0];
-
-  // Flow items sum across 4 quarters (or normalized if only 2-3 available)
-  const mult = 4 / last4Q.length;
-  const rev = Math.round(last4Q.reduce((sum, q) => sum + Number(q.totalRevenue || 0), 0) * mult);
-  const grossProfit = Math.round(last4Q.reduce((sum, q) => sum + Number(q.grossProfit ?? (q.totalRevenue || 0) * 0.55), 0) * mult);
-  const costOfRevenue = rev - grossProfit;
-  const opInc = Math.round(last4Q.reduce((sum, q) => sum + Number(q.operatingIncome || 0), 0) * mult);
-  const opEx = Math.max(0, grossProfit - opInc);
-  const da = Math.round(last4Q.reduce((sum, q) => sum + Math.abs(Number(q.reconciledDepreciation ?? q.depreciationAndAmortization ?? (q.totalRevenue || 0) * 0.04)), 0) * mult);
-  const interest = Math.round(last4Q.reduce((sum, q) => sum + Math.abs(Number(q.interestExpense ?? (q.totalRevenue || 0) * 0.01)), 0) * mult);
-  const preTax = opInc - interest;
-  const taxExp = Math.round(last4Q.reduce((sum, q) => sum + Math.abs(Number(q.taxProvision ?? preTax * 0.17)), 0) * mult);
-  const netInc = preTax - taxExp;
-
-  // Balance sheet from latest quarter
-  const cash = Number(latestQ.cashAndCashEquivalents ?? rev * 0.2);
-  const ar = Number(latestQ.accountsReceivable ?? rev * 0.12);
-  const inv = Number(latestQ.inventory ?? rev * 0.05);
-  const otherCA = Number(latestQ.otherCurrentAssets ?? rev * 0.03);
-  const totalCA = Number(latestQ.currentAssets ?? (cash + ar + inv + otherCA));
-  const netPPE = Number(latestQ.netPPE ?? rev * 0.15);
-  const gw = Number(latestQ.goodwillAndOtherIntangibleAssets ?? rev * 0.08);
-  const otherNCA = Number(latestQ.otherNonCurrentAssets ?? rev * 0.05);
-  const totalAssets = Number(latestQ.totalAssets ?? (totalCA + netPPE + gw + otherNCA));
-
-  const ap = Number(latestQ.accountsPayable ?? rev * 0.08);
-  const stDebt = Number(latestQ.currentDebt ?? 0);
-  const otherCL = Number(latestQ.otherCurrentLiabilities ?? rev * 0.05);
-  const totalCL = Number(latestQ.currentLiabilities ?? (ap + stDebt + otherCL));
-  const ltDebt = Number(latestQ.longTermDebt ?? rev * 0.10);
-  const totalDebt = Number(latestQ.totalDebt ?? (stDebt + ltDebt));
-  const otherNCL = Number(latestQ.otherNonCurrentLiabilities ?? rev * 0.03);
-  const totalLiab = Number(latestQ.totalLiabilitiesNetMinorityInterest ?? (totalCL + ltDebt + otherNCL));
-  const equity = Number(latestQ.stockholdersEquity ?? (totalAssets - totalLiab));
-
-  // Cash flow TTM
-  const ocf = Math.round(last4Q.reduce((sum, q) => sum + Number(q.operatingCashFlow ?? 0), 0) * mult);
-  const capex = Math.round(last4Q.reduce((sum, q) => sum + Math.abs(Number(q.capitalExpenditure ?? 0)), 0) * mult);
-  const fcf = ocf - capex;
-  const cfi = -capex;
-  const cff = Math.round(last4Q.reduce((sum, q) => sum + Number(q.financingCashFlow ?? -(netInc * 0.2)), 0) * mult);
-
-  const prevAnnualRev = Number(annualData?.[0]?.totalRevenue || rev);
-  const revGrowth = prevAnnualRev > 0 ? (rev - prevAnnualRev) / prevAnnualRev : 0.12;
-
+  const taxRate = preTax > 0 ? clamp(taxExp / preTax, 0, 0.5) : 0;
   const netDebt = totalDebt - cash;
   const ebitda = opInc + da;
 
   return {
-    yearLabel: `TTM (LTM Actual)`,
+    yearLabel,
     isHistorical: true,
-    isTTM: true,
-    periodType: "ttm",
-    date: latestQ.date,
+    periodType,
+    date: p.date,
     revenue: rev,
-    revenueGrowth: revGrowth,
+    revenueGrowth: prevRevenue && prevRevenue > 0 ? rev / prevRevenue - 1 : NaN,
     costOfRevenue,
     grossProfit,
     grossMargin: rev > 0 ? grossProfit / rev : 0,
@@ -440,7 +348,7 @@ export function buildTTMStatementPeriod(quarterlyData: any[], annualData: any[])
     netInterestExpense: interest,
     preTaxIncome: preTax,
     taxExpense: taxExp,
-    taxRate: preTax > 0 ? taxExp / preTax : 0.17,
+    taxRate,
     netIncome: netInc,
     netMargin: rev > 0 ? netInc / rev : 0,
 
@@ -464,428 +372,523 @@ export function buildTTMStatementPeriod(quarterlyData: any[], annualData: any[])
     totalLiabilities: totalLiab,
     stockholdersEquity: equity,
     totalLiabilitiesAndEquity: totalLiab + equity,
-    balanceDiscrepancy: Math.round(totalAssets - (totalLiab + equity)),
+    balanceDiscrepancy: Math.round(totalAssets - totalLiab - equity - minority),
 
     netIncomeCF: netInc,
     depreciationCF: da,
-    changeInWorkingCapital: Math.round((ar + inv - ap) * 0.05),
+    changeInWorkingCapital: changeWC,
     operatingCashFlow: ocf,
     capitalExpenditures: capex,
     freeCashFlow: fcf,
     investingCashFlow: cfi,
-    debtNetIssuance: 0,
-    equityRepurchaseDividends: Math.abs(cff),
+    debtNetIssuance: num(p.netIssuancePaymentsOfDebt) ?? 0,
+    equityRepurchaseDividends: distributions,
     financingCashFlow: cff,
-    netChangeInCash: ocf + cfi + cff,
+    netChangeInCash: netChange,
     endingCash: cash,
 
-    currentRatio: totalCL > 0 ? totalCA / totalCL : 1.5,
+    currentRatio: totalCL > 0 ? totalCA / totalCL : 0,
     netDebt,
-    netDebtToEbitda: ebitda > 0 ? netDebt / ebitda : 0,
-    interestCoverage: interest > 0 ? opInc / interest : 20,
+    netDebtToEbitda: ebitda > 0 ? netDebt / (periodType === "quarterly" ? ebitda * 4 : ebitda) : 0,
+    interestCoverage: interest > 0 ? opInc / interest : Infinity,
     debtToEquity: equity > 0 ? totalDebt / equity : 0,
-    fcfConversion: netInc > 0 ? fcf / netInc : 1.0,
+    fcfConversion: netInc > 0 ? fcf / netInc : 0,
+
+    fcff: opInc * (1 - (taxRate || 0.21)) + da - capex - changeWC,
+    stockBasedCompensation: sbc,
+    minorityInterest: minority,
   };
 }
 
-export function buildHistoricalStatements(annualData: any[], shares = 1): StatementPeriod[] {
-  if (!annualData || annualData.length === 0) return [];
-  
-  // Sort chronological ascending (oldest first)
-  const sorted = [...annualData].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  
-  return sorted.map((p, idx, arr) => {
-    const rev = Number(p.totalRevenue ?? 0);
-    const prevRev = idx > 0 ? Number(arr[idx - 1].totalRevenue ?? 0) : rev;
-    const revGrowth = prevRev > 0 && idx > 0 ? (rev - prevRev) / prevRev : 0.10;
-    const grossProfit = Number(p.grossProfit ?? rev * 0.55);
-    const costOfRevenue = Number(p.costOfRevenue ?? (rev - grossProfit));
-    const opInc = Number(p.operatingIncome ?? rev * 0.25);
-    const opEx = Number(p.operatingExpense ?? Math.max(0, grossProfit - opInc));
-    const da = Math.abs(Number(p.reconciledDepreciation ?? p.depreciationAndAmortization ?? rev * 0.04));
-    const interest = Math.abs(Number(p.interestExpense ?? rev * 0.01));
-    const preTax = Number(p.pretaxIncome ?? (opInc - interest));
-    const taxExp = Math.abs(Number(p.taxProvision ?? preTax * 0.17));
-    const netInc = Number(p.netIncomeCommonStockholders ?? p.netIncome ?? (preTax - taxExp));
+// ---------------------------------------------------------------------------
+// Históricos, TTM y año en curso
+// ---------------------------------------------------------------------------
 
-    // Balance Sheet
-    const cash = Number(p.cashAndCashEquivalents ?? rev * 0.2);
-    const ar = Number(p.accountsReceivable ?? rev * 0.12);
-    const inv = Number(p.inventory ?? rev * 0.05);
-    const otherCA = Number(p.otherCurrentAssets ?? rev * 0.03);
-    const totalCA = Number(p.currentAssets ?? (cash + ar + inv + otherCA));
-    const netPPE = Number(p.netPPE ?? rev * 0.15);
-    const gw = Number(p.goodwillAndOtherIntangibleAssets ?? rev * 0.08);
-    const otherNCA = Number(p.otherNonCurrentAssets ?? rev * 0.05);
-    const totalAssets = Number(p.totalAssets ?? (totalCA + netPPE + gw + otherNCA));
-
-    const ap = Number(p.accountsPayable ?? rev * 0.08);
-    const stDebt = Number(p.currentDebt ?? 0);
-    const otherCL = Number(p.otherCurrentLiabilities ?? rev * 0.05);
-    const totalCL = Number(p.currentLiabilities ?? (ap + stDebt + otherCL));
-    const ltDebt = Number(p.longTermDebt ?? rev * 0.10);
-    const totalDebt = Number(p.totalDebt ?? (stDebt + ltDebt));
-    const otherNCL = Number(p.otherNonCurrentLiabilities ?? rev * 0.03);
-    const totalLiab = Number(p.totalLiabilitiesNetMinorityInterest ?? (totalCL + ltDebt + otherNCL));
-    const equity = Number(p.stockholdersEquity ?? (totalAssets - totalLiab));
-
-    // Cash flow
-    const ocf = Number(p.operatingCashFlow ?? netInc + da);
-    const capexRaw = Number(p.capitalExpenditure ?? -(rev * 0.05));
-    const capex = Math.abs(capexRaw);
-    const fcf = Number(p.freeCashFlow ?? (ocf - capex));
-    const cfi = Number(p.investingCashFlow ?? -capex);
-    const cff = Number(p.financingCashFlow ?? -(netInc * 0.2));
-
-    const dateObj = new Date(p.date);
-    const yearLabel = !isNaN(dateObj.getFullYear()) ? `FY${dateObj.getFullYear()}` : `Hist ${idx + 1}`;
-
-    const netDebt = totalDebt - cash;
-    const ebitda = opInc + da;
-
-    return {
-      yearLabel,
-      isHistorical: true,
-      periodType: "annual",
-      date: p.date,
-      revenue: rev,
-      revenueGrowth: revGrowth,
-      costOfRevenue,
-      grossProfit,
-      grossMargin: rev > 0 ? grossProfit / rev : 0,
-      operatingExpenses: opEx,
-      operatingIncome: opInc,
-      operatingMargin: rev > 0 ? opInc / rev : 0,
-      depreciationAmortization: da,
-      netInterestExpense: interest,
-      preTaxIncome: preTax,
-      taxExpense: taxExp,
-      taxRate: preTax > 0 ? taxExp / preTax : 0.17,
-      netIncome: netInc,
-      netMargin: rev > 0 ? netInc / rev : 0,
-
-      cashAndEquivalents: cash,
-      accountsReceivable: ar,
-      inventory: inv,
-      otherCurrentAssets: otherCA,
-      totalCurrentAssets: totalCA,
-      netPPE,
-      goodwillAndIntangibles: gw,
-      otherNonCurrentAssets: otherNCA,
-      totalAssets,
-
-      accountsPayable: ap,
-      shortTermDebt: stDebt,
-      otherCurrentLiabilities: otherCL,
-      totalCurrentLiabilities: totalCL,
-      longTermDebt: ltDebt,
-      totalDebt,
-      otherNonCurrentLiabilities: otherNCL,
-      totalLiabilities: totalLiab,
-      stockholdersEquity: equity,
-      totalLiabilitiesAndEquity: totalLiab + equity,
-      balanceDiscrepancy: Math.round(totalAssets - (totalLiab + equity)),
-
-      netIncomeCF: netInc,
-      depreciationCF: da,
-      changeInWorkingCapital: Math.round((ar + inv - ap) * 0.05),
-      operatingCashFlow: ocf,
-      capitalExpenditures: capex,
-      freeCashFlow: fcf,
-      investingCashFlow: cfi,
-      debtNetIssuance: 0,
-      equityRepurchaseDividends: Math.abs(cff),
-      financingCashFlow: cff,
-      netChangeInCash: cash - (idx > 0 ? (annualData[idx-1]?.cashAndCashEquivalents || cash) : cash),
-      endingCash: cash,
-
-      currentRatio: totalCL > 0 ? totalCA / totalCL : 1.5,
-      netDebt,
-      netDebtToEbitda: ebitda > 0 ? netDebt / ebitda : 0,
-      interestCoverage: interest > 0 ? opInc / interest : 20,
-      debtToEquity: equity > 0 ? totalDebt / equity : 0,
-      fcfConversion: netInc > 0 ? fcf / netInc : 1.0,
-    };
+export function buildHistoricalStatements(annualData: any[], _shares = 1): StatementPeriod[] {
+  const clean = cleanPeriods(annualData).reverse(); // del más antiguo al más reciente
+  return clean.map((p, idx) => {
+    const prev = idx > 0 ? clean[idx - 1] : undefined;
+    return statementFromRaw(
+      p,
+      prev ? num(prev.totalRevenue) : undefined,
+      `FY${fiscalYearOf(p.date)}`,
+      "annual",
+      prev ? num(prev.cashAndCashEquivalents) : undefined
+    );
   });
 }
 
-export function buildQuarterlyHistoricalStatements(quarterlyData: any[], shares = 1): StatementPeriod[] {
-  if (!quarterlyData || quarterlyData.length === 0) return [];
-  // Sort chronological ascending (oldest first)
-  const sorted = [...quarterlyData].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-  return sorted.map((p, idx, arr) => {
-    const rev = Number(p.totalRevenue ?? 0);
-    const prevRev = idx > 0 ? Number(arr[idx - 1].totalRevenue ?? 0) : rev;
-    const revGrowth = prevRev > 0 && idx > 0 ? (rev - prevRev) / prevRev : 0.03;
-    const grossProfit = Number(p.grossProfit ?? rev * 0.55);
-    const costOfRevenue = Number(p.costOfRevenue ?? (rev - grossProfit));
-    const opInc = Number(p.operatingIncome ?? rev * 0.25);
-    const opEx = Number(p.operatingExpense ?? Math.max(0, grossProfit - opInc));
-    const da = Math.abs(Number(p.reconciledDepreciation ?? p.depreciationAndAmortization ?? rev * 0.04));
-    const interest = Math.abs(Number(p.interestExpense ?? rev * 0.01));
-    const preTax = Number(p.pretaxIncome ?? (opInc - interest));
-    const taxExp = Math.abs(Number(p.taxProvision ?? preTax * 0.17));
-    const netInc = Number(p.netIncomeCommonStockholders ?? p.netIncome ?? (preTax - taxExp));
-
-    // Balance sheet
-    const cash = Number(p.cashAndCashEquivalents ?? rev * 0.2);
-    const ar = Number(p.accountsReceivable ?? rev * 0.12);
-    const inv = Number(p.inventory ?? rev * 0.05);
-    const otherCA = Number(p.otherCurrentAssets ?? rev * 0.03);
-    const totalCA = Number(p.currentAssets ?? (cash + ar + inv + otherCA));
-    const netPPE = Number(p.netPPE ?? rev * 0.15);
-    const gw = Number(p.goodwillAndOtherIntangibleAssets ?? rev * 0.08);
-    const otherNCA = Number(p.otherNonCurrentAssets ?? rev * 0.05);
-    const totalAssets = Number(p.totalAssets ?? (totalCA + netPPE + gw + otherNCA));
-
-    const ap = Number(p.accountsPayable ?? rev * 0.08);
-    const stDebt = Number(p.currentDebt ?? 0);
-    const otherCL = Number(p.otherCurrentLiabilities ?? rev * 0.05);
-    const totalCL = Number(p.currentLiabilities ?? (ap + stDebt + otherCL));
-    const ltDebt = Number(p.longTermDebt ?? rev * 0.10);
-    const totalDebt = Number(p.totalDebt ?? (stDebt + ltDebt));
-    const otherNCL = Number(p.otherNonCurrentLiabilities ?? rev * 0.03);
-    const totalLiab = Number(p.totalLiabilitiesNetMinorityInterest ?? (totalCL + ltDebt + otherNCL));
-    const equity = Number(p.stockholdersEquity ?? (totalAssets - totalLiab));
-
-    // Cash flow
-    const ocf = Number(p.operatingCashFlow ?? netInc + da);
-    const capex = Math.abs(Number(p.capitalExpenditure ?? -(rev * 0.05)));
-    const fcf = Number(p.freeCashFlow ?? (ocf - capex));
-    const cfi = Number(p.investingCashFlow ?? -capex);
-    const cff = Number(p.financingCashFlow ?? -(netInc * 0.2));
-
-    const yearLabel = getQuarterShortLabel(p.date);
-    const netDebt = totalDebt - cash;
-    const ebitda = opInc + da;
-
-    return {
-      yearLabel,
-      isHistorical: true,
-      periodType: "quarterly",
-      date: p.date,
-      revenue: rev,
-      revenueGrowth: revGrowth,
-      costOfRevenue,
-      grossProfit,
-      grossMargin: rev > 0 ? grossProfit / rev : 0,
-      operatingExpenses: opEx,
-      operatingIncome: opInc,
-      operatingMargin: rev > 0 ? opInc / rev : 0,
-      depreciationAmortization: da,
-      netInterestExpense: interest,
-      preTaxIncome: preTax,
-      taxExpense: taxExp,
-      taxRate: preTax > 0 ? taxExp / preTax : 0.17,
-      netIncome: netInc,
-      netMargin: rev > 0 ? netInc / rev : 0,
-
-      cashAndEquivalents: cash,
-      accountsReceivable: ar,
-      inventory: inv,
-      otherCurrentAssets: otherCA,
-      totalCurrentAssets: totalCA,
-      netPPE,
-      goodwillAndIntangibles: gw,
-      otherNonCurrentAssets: otherNCA,
-      totalAssets,
-
-      accountsPayable: ap,
-      shortTermDebt: stDebt,
-      otherCurrentLiabilities: otherCL,
-      totalCurrentLiabilities: totalCL,
-      longTermDebt: ltDebt,
-      totalDebt,
-      otherNonCurrentLiabilities: otherNCL,
-      totalLiabilities: totalLiab,
-      stockholdersEquity: equity,
-      totalLiabilitiesAndEquity: totalLiab + equity,
-      balanceDiscrepancy: Math.round(totalAssets - (totalLiab + equity)),
-
-      netIncomeCF: netInc,
-      depreciationCF: da,
-      changeInWorkingCapital: Math.round((ar + inv - ap) * 0.05),
-      operatingCashFlow: ocf,
-      capitalExpenditures: capex,
-      freeCashFlow: fcf,
-      investingCashFlow: cfi,
-      debtNetIssuance: 0,
-      equityRepurchaseDividends: Math.abs(cff),
-      financingCashFlow: cff,
-      netChangeInCash: ocf + cfi + cff,
-      endingCash: cash,
-
-      currentRatio: totalCL > 0 ? totalCA / totalCL : 1.5,
-      netDebt,
-      netDebtToEbitda: ebitda > 0 ? netDebt / ebitda : 0,
-      interestCoverage: interest > 0 ? opInc / interest : 20,
-      debtToEquity: equity > 0 ? totalDebt / equity : 0,
-      fcfConversion: netInc > 0 ? fcf / netInc : 1.0,
-    };
+export function buildQuarterlyHistoricalStatements(quarterlyData: any[], _shares = 1): StatementPeriod[] {
+  const clean = cleanPeriods(quarterlyData).reverse();
+  return clean.map((p, idx) => {
+    // Crecimiento interanual (mismo trimestre del año anterior) si existe; si no, trimestral.
+    const yearAgo = clean.slice(0, idx).find((q) => Math.abs(time(p.date) - time(q.date) - 365 * DAY) < 45 * DAY);
+    const prev = yearAgo ?? (idx > 0 ? clean[idx - 1] : undefined);
+    return statementFromRaw(
+      p,
+      prev ? num(prev.totalRevenue) : undefined,
+      quarterLabel(p.date),
+      "quarterly",
+      idx > 0 ? num(clean[idx - 1].cashAndCashEquivalents) : undefined
+    );
   });
 }
 
-export function projectStatements(
-  latestHist: StatementPeriod,
-  assumptions: ModelAssumptions,
-  projectionYears = 5
-): StatementPeriod[] {
-  const result: StatementPeriod[] = [];
-  let prev = latestHist;
-  const currentYearNum = parseInt(latestHist.yearLabel.replace(/[^0-9]/g, "")) || 2026;
+/**
+ * Últimos doce meses: suma de los 4 últimos trimestres válidos y balance del más reciente.
+ * Devuelve null si no hay 4 trimestres o si el último trimestre coincide con el cierre anual
+ * (en ese caso el último ejercicio ya es el TTM).
+ */
+export function buildTTMStatementPeriod(quarterlyData: any[], annualData: any[]): StatementPeriod | null {
+  const q = cleanPeriods(quarterlyData);
+  const a = cleanPeriods(annualData);
+  if (q.length < 4) return null;
+  const last4 = q.slice(0, 4);
+  // Los 4 trimestres deben ser consecutivos (aprox. 1 año entre el primero y el último).
+  const span = time(last4[0].date) - time(last4[3].date);
+  if (span > 300 * DAY || span < 240 * DAY) return null;
+  if (a[0] && time(q[0].date) <= time(a[0].date) + 20 * DAY) return null;
 
-  const cagr = assumptions.historicalCAGRs || {
-    revenueCAGR: assumptions.revenueGrowthRate,
-    costOfRevenueCAGR: assumptions.revenueGrowthRate * 0.9,
-    grossProfitCAGR: assumptions.revenueGrowthRate * 1.05,
-    operatingExpensesCAGR: assumptions.revenueGrowthRate * 0.8,
-    operatingIncomeCAGR: assumptions.revenueGrowthRate * 1.1,
-    netIncomeCAGR: assumptions.revenueGrowthRate * 1.1,
-    depreciationCAGR: 8.0,
-    capexCAGR: 8.0,
-    fcfCAGR: assumptions.revenueGrowthRate,
-    operatingCashFlowCAGR: assumptions.revenueGrowthRate,
-  };
+  const sum = (k: string, abs = false) =>
+    last4.reduce((s, p) => {
+      const v = num(p[k]);
+      return s + (v === undefined ? 0 : abs ? Math.abs(v) : v);
+    }, 0);
+  const has = (k: string) => last4.every((p) => num(p[k]) !== undefined);
 
-  // Determine line item growth rates based on scenario:
-  let gRev = (cagr.revenueCAGR || assumptions.revenueGrowthRate) / 100;
-  let gCost = (cagr.costOfRevenueCAGR || (gRev * 100 * 0.9)) / 100;
-  let gOpEx = (cagr.operatingExpensesCAGR || (gRev * 100 * 0.8)) / 100;
-  let gCapex = (cagr.capexCAGR || 8.0) / 100;
-  let gDA = (cagr.depreciationCAGR || 8.0) / 100;
-
-  if (assumptions.scenario === "bull") {
-    gRev = gRev * 1.30;
-    gCost = gCost * 1.10;
-    gOpEx = gOpEx * 1.15;
-    gCapex = gCapex * 1.20;
-    gDA = gDA * 1.15;
-  } else if (assumptions.scenario === "bear") {
-    gRev = gRev * 0.60;
-    gCost = gCost * 0.85;
-    gOpEx = gOpEx * 0.85;
-    gCapex = gCapex * 0.70;
-    gDA = gDA * 0.80;
-  } else if (assumptions.scenario === "custom") {
-    gRev = assumptions.revenueGrowthRate / 100;
+  const latest = { ...q[0] };
+  const flowKeys = [
+    "totalRevenue", "costOfRevenue", "grossProfit", "operatingIncome", "operatingExpense", "pretaxIncome",
+    "taxProvision", "netIncomeCommonStockholders", "netIncome", "operatingCashFlow", "freeCashFlow",
+    "investingCashFlow", "financingCashFlow", "changeInWorkingCapital", "stockBasedCompensation",
+    "netIssuancePaymentsOfDebt", "changesInCash",
+  ];
+  for (const k of flowKeys) latest[k] = has(k) ? sum(k) : undefined;
+  latest.reconciledDepreciation = has("reconciledDepreciation") ? sum("reconciledDepreciation", true)
+    : has("depreciationAndAmortization") ? sum("depreciationAndAmortization", true) : undefined;
+  latest.depreciationAndAmortization = undefined;
+  latest.interestExpense = has("interestExpense") ? sum("interestExpense", true) : undefined;
+  latest.capitalExpenditure = has("capitalExpenditure") ? -sum("capitalExpenditure", true) : undefined;
+  latest.cashDividendsPaid = sum("cashDividendsPaid", true);
+  latest.repurchaseOfCapitalStock = sum("repurchaseOfCapitalStock", true);
+  if (latest.freeCashFlow === undefined && latest.operatingCashFlow !== undefined && latest.capitalExpenditure !== undefined) {
+    latest.freeCashFlow = latest.operatingCashFlow + latest.capitalExpenditure;
   }
 
-  const opMargin = assumptions.operatingMarginTarget / 100;
-  const grossMarginTarget = assumptions.grossMarginTarget / 100;
-  const taxRate = assumptions.taxRateTarget / 100;
-  const capexPct = assumptions.capexPercentRevenue / 100;
-  const daPct = assumptions.deprecPercentRevenue / 100;
-  const nwcPct = assumptions.nwcPercentRevenue / 100;
-  const costDebt = assumptions.costOfDebtInterestRate / 100;
-  const debtRepaymentPct = assumptions.annualDebtRepaymentPct / 100;
-  const payoutRatio = assumptions.dividendPayoutRatio / 100;
+  const period = statementFromRaw(latest, a[0] ? num(a[0].totalRevenue) : undefined, "TTM (LTM)", "annual",
+    a[0] ? num(a[0].cashAndCashEquivalents) : undefined);
+  return { ...period, isTTM: true, periodType: "ttm" };
+}
 
-  for (let yr = 1; yr <= projectionYears; yr++) {
-    // Project Income Statement with historical CAGR base case
-    const stepDecay = yr > 3 ? 0.90 : 1.0;
-    const yearGrowth = gRev * Math.pow(stepDecay, yr - 1);
-    const revenue = Math.round(prev.revenue * (1 + yearGrowth));
+export function detectCurrentYearStatus(annualData: any[], quarterlyData: any[]): CurrentYearStatus {
+  const a = cleanPeriods(annualData);
+  const q = cleanPeriods(quarterlyData);
+  const lastFY = a[0];
+  const empty: CurrentYearStatus = {
+    hasPartialYear: false, quartersReportedCount: 0, quartersRemainingCount: 0,
+    currentFiscalYearLabel: lastFY ? `FY${fiscalYearOf(lastFY.date) + 1}` : "", latestAnnualDate: lastFY?.date || "",
+    latestQuarterDate: q[0]?.date || "", quartersReportedLabels: [], ytdRevenue: 0, ytdOperatingIncome: 0,
+    ytdNetIncome: 0, ytdOcf: 0, ytdCapex: 0, ytdFcf: 0, ttmRevenue: 0, ttmOperatingIncome: 0, ttmNetIncome: 0,
+    ttmOcf: 0, ttmCapex: 0, ttmFcf: 0, ttmCash: 0, ttmDebt: 0, estimatedFullYearRevenue: 0, estimatedFullYearFcf: 0,
+  };
+  if (q.length === 0 || !lastFY) return empty;
 
-    let costOfRevenue: number;
-    let grossProfit: number;
-    if (assumptions.scenario === "custom") {
-      grossProfit = Math.round(revenue * grossMarginTarget);
-      costOfRevenue = revenue - grossProfit;
+  const fyEnd = time(lastFY.date);
+  const inFY = q.filter((p) => time(p.date) > fyEnd + 20 * DAY).slice(0, 3).reverse(); // Q1, Q2, Q3
+  const sum = (rows: any[], k: string, abs = false) =>
+    rows.reduce((s, p) => s + (abs ? Math.abs(num(p[k]) ?? 0) : num(p[k]) ?? 0), 0);
+  const fcfOf = (rows: any[]) => sum(rows, "operatingCashFlow") - sum(rows, "capitalExpenditure", true);
+
+  // TTM: 4 últimos trimestres válidos; si no hay 4, el último ejercicio cerrado.
+  const last4 = q.length >= 4 ? q.slice(0, 4) : null;
+  const src = last4 ?? [lastFY];
+  const ttmRevenue = sum(src, "totalRevenue");
+
+  // Estimación del cierre: último ejercicio × (acumulado del año / mismos trimestres del año anterior).
+  const ytdRevenue = sum(inFY, "totalRevenue");
+  const ytdFcf = fcfOf(inFY);
+  const priorSame = inFY
+    .map((p) => q.find((x) => Math.abs(time(p.date) - time(x.date) - 365 * DAY) < 45 * DAY))
+    .filter(Boolean) as any[];
+  let estRevenue = 0;
+  let estFcf = 0;
+  if (inFY.length > 0) {
+    const priorRev = sum(priorSame, "totalRevenue");
+    if (priorSame.length === inFY.length && priorRev > 0) {
+      estRevenue = Math.round((num(lastFY.totalRevenue) ?? 0) * (ytdRevenue / priorRev));
+      const priorFcf = fcfOf(priorSame);
+      const fyFcf = num(lastFY.freeCashFlow) ?? 0;
+      estFcf = priorFcf > 0 ? Math.round(fyFcf * (ytdFcf / priorFcf)) : Math.round((ytdFcf / inFY.length) * 4);
     } else {
-      costOfRevenue = Math.round(prev.costOfRevenue * (1 + gCost * Math.pow(stepDecay, yr - 1)));
-      if (costOfRevenue >= revenue * 0.92) {
-        costOfRevenue = Math.round(revenue * 0.75);
-      }
-      grossProfit = revenue - costOfRevenue;
+      estRevenue = Math.round((ytdRevenue / inFY.length) * 4);
+      estFcf = Math.round((ytdFcf / inFY.length) * 4);
     }
-    const grossMargin = revenue > 0 ? grossProfit / revenue : 0.5;
+  }
 
-    let operatingExpenses: number;
-    let operatingIncome: number;
-    if (assumptions.scenario === "custom") {
-      operatingIncome = Math.round(revenue * opMargin);
-      operatingExpenses = Math.max(0, grossProfit - operatingIncome);
-    } else {
-      operatingExpenses = Math.round(prev.operatingExpenses * (1 + gOpEx * Math.pow(stepDecay, yr - 1)));
-      operatingIncome = grossProfit - operatingExpenses;
-    }
+  const fyLabelYear = fiscalYearOf(lastFY.date) + 1;
+  return {
+    hasPartialYear: inFY.length > 0,
+    quartersReportedCount: inFY.length,
+    quartersRemainingCount: inFY.length > 0 ? 4 - inFY.length : 0,
+    currentFiscalYearLabel: `FY${fyLabelYear}`,
+    latestAnnualDate: lastFY.date,
+    latestQuarterDate: q[0].date,
+    quartersReportedLabels: inFY.map((p, i) => `Q${i + 1} FY${String(fyLabelYear).slice(-2)} (${monthLabel(p.date)})`),
+    ytdRevenue,
+    ytdOperatingIncome: sum(inFY, "operatingIncome"),
+    ytdNetIncome: sum(inFY, "netIncomeCommonStockholders"),
+    ytdOcf: sum(inFY, "operatingCashFlow"),
+    ytdCapex: sum(inFY, "capitalExpenditure", true),
+    ytdFcf,
+    ttmRevenue,
+    ttmOperatingIncome: sum(src, "operatingIncome"),
+    ttmNetIncome: sum(src, "netIncomeCommonStockholders"),
+    ttmOcf: sum(src, "operatingCashFlow"),
+    ttmCapex: sum(src, "capitalExpenditure", true),
+    ttmFcf: fcfOf(src),
+    ttmCash: num(q[0].cashAndCashEquivalents) ?? num(lastFY.cashAndCashEquivalents) ?? 0,
+    ttmDebt: num(q[0].totalDebt) ?? num(lastFY.totalDebt) ?? 0,
+    estimatedFullYearRevenue: estRevenue,
+    estimatedFullYearFcf: estFcf,
+  };
+}
 
-    const depreciation = assumptions.scenario === "custom"
-      ? Math.round(revenue * daPct)
-      : Math.max(1000000, Math.round(prev.depreciationAmortization * (1 + gDA * Math.pow(stepDecay, yr - 1))));
+// ---------------------------------------------------------------------------
+// CAGR históricos
+// ---------------------------------------------------------------------------
 
-    // Dynamic Balance Sheet & Debt Schedule
-    const prevDebt = prev.totalDebt;
-    const debtRepaid = Math.round(prevDebt * debtRepaymentPct);
-    const projectedTotalDebt = Math.max(0, prevDebt - debtRepaid);
-    const projectedSTDebt = Math.round(projectedTotalDebt * 0.15);
-    const projectedLTDebt = projectedTotalDebt - projectedSTDebt;
-    const interestExpense = Math.round(projectedTotalDebt * costDebt);
+/** CAGR entre el dato más reciente y el más antiguo positivos (en %). NaN si no se puede calcular. */
+function cagrOf(values: (number | undefined)[]): number {
+  // values: del más reciente al más antiguo
+  const latestIdx = values.findIndex((v) => v !== undefined);
+  if (latestIdx < 0) return NaN;
+  const latest = values[latestIdx]!;
+  if (latest <= 0) return NaN;
+  for (let i = values.length - 1; i > latestIdx; i--) {
+    const v = values[i];
+    if (v !== undefined && v > 0) return (Math.pow(latest / v, 1 / (i - latestIdx)) - 1) * 100;
+  }
+  return NaN;
+}
 
-    const preTaxIncome = operatingIncome - interestExpense;
-    const taxExpense = Math.max(0, Math.round(preTaxIncome * taxRate));
-    const netIncome = preTaxIncome - taxExpense;
+export function computeHistoricalCAGRs(annualData: any[]): HistoricalCAGRs {
+  const a = cleanPeriods(annualData);
+  const col = (k: string, abs = false) => a.map((p) => {
+    const v = num(p[k]);
+    return v === undefined ? undefined : abs ? Math.abs(v) : v;
+  });
+  const fcf = a.map((p) => {
+    const v = num(p.freeCashFlow);
+    if (v !== undefined) return v;
+    const ocf = num(p.operatingCashFlow);
+    const capex = num(p.capitalExpenditure);
+    return ocf !== undefined ? ocf - Math.abs(capex ?? 0) : undefined;
+  });
+  const r = (v: number) => (Number.isFinite(v) ? round1(v) : NaN);
+  return {
+    revenueCAGR: r(cagrOf(col("totalRevenue"))),
+    costOfRevenueCAGR: r(cagrOf(col("costOfRevenue"))),
+    grossProfitCAGR: r(cagrOf(col("grossProfit"))),
+    operatingExpensesCAGR: r(cagrOf(col("operatingExpense"))),
+    operatingIncomeCAGR: r(cagrOf(col("operatingIncome"))),
+    netIncomeCAGR: r(cagrOf(col("netIncomeCommonStockholders"))),
+    depreciationCAGR: r(cagrOf(col("reconciledDepreciation", true))),
+    capexCAGR: r(cagrOf(col("capitalExpenditure", true))),
+    fcfCAGR: r(cagrOf(fcf)),
+    operatingCashFlowCAGR: r(cagrOf(col("operatingCashFlow"))),
+  };
+}
 
-    // Working Capital & Assets
-    const ar = Math.round(revenue * 0.12);
-    const inv = Math.round(revenue * 0.06);
-    const ap = Math.round(revenue * 0.08);
-    const otherCA = Math.round(revenue * 0.04);
-    const otherCL = Math.round(revenue * 0.05);
+// ---------------------------------------------------------------------------
+// Calibración (escenario base)
+// ---------------------------------------------------------------------------
 
-    const targetNWC = Math.round(revenue * nwcPct);
-    const prevNWC = Math.round(prev.revenue * nwcPct);
-    const deltaNWC = targetNWC - prevNWC;
+/**
+ * Normaliza un crecimiento histórico para proyectarlo (AGENTS.md §2.3):
+ * recorte del 30 % si supera el 40 % (efecto base), tope del 25 % y suelo del −10 %.
+ */
+export function normalizeGrowth(raw: number, notes: string[], label = "crecimiento"): number {
+  let g = raw;
+  if (g > 40) {
+    notes.push(`${label} histórico ${round1(raw)}% > 40%: recorte del 30% por efecto base → ${round1(g * 0.7)}%`);
+    g = g * 0.7;
+  }
+  if (g > 25) {
+    notes.push(`tope del 25% anual sostenido a 5 años (${round1(g)}% → 25%)`);
+    g = 25;
+  }
+  if (g < -10) {
+    notes.push(`suelo del −10% (${round1(g)}% → −10%)`);
+    g = -10;
+  }
+  return round1(g);
+}
 
-    // Cash Flow calculations
-    const capex = assumptions.scenario === "custom"
-      ? Math.round(revenue * capexPct)
-      : Math.max(1000000, Math.round(prev.capitalExpenditures * (1 + gCapex * Math.pow(stepDecay, yr - 1))));
-    const ocf = netIncome + depreciation - deltaNWC;
+export function calibrateModel(
+  annualData: any[],
+  quarterlyData: any[],
+  quote: any,
+  anchor: StatementPeriod | undefined,
+  opts: { riskFreeRate?: number; equityRiskPremium?: number } = {}
+): ModelCalibration {
+  const a = cleanPeriods(annualData);
+  const q = cleanPeriods(quarterlyData);
+  const rf = opts.riskFreeRate ?? 4.3;
+  const erp = opts.equityRiskPremium ?? 5.5;
+  const notes: string[] = [];
+
+  // Crecimiento: media de tres lecturas, de la más estructural a la más reciente: CAGR de ventas
+  // de los ejercicios disponibles, crecimiento del último ejercicio y crecimiento interanual del
+  // último trimestre (Yahoo revenueGrowth).
+  const cagrs = computeHistoricalCAGRs(a);
+  const revenueCagr = Number.isFinite(cagrs.revenueCAGR) ? cagrs.revenueCAGR : null;
+  const r0 = num(a[0]?.totalRevenue);
+  const r1 = num(a[1]?.totalRevenue);
+  const latestYoY = r0 && r1 && r1 > 0 ? round1((r0 / r1 - 1) * 100) : null;
+  const qYoY = num(quote?.revenueGrowth);
+  const latestQuarterYoY = qYoY !== undefined && Math.abs(qYoY) < 5 ? round1(qYoY * 100) : null;
+  const parts = [revenueCagr, latestYoY, latestQuarterYoY].filter((v): v is number => v !== null);
+  const growthRaw = parts.length ? round1(parts.reduce((s, v) => s + v, 0) / parts.length) : null;
+  if (growthRaw === null) notes.push("sin histórico de ventas suficiente: se usa 5%");
+  const growthNormalized = normalizeGrowth(growthRaw ?? 5, notes, "crecimiento de ventas");
+
+  const rev = anchor?.revenue || r0 || 0;
+  const pct = (v: number) => (rev > 0 ? (v / rev) * 100 : 0);
+  const opMargin = round1(anchor ? anchor.operatingMargin * 100 : 0);
+  const grossMargin = round1(anchor ? anchor.grossMargin * 100 : 0);
+  const daPct = round1(anchor ? pct(anchor.depreciationAmortization) : 0);
+  const capexPct = round1(anchor ? pct(anchor.capitalExpenditures) : 0);
+
+  // Intensidad de capex media (ejercicios cerrados + TTM): normaliza picos de inversión.
+  const capexRatios = a.slice(0, 4).map((p) => {
+    const rv = num(p.totalRevenue) ?? 0;
+    return rv > 0 ? (Math.abs(num(p.capitalExpenditure) ?? 0) / rv) * 100 : undefined;
+  }).filter((v): v is number => v !== undefined);
+  if (anchor?.isTTM) capexRatios.unshift(capexPct);
+  const capexHistAvg = round1(capexRatios.length ? capexRatios.reduce((s, v) => s + v, 0) / capexRatios.length : capexPct);
+  // Capex objetivo: punto medio entre el nivel actual y la media; la D&A converge hacia el capex
+  // (los activos nuevos se amortizan) y en una empresa que crece el capex no baja de la D&A.
+  const daTarget = round1(Math.max(daPct, ((capexPct + capexHistAvg) / 2) * 0.75));
+  const capexTarget = round1(Math.max((capexPct + capexHistAvg) / 2, daTarget));
+
+  const nwcPct = round1(anchor ? pct(anchor.accountsReceivable + anchor.inventory - anchor.accountsPayable) : 0);
+
+  // Tipo efectivo: impuestos / beneficio antes de impuestos de los 3 últimos ejercicios.
+  let taxRate = 21;
+  let taxSource = "estándar EE. UU. (21%)";
+  const taxRows = a.slice(0, 3).filter((p) => (num(p.pretaxIncome) ?? 0) > 0 && num(p.taxProvision) !== undefined);
+  if (taxRows.length) {
+    const t = taxRows.reduce((s, p) => s + num(p.taxProvision)!, 0) / taxRows.reduce((s, p) => s + num(p.pretaxIncome)!, 0);
+    taxRate = round1(clamp(t * 100, 5, 35));
+    taxSource = `efectivo medio ${taxRows.length} ejercicios`;
+  } else if (num(a[0]?.taxRateForCalcs) !== undefined) {
+    taxRate = round1(clamp(num(a[0].taxRateForCalcs)! * 100, 5, 35));
+    taxSource = "Tax Rate for Calcs";
+  }
+
+  // Coste de la deuda: intereses / deuda total.
+  const debt = num(quote?.totalDebt) ?? anchor?.totalDebt ?? 0;
+  const interest = anchor?.netInterestExpense ?? 0;
+  const costOfDebt = debt > 0 && interest > 0 ? round1(clamp((interest / debt) * 100, 2, 10)) : 5;
+
+  // Remuneración al accionista: (dividendos + recompras) / beneficio neto de los 3 últimos ejercicios.
+  const payRows = a.slice(0, 3);
+  const niSum = payRows.reduce((s, p) => s + (num(p.netIncomeCommonStockholders) ?? num(p.netIncome) ?? 0), 0);
+  const distSum = payRows.reduce((s, p) => s + Math.abs(num(p.cashDividendsPaid) ?? 0) + Math.abs(num(p.repurchaseOfCapitalStock) ?? 0), 0);
+  const payoutRatio = niSum > 0 ? round1(clamp((distSum / niSum) * 100, 0, 100)) : 0;
+
+  const sbcPct = round1(anchor ? pct(anchor.stockBasedCompensation ?? 0) : 0);
+
+  // Acciones diluidas: acciones en circulación × factor de dilución del último trimestre.
+  const latestQ = q[0] ?? a[0];
+  const dil = num(latestQ?.dilutedAverageShares);
+  const basic = num(latestQ?.basicAverageShares);
+  const so = num(quote?.sharesOutstanding);
+  let dilutedShares = 0;
+  let sharesSource = "";
+  if (so && dil && basic && dil >= basic && dil / basic < 1.15) {
+    dilutedShares = so * (dil / basic);
+    sharesSource = `acciones en circulación × dilución (${((dil / basic - 1) * 100).toFixed(1)}%)`;
+  } else if (so) {
+    dilutedShares = so;
+    sharesSource = "acciones en circulación";
+  } else if (dil) {
+    dilutedShares = dil;
+    sharesSource = "media diluida del último periodo";
+  } else {
+    dilutedShares = num(latestQ?.ordinarySharesNumber) ?? 0;
+    sharesSource = "Ordinary Shares Number";
+  }
+
+  // WACC por CAPM con beta ajustada (Blume: 0,67·β + 0,33), AGENTS.md §3.
+  const price = num(quote?.price) ?? 0;
+  const beta = num(quote?.beta) ?? null;
+  const betaAdjusted = Math.round((beta !== null ? 0.67 * beta + 0.33 : 1) * 100) / 100;
+  const costOfEquity = rf + betaAdjusted * erp;
+  const costOfDebtNet = costOfDebt * (1 - taxRate / 100);
+  const marketCap = num(quote?.marketCap) ?? price * dilutedShares;
+  const V = marketCap + debt;
+  const we = V > 0 ? marketCap / V : 1;
+  const wd = V > 0 ? debt / V : 0;
+  const waccRaw = we * costOfEquity + wd * costOfDebtNet;
+  let wacc = round1(waccRaw);
+  let waccNote: string | null = beta === null
+    ? "sin beta en los datos: se usa β = 1"
+    : beta < 0.3 || beta > 2.5
+    ? `beta ${beta.toFixed(2)} anómala: la beta ajustada (${betaAdjusted.toFixed(2)}) la acerca a 1`
+    : null;
+  if (waccRaw > 14) {
+    wacc = 14;
+    waccNote = `WACC calculado ${waccRaw.toFixed(1)}% > 14%: se limita al techo del rango sectorial (AGENTS.md §3.4)`;
+  } else if (waccRaw < 6) {
+    wacc = 6;
+    waccNote = `WACC calculado ${waccRaw.toFixed(1)}% < 6%: se eleva al suelo prudente`;
+  }
+
+  const terminalGrowth = Math.min(growthNormalized >= 5 ? 3 : 2.5, round1(wacc - 3));
+  const minorityInterest = num(latestQ?.minorityInterest) ?? num(a[0]?.minorityInterest) ?? 0;
+
+  return {
+    revenueCagr, latestYoY, latestQuarterYoY, growthRaw, growthNormalized, growthNotes: notes,
+    grossMargin, opMargin, daPct, daTarget, capexPct, capexHistAvg, capexTarget, nwcPct,
+    taxRate, taxSource, costOfDebt, payoutRatio, sbcPct,
+    beta, betaAdjusted, riskFreeRate: rf, equityRiskPremium: erp,
+    costOfEquity: round1(costOfEquity), costOfDebtNet: round1(costOfDebtNet),
+    weightEquity: round1(we * 100), weightDebt: round1(wd * 100),
+    waccRaw: round1(waccRaw), wacc, waccNote,
+    dilutedShares, sharesSource, terminalGrowth, minorityInterest, marketCap,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Proyección
+// ---------------------------------------------------------------------------
+
+interface PathOptions {
+  periodsToTarget: number; // periodos hasta alcanzar los objetivos del año 5
+  annualize: number; // 1 anual, 4 trimestral (para ratios de balance sobre ventas anuales)
+  labels: string[];
+  dates: (string | undefined)[];
+  periodType: "annual" | "quarterly";
+  growthShown: number[]; // crecimiento mostrado por periodo (decimal)
+}
+
+/** Proyecta los 3 estados a partir del ancla y de una senda de ingresos ya calculada. */
+function projectPath(anchor: StatementPeriod, revenues: number[], a: ModelAssumptions, o: PathOptions): StatementPeriod[] {
+  const out: StatementPeriod[] = [];
+  const k = o.annualize;
+  const rev0 = anchor.revenue || 1;
+  const annualRev0 = rev0 * k;
+
+  // Ratios de partida (último dato) y objetivos (año 5).
+  const opM0 = anchor.operatingMargin;
+  const opexPct = Math.max(0, anchor.grossMargin - anchor.operatingMargin);
+  const da0 = anchor.depreciationAmortization / rev0;
+  const capex0 = anchor.capitalExpenditures / rev0;
+  const opMT = a.operatingMarginTarget / 100;
+  const daT = a.deprecPercentRevenue / 100;
+  const capexT = a.capexPercentRevenue / 100;
+  const tax = a.taxRateTarget / 100;
+  const kd = a.costOfDebtInterestRate / 100 / k;
+  const payout = clamp(a.dividendPayoutRatio / 100, 0, 1);
+
+  // Circulante operativo en % de ventas anuales.
+  const arPct = anchor.accountsReceivable / annualRev0;
+  const invPct = anchor.inventory / annualRev0;
+  const apPct = anchor.accountsPayable / annualRev0;
+
+  // Partidas que se mantienen constantes; las "otras" absorben cualquier diferencia del dato de
+  // partida para que el ancla cuadre exactamente.
+  const otherCA = anchor.otherCurrentAssets;
+  const gw = anchor.goodwillAndIntangibles;
+  const otherNCA = anchor.totalAssets - anchor.cashAndEquivalents - anchor.accountsReceivable - anchor.inventory - otherCA - anchor.netPPE - gw;
+  const otherCL = anchor.otherCurrentLiabilities;
+  const stShare = anchor.totalDebt > 0 ? anchor.shortTermDebt / anchor.totalDebt : 0.15;
+  const otherNCL = anchor.totalAssets - anchor.stockholdersEquity - anchor.accountsPayable - otherCL - anchor.totalDebt;
+
+  let prev = {
+    revenue: rev0,
+    cash: anchor.cashAndEquivalents,
+    debt: anchor.totalDebt,
+    ppe: anchor.netPPE,
+    equity: anchor.stockholdersEquity,
+    ar: anchor.accountsReceivable,
+    inv: anchor.inventory,
+    ap: anchor.accountsPayable,
+  };
+
+  revenues.forEach((revenue, i) => {
+    const w = Math.min(1, (i + 1) / o.periodsToTarget);
+    const opM = opM0 + (opMT - opM0) * w;
+    const daPctT = da0 + (daT - da0) * w;
+    const capexPctT = capex0 + (capexT - capex0) * w;
+
+    const grossMargin = Math.min(0.98, opM + opexPct);
+    const grossProfit = revenue * grossMargin;
+    const operatingIncome = revenue * opM;
+    const operatingExpenses = grossProfit - operatingIncome;
+    const da = revenue * daPctT;
+    const capex = revenue * capexPctT;
+
+    const interest = prev.debt * kd;
+    const preTax = operatingIncome - interest;
+    const taxExpense = Math.max(0, preTax * tax);
+    const netIncome = preTax - taxExpense;
+
+    const annualRev = revenue * k;
+    const ar = annualRev * arPct;
+    const inv = annualRev * invPct;
+    const ap = annualRev * apPct;
+    const deltaNWC = (ar + inv - ap) - (prev.ar + prev.inv - prev.ap);
+
+    const ocf = netIncome + da - deltaNWC;
     const fcf = ocf - capex;
-    const cfi = -capex;
+    const fcff = operatingIncome * (1 - tax) + da - capex - deltaNWC;
 
-    const dividendsAndBuybacks = Math.max(0, Math.round(netIncome * payoutRatio));
-    const cff = -debtRepaid - dividendsAndBuybacks;
-    const netChangeInCash = ocf + cfi + cff;
+    // Remuneración al accionista sin dejar la caja por debajo del 2 % de las ventas anuales;
+    // si aun así falta caja, se dispone de deuda (revolving).
+    const minCash = annualRev * 0.02;
+    const cashBefore = prev.cash + ocf - capex;
+    const distributions = Math.max(0, Math.min(payout * Math.max(0, netIncome), cashBefore - minCash));
+    let cash = cashBefore - distributions;
+    let debt = prev.debt;
+    let newDebt = 0;
+    if (cash < minCash) {
+      newDebt = minCash - cash;
+      debt += newDebt;
+      cash = minCash;
+    }
 
-    // Balance Sheet Integration
-    const cash = Math.max(1000000, prev.cashAndEquivalents + netChangeInCash);
-    const totalCA = cash + ar + inv + otherCA;
-    const netPPE = Math.max(0, prev.netPPE + capex - depreciation);
-    const gw = prev.goodwillAndIntangibles;
-    const otherNCA = Math.round(revenue * 0.05);
-    const totalAssets = totalCA + netPPE + gw + otherNCA;
+    const ppe = prev.ppe + capex - da;
+    const equity = prev.equity + netIncome - distributions;
+    const shortTermDebt = debt * stShare;
+    const longTermDebt = debt - shortTermDebt;
 
-    const totalCL = ap + projectedSTDebt + otherCL;
-    const totalLiab = totalCL + projectedLTDebt + Math.round(revenue * 0.04);
-    const retainedEarningsAddition = netIncome - dividendsAndBuybacks;
-    const equity = prev.stockholdersEquity + retainedEarningsAddition;
+    const totalCurrentAssets = cash + ar + inv + otherCA;
+    const totalAssets = totalCurrentAssets + ppe + gw + otherNCA;
+    const totalCurrentLiabilities = ap + otherCL + shortTermDebt;
+    const totalLiabilities = totalCurrentLiabilities + longTermDebt + otherNCL;
+    const ebitda = operatingIncome + da;
+    const netDebt = debt - cash;
 
-    const totalLiabAndEquity = totalLiab + equity;
-    const discrepancy = totalAssets - totalLiabAndEquity;
-
-    const netDebt = projectedTotalDebt - cash;
-    const ebitda = operatingIncome + depreciation;
-
-    const currentYearRecord: StatementPeriod = {
-      yearLabel: `Y+${yr} (${currentYearNum + yr})`,
+    const period: StatementPeriod = {
+      yearLabel: o.labels[i],
       isHistorical: false,
-      periodType: "annual",
+      periodType: o.periodType,
+      date: o.dates[i],
       revenue,
-      revenueGrowth: yearGrowth,
-      costOfRevenue,
+      revenueGrowth: o.growthShown[i],
+      costOfRevenue: revenue - grossProfit,
       grossProfit,
       grossMargin,
       operatingExpenses,
       operatingIncome,
-      operatingMargin: revenue > 0 ? operatingIncome / revenue : 0,
-      depreciationAmortization: depreciation,
-      netInterestExpense: interestExpense,
-      preTaxIncome,
+      operatingMargin: opM,
+      depreciationAmortization: da,
+      netInterestExpense: interest,
+      preTaxIncome: preTax,
       taxExpense,
-      taxRate,
+      taxRate: tax,
       netIncome,
       netMargin: revenue > 0 ? netIncome / revenue : 0,
 
@@ -893,378 +896,263 @@ export function projectStatements(
       accountsReceivable: ar,
       inventory: inv,
       otherCurrentAssets: otherCA,
-      totalCurrentAssets: totalCA,
-      netPPE,
+      totalCurrentAssets,
+      netPPE: ppe,
       goodwillAndIntangibles: gw,
       otherNonCurrentAssets: otherNCA,
       totalAssets,
 
       accountsPayable: ap,
-      shortTermDebt: projectedSTDebt,
+      shortTermDebt,
       otherCurrentLiabilities: otherCL,
-      totalCurrentLiabilities: totalCL,
-      longTermDebt: projectedLTDebt,
-      totalDebt: projectedTotalDebt,
-      otherNonCurrentLiabilities: Math.round(revenue * 0.04),
-      totalLiabilities: totalLiab,
+      totalCurrentLiabilities,
+      longTermDebt,
+      totalDebt: debt,
+      otherNonCurrentLiabilities: otherNCL,
+      totalLiabilities,
       stockholdersEquity: equity,
-      totalLiabilitiesAndEquity: totalLiabAndEquity,
-      balanceDiscrepancy: discrepancy,
+      totalLiabilitiesAndEquity: totalLiabilities + equity,
+      balanceDiscrepancy: Math.round(totalAssets - totalLiabilities - equity),
 
       netIncomeCF: netIncome,
-      depreciationCF: depreciation,
+      depreciationCF: da,
       changeInWorkingCapital: deltaNWC,
       operatingCashFlow: ocf,
       capitalExpenditures: capex,
       freeCashFlow: fcf,
-      investingCashFlow: cfi,
-      debtNetIssuance: -debtRepaid,
-      equityRepurchaseDividends: dividendsAndBuybacks,
-      financingCashFlow: cff,
-      netChangeInCash,
+      investingCashFlow: -capex,
+      debtNetIssuance: newDebt,
+      equityRepurchaseDividends: distributions,
+      financingCashFlow: newDebt - distributions,
+      netChangeInCash: cash - prev.cash,
       endingCash: cash,
 
-      currentRatio: totalCL > 0 ? totalCA / totalCL : 2.0,
+      currentRatio: totalCurrentLiabilities > 0 ? totalCurrentAssets / totalCurrentLiabilities : 0,
       netDebt,
-      netDebtToEbitda: ebitda > 0 ? netDebt / ebitda : 0,
-      interestCoverage: interestExpense > 0 ? operatingIncome / interestExpense : 25,
-      debtToEquity: equity > 0 ? projectedTotalDebt / equity : 0,
-      fcfConversion: netIncome > 0 ? fcf / netIncome : 1.0,
+      netDebtToEbitda: ebitda > 0 ? netDebt / (ebitda * k) : 0,
+      interestCoverage: interest > 0 ? operatingIncome / interest : Infinity,
+      debtToEquity: equity > 0 ? debt / equity : 0,
+      fcfConversion: netIncome > 0 ? fcf / netIncome : 0,
+      fcff,
+      stockBasedCompensation: 0,
     };
-
-    result.push(currentYearRecord);
-    prev = currentYearRecord;
-  }
-
-  return result;
+    out.push(period);
+    prev = { revenue, cash, debt, ppe, equity, ar, inv, ap };
+  });
+  return out;
 }
 
+/** Proyección anual a N años: crecimiento constante de la fase 1 (AGENTS.md §2.4). */
+export function projectStatements(anchor: StatementPeriod, assumptions: ModelAssumptions, projectionYears = 5): StatementPeriod[] {
+  const g = assumptions.revenueGrowthRate / 100;
+  const baseYear = anchor.date ? new Date(anchor.date).getUTCFullYear() : new Date().getUTCFullYear();
+  const revenues: number[] = [];
+  let r = anchor.revenue;
+  for (let i = 0; i < projectionYears; i++) {
+    r = r * (1 + g);
+    revenues.push(r);
+  }
+  return projectPath(anchor, revenues, assumptions, {
+    periodsToTarget: 5,
+    annualize: 1,
+    labels: revenues.map((_, i) => `Y+${i + 1} (${baseYear + i + 1}E)`),
+    dates: revenues.map(() => undefined),
+    periodType: "annual",
+    growthShown: revenues.map(() => g),
+  });
+}
+
+/**
+ * Proyección trimestral con estacionalidad: cada trimestre = mismo trimestre del año anterior ×
+ * (1 + crecimiento anual). Si no hay 4 trimestres de historia, crecimiento trimestral equivalente.
+ */
 export function projectQuarterlyStatements(
   latestQuarter: StatementPeriod,
   assumptions: ModelAssumptions,
-  quartersCount = 8
+  quartersCount = 8,
+  historicalQuarters: StatementPeriod[] = []
 ): StatementPeriod[] {
-  const result: StatementPeriod[] = [];
-  let prev = latestQuarter;
-
-  // Quarterly driver conversion using historical CAGRs for Base / Bull / Bear or custom targets
-  const cagr = assumptions.historicalCAGRs;
-  const gRevAnnual = cagr ? cagr.revenueCAGR : assumptions.revenueGrowthRate;
-  const gCostAnnual = cagr?.costOfRevenueCAGR ?? (gRevAnnual * 0.9);
-  const gOpExAnnual = cagr?.operatingExpensesCAGR ?? (gRevAnnual * 0.8);
-  const gDAAnnual = cagr?.depreciationCAGR ?? 8.0;
-  const gCapexAnnual = cagr?.capexCAGR ?? 8.0;
-
-  let multScenario = 1.0;
-  if (assumptions.scenario === "bull") multScenario = 1.30;
-  else if (assumptions.scenario === "bear") multScenario = 0.60;
-
-  const toQuarterlyComp = (annualPct: number) => {
-    const rate = (annualPct * multScenario) / 100;
-    if (rate >= 0) return Math.pow(1 + rate, 0.25) - 1;
-    return -(Math.pow(1 + Math.abs(rate), 0.25) - 1);
-  };
-
-  const qRevGrowth = toQuarterlyComp(gRevAnnual);
-  const qCostGrowth = toQuarterlyComp(gCostAnnual);
-  const qOpExGrowth = toQuarterlyComp(gOpExAnnual);
-  const qDAGrowth = toQuarterlyComp(gDAAnnual);
-  const qCapexGrowth = toQuarterlyComp(gCapexAnnual);
-
-  const opMargin = assumptions.operatingMarginTarget / 100;
-  const grossMargin = assumptions.grossMarginTarget / 100;
-  const taxRate = assumptions.taxRateTarget / 100;
-  const capexPct = assumptions.capexPercentRevenue / 100;
-  const daPct = assumptions.deprecPercentRevenue / 100;
-  const nwcPct = assumptions.nwcPercentRevenue / 100;
-  const costDebtQ = (assumptions.costOfDebtInterestRate / 100) / 4;
-
-  const baseDate = latestQuarter.date ? new Date(latestQuarter.date) : new Date();
-
-  for (let q = 1; q <= quartersCount; q++) {
-    const projDate = new Date(baseDate);
-    projDate.setUTCMonth(projDate.getUTCMonth() + q * 3);
-    const yearLabel = `Q+${q} ${getQuarterShortLabel(projDate.toISOString())}E`;
-
-    const revenue = Math.round(prev.revenue * (1 + qRevGrowth));
-    let costOfRevenue: number;
-    let grossProfit: number;
-    if (assumptions.scenario === "custom") {
-      grossProfit = Math.round(revenue * grossMargin);
-      costOfRevenue = revenue - grossProfit;
-    } else {
-      costOfRevenue = Math.round(prev.costOfRevenue * (1 + qCostGrowth));
-      if (costOfRevenue >= revenue * 0.92) costOfRevenue = Math.round(revenue * 0.75);
-      grossProfit = revenue - costOfRevenue;
-    }
-    const currentGrossMargin = revenue > 0 ? grossProfit / revenue : 0.5;
-
-    let operatingExpenses: number;
-    let operatingIncome: number;
-    if (assumptions.scenario === "custom") {
-      operatingIncome = Math.round(revenue * opMargin);
-      operatingExpenses = Math.max(0, grossProfit - operatingIncome);
-    } else {
-      operatingExpenses = Math.round(prev.operatingExpenses * (1 + qOpExGrowth));
-      operatingIncome = grossProfit - operatingExpenses;
-    }
-
-    const depreciation = assumptions.scenario === "custom"
-      ? Math.round(revenue * daPct)
-      : Math.max(250000, Math.round(prev.depreciationAmortization * (1 + qDAGrowth)));
-
-    const capex = assumptions.scenario === "custom"
-      ? Math.round(revenue * capexPct)
-      : Math.max(250000, Math.round(prev.capitalExpenditures * (1 + qCapexGrowth)));
-
-    const prevDebt = prev.totalDebt;
-    const debtRepaid = Math.round(prevDebt * 0.025);
-    const projectedTotalDebt = Math.max(0, prevDebt - debtRepaid);
-    const projectedSTDebt = Math.round(projectedTotalDebt * 0.15);
-    const projectedLTDebt = projectedTotalDebt - projectedSTDebt;
-    const interestExpense = Math.round(projectedTotalDebt * costDebtQ);
-
-    const preTaxIncome = operatingIncome - interestExpense;
-    const taxExpense = Math.max(0, Math.round(preTaxIncome * taxRate));
-    const netIncome = preTaxIncome - taxExpense;
-
-    const ar = Math.round(revenue * 0.12);
-    const inv = Math.round(revenue * 0.06);
-    const ap = Math.round(revenue * 0.08);
-    const otherCA = Math.round(revenue * 0.04);
-    const otherCL = Math.round(revenue * 0.05);
-
-    const targetNWC = Math.round(revenue * nwcPct);
-    const prevNWC = Math.round(prev.revenue * nwcPct);
-    const deltaNWC = targetNWC - prevNWC;
-
-    const ocf = netIncome + depreciation - deltaNWC;
-    const fcf = ocf - capex;
-    const cfi = -capex;
-
-    const dividendsAndBuybacks = Math.max(0, Math.round(netIncome * 0.15));
-    const cff = -debtRepaid - dividendsAndBuybacks;
-    const netChangeInCash = ocf + cfi + cff;
-
-    const cash = Math.max(1000000, prev.cashAndEquivalents + netChangeInCash);
-    const totalCA = cash + ar + inv + otherCA;
-    const netPPE = Math.max(0, prev.netPPE + capex - depreciation);
-    const gw = prev.goodwillAndIntangibles;
-    const otherNCA = Math.round(revenue * 0.05);
-    const totalAssets = totalCA + netPPE + gw + otherNCA;
-
-    const totalCL = ap + projectedSTDebt + otherCL;
-    const totalLiab = totalCL + projectedLTDebt + Math.round(revenue * 0.04);
-    const equity = prev.stockholdersEquity + (netIncome - dividendsAndBuybacks);
-
-    const totalLiabAndEquity = totalLiab + equity;
-    const discrepancy = totalAssets - totalLiabAndEquity;
-
-    const netDebt = projectedTotalDebt - cash;
-    const ebitda = operatingIncome + depreciation;
-
-    const qRecord: StatementPeriod = {
-      yearLabel,
-      isHistorical: false,
-      periodType: "quarterly",
-      date: projDate.toISOString(),
-      revenue,
-      revenueGrowth: qRevGrowth,
-      costOfRevenue,
-      grossProfit,
-      grossMargin: currentGrossMargin,
-      operatingExpenses,
-      operatingIncome,
-      operatingMargin: revenue > 0 ? operatingIncome / revenue : 0,
-      depreciationAmortization: depreciation,
-      netInterestExpense: interestExpense,
-      preTaxIncome,
-      taxExpense,
-      taxRate,
-      netIncome,
-      netMargin: revenue > 0 ? netIncome / revenue : 0,
-
-      cashAndEquivalents: cash,
-      accountsReceivable: ar,
-      inventory: inv,
-      otherCurrentAssets: otherCA,
-      totalCurrentAssets: totalCA,
-      netPPE,
-      goodwillAndIntangibles: gw,
-      otherNonCurrentAssets: otherNCA,
-      totalAssets,
-
-      accountsPayable: ap,
-      shortTermDebt: projectedSTDebt,
-      otherCurrentLiabilities: otherCL,
-      totalCurrentLiabilities: totalCL,
-      longTermDebt: projectedLTDebt,
-      totalDebt: projectedTotalDebt,
-      otherNonCurrentLiabilities: Math.round(revenue * 0.04),
-      totalLiabilities: totalLiab,
-      stockholdersEquity: equity,
-      totalLiabilitiesAndEquity: totalLiabAndEquity,
-      balanceDiscrepancy: discrepancy,
-
-      netIncomeCF: netIncome,
-      depreciationCF: depreciation,
-      changeInWorkingCapital: deltaNWC,
-      operatingCashFlow: ocf,
-      capitalExpenditures: capex,
-      freeCashFlow: fcf,
-      investingCashFlow: cfi,
-      debtNetIssuance: -debtRepaid,
-      equityRepurchaseDividends: dividendsAndBuybacks,
-      financingCashFlow: cff,
-      netChangeInCash,
-      endingCash: cash,
-
-      currentRatio: totalCL > 0 ? totalCA / totalCL : 2.0,
-      netDebt,
-      netDebtToEbitda: ebitda > 0 ? (netDebt / (ebitda * 4)) : 0,
-      interestCoverage: interestExpense > 0 ? operatingIncome / interestExpense : 25,
-      debtToEquity: equity > 0 ? projectedTotalDebt / equity : 0,
-      fcfConversion: netIncome > 0 ? fcf / netIncome : 1.0,
-    };
-
-    result.push(qRecord);
-    prev = qRecord;
+  const g = assumptions.revenueGrowthRate / 100;
+  const hist = historicalQuarters.length ? historicalQuarters : [latestQuarter];
+  const series = hist.map((h) => h.revenue);
+  const seasonal = series.length >= 4;
+  const qg = Math.pow(1 + g, 0.25) - 1;
+  const revenues: number[] = [];
+  const growthShown: number[] = [];
+  for (let i = 0; i < quartersCount; i++) {
+    const all = [...series, ...revenues];
+    const r = seasonal ? all[all.length - 4] * (1 + g) : all[all.length - 1] * (1 + qg);
+    revenues.push(r);
+    growthShown.push(seasonal ? g : qg);
   }
+  const base = latestQuarter.date ? new Date(latestQuarter.date) : new Date();
+  const dates = revenues.map((_, i) => {
+    const d = new Date(base);
+    d.setUTCMonth(d.getUTCMonth() + (i + 1) * 3);
+    return d.toISOString();
+  });
+  return projectPath(latestQuarter, revenues, assumptions, {
+    periodsToTarget: 20,
+    annualize: 4,
+    labels: dates.map((d, i) => `Q+${i + 1} ${quarterLabel(d)}E`),
+    dates,
+    periodType: "quarterly",
+    growthShown,
+  });
+}
 
-  return result;
+// ---------------------------------------------------------------------------
+// DCF
+// ---------------------------------------------------------------------------
+
+export interface DCFExtras {
+  minorityInterest?: number;
+  marketEvEbitda?: number | null;
+  reportedFcf?: number | null; // FCF de la terminal (TTM)
+  historicalFcf?: number[]; // FCF históricos para detectar años negativos
+  staleQuote?: boolean; // Yahoo no respondió: precio y datos de mercado de respaldo
+}
+
+/** Senda de crecimiento de la fase 2 (años 6–10), AGENTS.md §2.3. Valores decimales. */
+function phase2Path(g1: number, gT: number): { start: number; end: number } {
+  if (g1 < 0) return { start: g1 + (gT - g1) * 0.2, end: gT };
+  if (g1 < 0.10) return { start: Math.max(g1, gT), end: Math.max(g1, gT) };
+  let start = g1 * 0.6;
+  if (g1 > 0.25) start = Math.min(start, g1 * 0.5);
+  const end = Math.max(gT, g1 * 0.3);
+  return { start: Math.max(start, end), end };
+}
+
+function valueFromFcff(fcff10: number[], wacc: number, g: number, netDebt: number, minority: number, shares: number) {
+  const pv = fcff10.reduce((s, f, i) => s + f / Math.pow(1 + wacc, i + 1), 0);
+  const tv = (fcff10[9] * (1 + g)) / (wacc - g);
+  const ev = pv + tv / Math.pow(1 + wacc, 10);
+  return (ev - netDebt - minority) / shares;
 }
 
 export function computeDCFValuation(
-  historicalPeriods: StatementPeriod[],
+  anchor: StatementPeriod | undefined,
   projectedPeriods: StatementPeriod[],
   assumptions: ModelAssumptions,
   currentPrice: number,
   marketCap: number,
-  reportedDebt?: number,
-  reportedCash?: number,
-  isQuarterlyMode?: boolean
+  reportedDebt?: number | null,
+  reportedCash?: number | null,
+  extras: DCFExtras = {}
 ): DCFValuationResult {
-  const latestHist = historicalPeriods[historicalPeriods.length - 1];
+  const flags: DCFFlag[] = [];
   const wacc = assumptions.discountRateWacc / 100;
-  const gTerm = assumptions.terminalGrowthRate / 100;
-  const isTerminalValid = gTerm < wacc - 0.015;
-
-  // In quarterly mode, aggregate 4-quarter chunks or annualize projected FCF
-  const fcfList10: number[] = [];
-
-  if (isQuarterlyMode) {
-    // Group projected quarters by 4 into annual equivalents
-    const annualFcfFromQuarters: number[] = [];
-    for (let i = 0; i < projectedPeriods.length; i += 4) {
-      const chunk = projectedPeriods.slice(i, i + 4);
-      const sumQ = chunk.reduce((sum, q) => sum + q.freeCashFlow, 0);
-      const annualEquiv = chunk.length === 4 ? sumQ : Math.round((sumQ / chunk.length) * 4);
-      annualFcfFromQuarters.push(annualEquiv);
-    }
-
-    annualFcfFromQuarters.forEach(f => fcfList10.push(f));
-    const lastAnnualFcf = fcfList10[fcfList10.length - 1] || 1;
-    const remainingYears = Math.max(1, 10 - fcfList10.length);
-    const gFase2Start = (assumptions.revenueGrowthRate / 100) * 0.60;
-    const gFase2End = Math.max(gTerm, (assumptions.revenueGrowthRate / 100) * 0.30);
-
-    let curFcf = lastAnnualFcf;
-    for (let yr = 1; yr <= remainingYears; yr++) {
-      const fadeGrowth = gFase2Start - (yr * (gFase2Start - gFase2End)) / Math.max(1, remainingYears);
-      curFcf = Math.round(curFcf * (1 + fadeGrowth));
-      fcfList10.push(curFcf);
-    }
-  } else {
-    // Phase 1: Years 1-5 from projectedPeriods
-    projectedPeriods.forEach(p => fcfList10.push(p.freeCashFlow));
-
-    const fcfYr5 = fcfList10[fcfList10.length - 1] || 1;
-    const gPhase1 = projectedPeriods[projectedPeriods.length - 1]?.revenueGrowth || 0.15;
-    const gFase2Start = gPhase1 * 0.60;
-    const gFase2End = Math.max(gTerm, gPhase1 * 0.30);
-
-    let currentFcf = fcfYr5;
-    for (let yr = 6; yr <= 10; yr++) {
-      const fadeGrowth = gFase2Start - ((yr - 6) * (gFase2Start - gFase2End)) / 4;
-      currentFcf = Math.round(currentFcf * (1 + fadeGrowth));
-      fcfList10.push(currentFcf);
-    }
+  let gT = assumptions.terminalGrowthRate / 100;
+  const isTerminalValid = gT <= wacc - 0.03 + 1e-9;
+  if (!isTerminalValid) {
+    flags.push({ level: "bad", text: `g terminal ${(gT * 100).toFixed(1)}% no cumple g < WACC − 3%: se usa ${((wacc - 0.03) * 100).toFixed(1)}%` });
+    gT = wacc - 0.03;
   }
 
-  // Ensure exactly 10 years of cash flows
-  while (fcfList10.length < 10) {
-    const last = fcfList10[fcfList10.length - 1] || 1;
-    fcfList10.push(Math.round(last * (1 + gTerm)));
+  // Años 1–5: FCFF de la proyección. Años 6–10: desaceleración lineal (fase 2).
+  const g1 = assumptions.revenueGrowthRate / 100;
+  const p2 = phase2Path(g1, gT);
+  const fcff: number[] = projectedPeriods.slice(0, 5).map((p) => p.fcff ?? p.freeCashFlow);
+  const growths: number[] = projectedPeriods.slice(0, 5).map((p) => p.revenueGrowth);
+  while (fcff.length < 5) {
+    fcff.push((fcff[fcff.length - 1] ?? 0) * (1 + g1));
+    growths.push(g1);
+  }
+  for (let yr = 6; yr <= 10; yr++) {
+    const g = p2.start - ((yr - 6) * (p2.start - p2.end)) / 4;
+    fcff.push(fcff[fcff.length - 1] * (1 + g));
+    growths.push(g);
   }
 
-  // Discount cash flows
-  const pvFcfList = fcfList10.slice(0, 10).map((fcf, idx) => {
-    const yr = idx + 1;
-    const discountFactor = Math.pow(1 + wacc, yr);
-    const pv = Math.round(fcf / discountFactor);
-    return { year: yr, fcf, discountFactor, pv };
+  const pvFcfList = fcff.map((f, i) => {
+    const df = 1 / Math.pow(1 + wacc, i + 1);
+    return { year: i + 1, fcf: f, growth: growths[i], discountFactor: df, pv: f * df };
   });
-
-  const sumPvFcf = pvFcfList.reduce((acc, item) => acc + item.pv, 0);
-
-  // Terminal Value (Gordon Growth)
-  const fcf10 = fcfList10[9];
-  const denom = Math.max(0.005, wacc - gTerm);
-  const terminalValueGross = isTerminalValid ? Math.round((fcf10 * (1 + gTerm)) / denom) : 0;
-  const discountFactorYr10 = Math.pow(1 + wacc, 10);
-  const pvTerminalValue = Math.round(terminalValueGross / discountFactorYr10);
-
-  // Enterprise Value
+  const sumPvFcf = pvFcfList.reduce((s, x) => s + x.pv, 0);
+  const fcf10 = fcff[9];
+  const terminalValueGross = (fcf10 * (1 + gT)) / (wacc - gT);
+  const pvTerminalValue = terminalValueGross / Math.pow(1 + wacc, 10);
   const enterpriseValue = sumPvFcf + pvTerminalValue;
-  const pctTerminalValue = enterpriseValue > 0 ? (pvTerminalValue / enterpriseValue) * 100 : 60;
+  const pctTerminalValue = enterpriseValue > 0 ? (pvTerminalValue / enterpriseValue) * 100 : NaN;
 
-  // Equity Bridge
-  // Yahoo a veces devuelve null: entonces se usa el último balance.
-  const totalDebt = typeof reportedDebt === "number" && Number.isFinite(reportedDebt) ? reportedDebt : (latestHist?.totalDebt || 0);
-  const totalCash = typeof reportedCash === "number" && Number.isFinite(reportedCash) ? reportedCash : (latestHist?.cashAndEquivalents || 0);
+  // Equity bridge: deuda y caja de la terminal; si faltan, las del último balance.
+  const totalDebt = typeof reportedDebt === "number" && Number.isFinite(reportedDebt) ? reportedDebt : anchor?.totalDebt ?? 0;
+  const totalCash = typeof reportedCash === "number" && Number.isFinite(reportedCash) ? reportedCash : anchor?.cashAndEquivalents ?? 0;
   const netDebt = totalDebt - totalCash;
+  const minority = extras.minorityInterest ?? 0;
+  const equityValue = enterpriseValue - netDebt - minority;
+  const shares = assumptions.dilutedShares > 0 ? assumptions.dilutedShares : NaN;
+  const fairRaw = equityValue / shares;
+  const fairValuePerShare = Number.isFinite(fairRaw) ? Math.max(0, fairRaw) : 0;
+  const upsideDownsidePct = currentPrice > 0 ? (fairValuePerShare / currentPrice - 1) * 100 : 0;
 
-  // Rule 5.2: if netDebt is negative (more cash than debt), it is added to EV
-  const equityValue = enterpriseValue - netDebt;
-  const shares = assumptions.dilutedShares > 0 ? assumptions.dilutedShares : 1;
-  const fairValuePerShare = Math.max(0, Number((equityValue / shares).toFixed(2)));
-  const upsideDownsidePct = currentPrice > 0 ? ((fairValuePerShare - currentPrice) / currentPrice) * 100 : 0;
+  // CAPM (informativo: el WACC aplicado es assumptions.discountRateWacc)
+  const costOfEquity = assumptions.riskFreeRate + assumptions.beta * assumptions.equityRiskPremium;
+  const costOfDebtNet = assumptions.costOfDebtInterestRate * (1 - assumptions.taxRateTarget / 100);
+  const V = marketCap + totalDebt;
+  const weightEquity = V > 0 ? (marketCap / V) * 100 : 100;
+  const weightDebt = V > 0 ? (totalDebt / V) * 100 : 0;
+  const calculatedWacc = (weightEquity * costOfEquity + weightDebt * costOfDebtNet) / 100;
 
-  // CAPM breakdown
-  const rf = assumptions.riskFreeRate / 100;
-  const erp = assumptions.equityRiskPremium / 100;
-  const beta = assumptions.beta || 1.1;
-  const costOfEquity = rf + beta * erp;
-  const costOfDebtGross = assumptions.costOfDebtInterestRate / 100;
-  const costOfDebtNet = costOfDebtGross * (1 - assumptions.taxRateTarget / 100);
+  // Comprobaciones de coherencia (AGENTS.md §4.3, §6 y §9)
+  const ebitda0 = anchor ? anchor.operatingIncome + anchor.depreciationAmortization : 0;
+  const impliedEvEbitda = ebitda0 > 0 ? enterpriseValue / ebitda0 : null;
+  const p5 = projectedPeriods[4];
+  const ebitda5 = p5 ? p5.operatingIncome + p5.depreciationAmortization : 0;
+  const growth6to10 = growths.slice(5).reduce((m, g) => m * (1 + g), 1);
+  const ebitda10 = ebitda5 * growth6to10;
+  const terminalExitMultiple = ebitda10 > 0 ? terminalValueGross / ebitda10 : null;
+  const marketEvEbitda = extras.marketEvEbitda ?? null;
 
-  const totalCap = marketCap + totalDebt;
-  const weightEquity = totalCap > 0 ? marketCap / totalCap : 0.9;
-  const weightDebt = totalCap > 0 ? totalDebt / totalCap : 0.1;
-  const calculatedWacc = weightEquity * costOfEquity + weightDebt * costOfDebtNet;
-
-  // Sensitivity Matrix (WACC x g_terminal)
-  const waccSteps = [wacc - 0.02, wacc - 0.01, wacc, wacc + 0.01, wacc + 0.02];
-  const gSteps = [0.02, 0.025, 0.03, 0.035, 0.04];
-
-  const sensitivityMatrix = waccSteps.map(w => {
-    return gSteps.map(g => {
-      if (g >= w - 0.005) {
-        return { wacc: w * 100, terminalGrowth: g * 100, fairValue: 0 };
-      }
-      const pvFcfMatrix = fcfList10.reduce((acc, fcf, i) => acc + fcf / Math.pow(1 + w, i + 1), 0);
-      const tvGrossMatrix = (fcf10 * (1 + g)) / (w - g);
-      const pvTvMatrix = tvGrossMatrix / Math.pow(1 + w, 10);
-      const evMatrix = pvFcfMatrix + pvTvMatrix;
-      const eqMatrix = evMatrix - netDebt;
-      const fvMatrix = Math.max(0, Number((eqMatrix / shares).toFixed(2)));
-      return {
-        wacc: Number((w * 100).toFixed(1)),
-        terminalGrowth: Number((g * 100).toFixed(1)),
-        fairValue: fvMatrix,
-      };
+  if (extras.staleQuote) flags.push({ level: "bad", text: "Yahoo no respondió: el precio y los datos de mercado son de respaldo y pueden estar desfasados. Recarga en unos minutos." });
+  if (!Number.isFinite(shares)) flags.push({ level: "bad", text: "Sin número de acciones: no se puede calcular el valor por acción" });
+  if (fcff.slice(0, 5).some((f) => f <= 0)) flags.push({ level: "bad", text: "FCFF negativo en algún año proyectado: el DCF es poco fiable (negocio en inversión intensiva)" });
+  if (fairRaw < 0) flags.push({ level: "bad", text: "El valor del equity sale negativo (deuda neta superior al valor de la empresa)" });
+  if (Number.isFinite(pctTerminalValue)) {
+    if (pctTerminalValue > 80) flags.push({ level: "warn", text: `El valor terminal pesa ${pctTerminalValue.toFixed(0)}% del EV (> 80%): el modelo depende demasiado del largo plazo` });
+    else if (pctTerminalValue < 40) flags.push({ level: "warn", text: `El valor terminal pesa ${pctTerminalValue.toFixed(0)}% del EV (< 40%): revisar si la fase 1 está sobreestimada` });
+    else flags.push({ level: "ok", text: `Peso del valor terminal ${pctTerminalValue.toFixed(0)}% del EV (rango sano 40–80%)` });
+  }
+  if (impliedEvEbitda !== null && marketEvEbitda && marketEvEbitda > 0) {
+    const diff = impliedEvEbitda / marketEvEbitda - 1;
+    flags.push({
+      level: Math.abs(diff) > 0.3 ? "warn" : "ok",
+      text: `EV/EBITDA implícito ${impliedEvEbitda.toFixed(1)}× vs. mercado ${marketEvEbitda.toFixed(1)}× (${diff >= 0 ? "+" : ""}${(diff * 100).toFixed(0)}%)`,
     });
-  });
+  }
+  if (terminalExitMultiple !== null) {
+    flags.push({
+      level: terminalExitMultiple > 25 ? "warn" : "ok",
+      text: `El valor terminal equivale a ${terminalExitMultiple.toFixed(1)}× el EBITDA del año 10${terminalExitMultiple > 25 ? " (exigente)" : ""}`,
+    });
+  }
+  if (anchor && extras.reportedFcf && extras.reportedFcf !== 0) {
+    const verified = anchor.operatingCashFlow - anchor.capitalExpenditures;
+    const d = Math.abs(verified - extras.reportedFcf) / Math.abs(extras.reportedFcf);
+    if (d > 0.05) flags.push({ level: "warn", text: `FCF verificado (OCF − capex) difiere ${(d * 100).toFixed(0)}% del FCF de la terminal` });
+  }
+  if (extras.historicalFcf?.some((f) => f < 0)) flags.push({ level: "warn", text: "Hay años históricos con FCF negativo: negocio en transición" });
+  if (anchor && anchor.revenue > 0 && anchor.freeCashFlow / anchor.revenue > 0.5) flags.push({ level: "ok", text: "Margen FCF > 50%: negocio tipo red/software" });
+  if (netDebt < 0) flags.push({ level: "ok", text: "Caja neta positiva: se suma al valor de la empresa" });
+  if (anchor && (anchor.stockBasedCompensation ?? 0) > 0) {
+    flags.push({ level: "ok", text: `La SBC (${((anchor.stockBasedCompensation! / anchor.revenue) * 100).toFixed(1)}% de ventas) se trata como coste: el FCF proyectado no la suma` });
+  }
+
+  // Matriz de sensibilidad WACC × g terminal
+  const waccSteps = [-0.02, -0.01, 0, 0.01, 0.02].map((d) => wacc + d);
+  const gSteps = [0.02, 0.025, 0.03, 0.035, 0.04];
+  const sensitivityMatrix = waccSteps.map((w) =>
+    gSteps.map((g) => {
+      const valid = g <= w - 0.03 + 1e-9 && w > 0;
+      const fv = valid ? valueFromFcff(fcff, w, g, netDebt, minority, shares) : NaN;
+      return {
+        wacc: round1(w * 100),
+        terminalGrowth: round1(g * 100),
+        fairValue: Number.isFinite(fv) ? Math.max(0, fv) : NaN,
+        valid: valid && Number.isFinite(fv),
+      };
+    })
+  );
 
   return {
     pvFcfList,
@@ -1277,16 +1165,103 @@ export function computeDCFValuation(
     totalDebt,
     totalCash,
     netDebt,
+    minorityInterest: minority,
     equityValue,
     fairValuePerShare,
     currentPrice,
     upsideDownsidePct,
-    calculatedWacc: calculatedWacc * 100,
-    costOfEquity: costOfEquity * 100,
-    costOfDebtNet: costOfDebtNet * 100,
-    weightEquity: weightEquity * 100,
-    weightDebt: weightDebt * 100,
+    calculatedWacc,
+    costOfEquity,
+    costOfDebtNet,
+    weightEquity,
+    weightDebt,
+    terminalGrowthUsed: gT * 100,
+    phase2Growth: { start: p2.start * 100, end: p2.end * 100 },
+    impliedEvEbitda,
+    marketEvEbitda,
+    terminalExitMultiple,
     sensitivityMatrix,
     isTerminalValid,
+    flags,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Escenarios
+// ---------------------------------------------------------------------------
+
+export interface ModelDrivers {
+  revGrowth: number; // %
+  opMargin: number; // % margen EBIT objetivo (año 5)
+  taxRate: number; // %
+  capexPct: number; // % capex/ventas objetivo (año 5)
+  wacc: number; // %
+  gTerminal: number; // %
+}
+
+/** Drivers del escenario base: salen de la calibración. */
+export function baseDrivers(c: ModelCalibration): ModelDrivers {
+  return {
+    revGrowth: c.growthNormalized,
+    opMargin: c.opMargin,
+    taxRate: c.taxRate,
+    capexPct: c.capexTarget,
+    wacc: c.wacc,
+    gTerminal: c.terminalGrowth,
+  };
+}
+
+/**
+ * Supuestos de cada escenario. Alcista y bajista parten siempre del base calibrado:
+ *  - Alcista: crecimiento ×1,25 (tope 30%), margen +2 pp, WACC −0,5 pp, g terminal +0,5 pp.
+ *  - Bajista: crecimiento ×0,6 (o −2 pp si es negativo), margen −3 pp, WACC +1 pp, g terminal −0,5 pp.
+ *  - Personalizado: los valores de los controles.
+ * La g terminal siempre respeta g ≤ WACC − 3% (AGENTS.md §4.1).
+ */
+export function buildScenarioAssumptions(
+  c: ModelCalibration,
+  scenario: ModelAssumptions["scenario"],
+  custom: ModelDrivers,
+  historicalCAGRs?: HistoricalCAGRs
+): ModelAssumptions {
+  const b = baseDrivers(c);
+  let d: ModelDrivers = scenario === "custom" ? custom : b;
+  if (scenario === "bull") {
+    d = {
+      ...b,
+      revGrowth: round1(Math.min(30, b.revGrowth >= 0 ? b.revGrowth * 1.25 : b.revGrowth + 2)),
+      opMargin: round1(b.opMargin + 2),
+      wacc: round1(Math.max(5, b.wacc - 0.5)),
+      gTerminal: round1(b.gTerminal + 0.5),
+    };
+  } else if (scenario === "bear") {
+    d = {
+      ...b,
+      revGrowth: round1(b.revGrowth >= 0 ? b.revGrowth * 0.6 : b.revGrowth - 2),
+      opMargin: round1(b.opMargin - 3),
+      wacc: round1(b.wacc + 1),
+      gTerminal: round1(Math.max(1.5, b.gTerminal - 0.5)),
+    };
+  }
+  const gTerminal = Math.min(d.gTerminal, round1(d.wacc - 3));
+  const daTarget = Math.min(c.daTarget, d.capexPct); // en estado estable, D&A ≤ capex
+  return {
+    scenario,
+    historicalCAGRs,
+    revenueGrowthRate: d.revGrowth,
+    operatingMarginTarget: d.opMargin,
+    grossMarginTarget: round1(c.grossMargin + (d.opMargin - c.opMargin)),
+    taxRateTarget: d.taxRate,
+    capexPercentRevenue: d.capexPct,
+    deprecPercentRevenue: daTarget,
+    nwcPercentRevenue: c.nwcPct,
+    costOfDebtInterestRate: c.costOfDebt,
+    dividendPayoutRatio: c.payoutRatio,
+    discountRateWacc: d.wacc,
+    terminalGrowthRate: gTerminal,
+    dilutedShares: c.dilutedShares,
+    riskFreeRate: c.riskFreeRate,
+    equityRiskPremium: c.equityRiskPremium,
+    beta: c.betaAdjusted,
   };
 }

@@ -3253,7 +3253,8 @@ Respond strictly with valid JSON conforming to this schema:
       const sharesOutstanding = getVal(dks.sharesOutstanding) ?? getVal(q?.sharesOutstanding) ?? null;
       const floatShares = getVal(dks.floatShares) ?? null;
       const shortPercentOfFloat = getVal(dks.shortPercentOfFloat) ?? null;
-      const beta = getVal(sd.beta) ?? getVal(dks.beta) ?? getVal(q?.beta) ?? 1.0;
+      // Sin beta en Yahoo se devuelve null (no 1,0): los modelos lo indican en vez de inventarla.
+      const beta = getVal(sd.beta) ?? getVal(dks.beta) ?? getVal(q?.beta) ?? null;
 
       // Price ranges
       const dayHigh = getVal(sd.dayHigh) ?? getVal(q?.regularMarketDayHigh) ?? price * 1.01;
@@ -3333,6 +3334,8 @@ Respond strictly with valid JSON conforming to this schema:
       res.json({
         symbol: rawSymbol,
         yahooSymbol,
+        // true si Yahoo no respondió y los datos son de respaldo (precio posiblemente desfasado)
+        isFallback: !q && !summary,
         name: companyName,
         exchange: q?.exchange || sp.exchangeName || "US",
         currency: q?.currency || sp.currency || "USD",
@@ -3420,6 +3423,7 @@ Respond strictly with valid JSON conforming to this schema:
       res.json({
         symbol: rawSymbol,
         yahooSymbol,
+        isFallback: true,
         name: fallback.longName || rawSymbol,
         exchange: "US",
         currency: "USD",

@@ -462,7 +462,8 @@ export default function StockSearchExplorer({
       });
       if (res.ok) {
         const data = await res.json();
-        setNewsList(Array.isArray(data) ? data : []);
+        // La API devuelve { news: [...], liveGrounded }; se acepta también una lista directa.
+        setNewsList(Array.isArray(data) ? data : Array.isArray(data?.news) ? data.news : []);
       }
     } catch (err) {
       console.error("Error loading stock news:", err);
