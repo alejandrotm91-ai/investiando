@@ -1219,8 +1219,9 @@ export function computeDCFValuation(
   const pctTerminalValue = enterpriseValue > 0 ? (pvTerminalValue / enterpriseValue) * 100 : 60;
 
   // Equity Bridge
-  const totalDebt = reportedDebt !== undefined ? reportedDebt : (latestHist?.totalDebt || 0);
-  const totalCash = reportedCash !== undefined ? reportedCash : (latestHist?.cashAndEquivalents || 0);
+  // Yahoo a veces devuelve null: entonces se usa el último balance.
+  const totalDebt = typeof reportedDebt === "number" && Number.isFinite(reportedDebt) ? reportedDebt : (latestHist?.totalDebt || 0);
+  const totalCash = typeof reportedCash === "number" && Number.isFinite(reportedCash) ? reportedCash : (latestHist?.cashAndEquivalents || 0);
   const netDebt = totalDebt - totalCash;
 
   // Rule 5.2: if netDebt is negative (more cash than debt), it is added to EV

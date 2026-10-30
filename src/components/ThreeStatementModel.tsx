@@ -45,7 +45,8 @@ interface ThreeStatementModelProps {
   theme?: "dark" | "light";
 }
 
-function formatCurrency(val: number): string {
+function formatCurrency(val: number | null | undefined): string {
+  if (typeof val !== "number" || !Number.isFinite(val)) return "—";
   if (Math.abs(val) >= 1e12) return `$${(val / 1e12).toFixed(2)}T`;
   if (Math.abs(val) >= 1e9) return `$${(val / 1e9).toFixed(2)}B`;
   if (Math.abs(val) >= 1e6) return `$${(val / 1e6).toFixed(2)}M`;
