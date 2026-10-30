@@ -1,8 +1,11 @@
-// Rutas de datos de mercado (Yahoo Finance), copiadas de server.ts en la Fase 2.
-// Cambios respecto al original: refrescos en segundo plano con bg() (waitUntil de Cloudflare)
-// y tipos de Express sustituidos por los del adaptador. El resto es el código original.
+// Rutas de datos de server.ts (mercado y IA), copiadas en las Fases 2 y 4.
+// Cambios respecto al original:
+//   - refrescos de caché en segundo plano con bg() (waitUntil de Cloudflare)
+//   - tipos de Express sustituidos por los del adaptador
+//   - generateGeminiContentWithRetry ahora llama a Claude (ver ../llm.ts); las rutas no cambian
 // @ts-nocheck -- código heredado sin tipos estrictos; se revisa al limpiar server.ts.
 import { getYahoo } from "../yahoo";
+import { generateContent as generateGeminiContentWithRetry } from "../llm";
 import { bg, type LegacyApp, type LegacyReq, type LegacyRes } from "./express-shim";
 import { SUPERINVESTORS } from "../../superinvestors";
 import { SUPERINVESTOR_SCORES } from "../../utils/superinvestorScore";
@@ -347,7 +350,7 @@ async function getHistoricalData(
   return data;
 }
 
-export function registerMarketRoutes(app: LegacyApp) {
+export function registerLegacyRoutes(app: LegacyApp) {
   // 1. Search tickers
   app.get("/api/search", async (req, res) => {
     const query = req.query.q as string;
@@ -2628,6 +2631,507 @@ export function registerMarketRoutes(app: LegacyApp) {
     return null;
   }
 
+  // AI Portfolio Generator: Builds institutional portfolios with strict Large-Cap (> $20B) filter
+  // and Diluted EPS CAGR > 15% requirement (except for the hypergrowth strategy).
+  app.post("/api/portfolio/generate-ai", async (req, res) => {
+    const {
+      amount = 50000,
+      strategyType = "balanced",
+      strategyTypes,
+      holdingsCount = 8,
+      customNotes = "",
+      language = "ES",
+    } = req.body;
+
+    const numAmount = Math.max(1000, Number(amount) || 50000);
+    const numHoldings = Math.min(15, Math.max(4, Number(holdingsCount) || 8));
+    const isES = language === "ES";
+
+    // Normalize selected strategies into string[]
+    let selectedKeys: string[] = [];
+    if (Array.isArray(strategyTypes) && strategyTypes.length > 0) {
+      selectedKeys = strategyTypes.map(s => String(s).trim()).filter(Boolean);
+    } else if (typeof strategyType === "string") {
+      selectedKeys = strategyType.split(",").map(s => s.trim()).filter(Boolean);
+    }
+    if (selectedKeys.length === 0) {
+      selectedKeys = ["balanced"];
+    }
+
+    // Check if the portfolio is strictly the hypergrowth theme (exempt from EPS CAGR > 15% mandate)
+    const isHypergrowthExempt = selectedKeys.length === 1 && selectedKeys[0] === "hypergrowth";
+
+    const STRATEGY_METADATA: Record<string, { titleEN: string; titleES: string; descEN: string; descES: string; fallbackTickers: Array<{ ticker: string; weight: number; sector: string; rationaleES: string; rationaleEN: string }> }> = {
+      balanced: {
+        titleEN: "Balanced All-Weather Core Portfolio",
+        titleES: "Portafolio Equilibrado Todo-Terreno",
+        descEN: "Multi-sector asset allocation balancing growth engines, quality compounders, defensive pillars, and valuation discipline (Diluted EPS CAGR > 15%).",
+        descES: "Diversificación multisectorial estratégica equilibrando crecimiento tecnológico, calidad compuesta y pilares defensivos (CAGR EPS Diluido > 15%).",
+        fallbackTickers: [
+          { ticker: "MSFT", weight: 16, sector: "Technology", rationaleES: "Motor tecnológico y de productividad con CAGR BPA Diluido superior al 18%.", rationaleEN: "Core enterprise productivity and cloud compounder with Diluted EPS CAGR > 18%." },
+          { ticker: "AAPL", weight: 14, sector: "Technology", rationaleES: "Ecosistema masivo y servicios de alto margen con CAGR BPA Diluido > 16%.", rationaleEN: "Consumer premium hardware and high-margin services with Diluted EPS CAGR > 16%." },
+          { ticker: "AMZN", weight: 13, sector: "Consumer Discretionary", rationaleES: "Líder en comercio global y nube con fuerte apalancamiento operativo y CAGR BPA > 22%.", rationaleEN: "E-commerce scale leader and AWS cloud provider with Diluted EPS CAGR > 22%." },
+          { ticker: "GOOGL", weight: 13, sector: "Communication", rationaleES: "Monopolio publicitario y nube con CAGR BPA Diluido superior al 24%.", rationaleEN: "Search fortress and expanding cloud profitability with Diluted EPS CAGR > 24%." },
+          { ticker: "V", weight: 12, sector: "Financials", rationaleES: "Red de pagos global con márgenes del 65%+ y CAGR BPA Diluido > 15%.", rationaleEN: "Global payments duopoly with > 65% operating margin and Diluted EPS CAGR > 15%." },
+          { ticker: "COST", weight: 11, sector: "Consumer Staples", rationaleES: "Consumo esencial de calidad con retención del 93% y CAGR BPA > 16%.", rationaleEN: "Essential consumer fortress with 93% renewal rate and Diluted EPS CAGR > 16%." },
+          { ticker: "LLY", weight: 11, sector: "Healthcare", rationaleES: "Líder farmacéutico con expansión masiva en ingresos y CAGR BPA > 28%.", rationaleEN: "Healthcare titan with robust pipeline and Diluted EPS CAGR > 28%." },
+          { ticker: "UNH", weight: 10, sector: "Healthcare", rationaleES: "Mayor aseguradora de EE.UU. con flujo predecible y CAGR BPA > 15%.", rationaleEN: "Predictable healthcare services powerhouse with Diluted EPS CAGR > 15%." }
+        ]
+      },
+      compounders: {
+        titleEN: "High-Quality Compounders & Wide Moats",
+        titleES: "Compounders de Alta Calidad & Fosos Defensivos",
+        descEN: "Constructed with dominant market leaders possessing high ROIC, enduring pricing power, and Diluted EPS CAGR > 15%.",
+        descES: "Construido con líderes globales de alto ROIC, ventajas competitivas duraderas y CAGR de BPA Diluido superior al 15%.",
+        fallbackTickers: [
+          { ticker: "MSFT", weight: 18, sector: "Technology", rationaleES: "Líder indiscutible en computación en la nube empresarial con ROIC > 30% y CAGR BPA > 18%.", rationaleEN: "Enterprise cloud titan with stellar ROIC and Diluted EPS CAGR > 18%." },
+          { ticker: "AAPL", weight: 16, sector: "Technology", rationaleES: "Poder de fijación de precios masivo, ecosistema de 2B+ dispositivos y CAGR BPA > 16%.", rationaleEN: "Massive pricing power and extreme FCF generation with Diluted EPS CAGR > 16%." },
+          { ticker: "GOOGL", weight: 15, sector: "Communication", rationaleES: "Monopolio publicitario en búsquedas con fuerte ventaja en IA y CAGR BPA > 24%.", rationaleEN: "Search advertising fortress with frontier AI infrastructure and Diluted EPS CAGR > 24%." },
+          { ticker: "NVDA", weight: 13, sector: "Technology", rationaleES: "Estándar de facto en computación acelerada para IA con CAGR BPA > 80%.", rationaleEN: "De facto standard in accelerated computing for AI with massive EPS growth." },
+          { ticker: "V", weight: 11, sector: "Financials", rationaleES: "Duopolio global de pagos con márgenes operativos superiores al 65% y CAGR BPA > 15%.", rationaleEN: "Global payments duopoly with > 65% operating margins and Diluted EPS CAGR > 15%." },
+          { ticker: "COST", weight: 10, sector: "Consumer Staples", rationaleES: "Tasa de renovación del 93%, escala global inigualable y CAGR BPA > 16%.", rationaleEN: "93% membership renewal rate, extreme cost moat, and Diluted EPS CAGR > 16%." },
+          { ticker: "LLY", weight: 9, sector: "Healthcare", rationaleES: "Líder en tratamientos metabólicos y oncología con CAGR BPA > 28%.", rationaleEN: "Premier metabolic therapeutics innovator with Diluted EPS CAGR > 28%." },
+          { ticker: "UNH", weight: 8, sector: "Healthcare", rationaleES: "Mayor gestora de salud de EE.UU. con flujo predecible y CAGR BPA > 15%.", rationaleEN: "Largest US health services provider with highly predictable CAGR BPA > 15%." }
+        ]
+      },
+      hypergrowth: {
+        titleEN: "Hyper-Growth & AI Leaders (> $20B Large-Cap)",
+        titleES: "Hipercrecimiento & Líderes de IA (> $20B Large-Cap)",
+        descEN: "Focus on secular technological waves, semiconductor compute leaders, and cloud hyperscalers (Exempt from EPS CAGR > 15% threshold).",
+        descES: "Enfocado en las mayores olas seculares tecnológicas, centros de datos de IA y gigantes de la nube (Exento de regla CAGR EPS > 15%).",
+        fallbackTickers: [
+          { ticker: "NVDA", weight: 20, sector: "Technology", rationaleES: "Motor central de la revolución de cómputo para IA generativa.", rationaleEN: "Core compute engine powering the global generative AI expansion." },
+          { ticker: "AMZN", weight: 16, sector: "Consumer Discretionary", rationaleES: "AWS acelera crecimiento y el negocio de publicidad y e-commerce expanden márgenes.", rationaleEN: "AWS re-acceleration paired with high-margin advertising and retail margin expansion." },
+          { ticker: "META", weight: 15, sector: "Communication", rationaleES: "Líder absoluto en monetización de IA aplicada a recomendaciones y publicidad digital.", rationaleEN: "Absolute leader in AI-driven content ranking and direct-response digital advertising." },
+          { ticker: "AVGO", weight: 13, sector: "Technology", rationaleES: "Líder en networking para clústeres de IA y chips personalizados (ASICs).", rationaleEN: "Dominant player in high-speed AI data center networking and custom ASIC accelerators." },
+          { ticker: "TSM", weight: 13, sector: "Technology", rationaleES: "Monopolio práctico en manufactura de semiconductores avanzados (< 3nm).", rationaleEN: "Near-monopoly in leading-edge semiconductor foundry manufacturing (< 3nm)." },
+          { ticker: "NOW", weight: 9, sector: "Technology", rationaleES: "Plataforma de automatización empresarial para flujos de trabajo de IA.", rationaleEN: "Enterprise workflow automation platform with high retention and rapid organic expansion." },
+          { ticker: "AMD", weight: 8, sector: "Technology", rationaleES: "Segundo competidor clave en GPUs para centros de datos y líder en CPUs x86 para servidores.", rationaleEN: "Leading secondary challenger in AI data center GPUs and server CPU market share winner." },
+          { ticker: "CRM", weight: 6, sector: "Technology", rationaleES: "Líder mundial en software CRM integrando agentes de IA autónomos (Agentforce).", rationaleEN: "Global CRM software leader transitioning customers to autonomous enterprise AI agents." }
+        ]
+      },
+      garp: {
+        titleEN: "Growth at a Reasonable Price (GARP)",
+        titleES: "Crecimiento a Precio Razonable (GARP)",
+        descEN: "Optimal balance between double-digit earnings growth (Diluted EPS CAGR > 15%) and disciplined valuation multiples.",
+        descES: "Equilibrio óptimo entre crecimiento de beneficios superior al 15% (CAGR BPA Diluido > 15%) y múltiplos de valoración moderados.",
+        fallbackTickers: [
+          { ticker: "GOOGL", weight: 16, sector: "Communication", rationaleES: "Crecimiento del 24%+ en BPA Diluido cotizando a un ratio PEG muy atractivo.", rationaleEN: "24%+ Diluted EPS growth trading at an attractive PEG ratio relative to tech peers." },
+          { ticker: "META", weight: 15, sector: "Communication", rationaleES: "Eficiencia de costes estricta y crecimiento en publicidad con CAGR BPA > 35% y P/E razonable.", rationaleEN: "Disciplined cost structure and high cash conversion with Diluted EPS CAGR > 35%." },
+          { ticker: "QCOM", weight: 14, sector: "Technology", rationaleES: "Líder en procesadores móviles y chips para PC con CAGR BPA > 17% y P/E moderado.", rationaleEN: "High-margin mobile/auto chip powerhouse with Diluted EPS CAGR > 17%." },
+          { ticker: "AMAT", weight: 13, sector: "Technology", rationaleES: "Equipos para fabricación de chips avanzados con CAGR BPA > 19% y bajo P/E.", rationaleEN: "Semiconductor equipment leader with Diluted EPS CAGR > 19% and strong returns on capital." },
+          { ticker: "BKNG", weight: 12, sector: "Consumer Discretionary", rationaleES: "Dominio global en viajes online con ROIC masivo y CAGR BPA > 26%.", rationaleEN: "Online travel giant with high ROIC, aggressive share repurchases, and Diluted EPS CAGR > 26%." },
+          { ticker: "KLAC", weight: 11, sector: "Technology", rationaleES: "Control de procesos y metrología indispensable con CAGR BPA > 22%.", rationaleEN: "Yield inspection and metrology monopoly with Diluted EPS CAGR > 22%." },
+          { ticker: "TXN", weight: 10, sector: "Technology", rationaleES: "Chips analógicos indispensables con CAGR BPA > 15% y alto retorno de capital.", rationaleEN: "Analog semiconductor champion with proven pricing power and Diluted EPS CAGR > 15%." },
+          { ticker: "AMZN", weight: 9, sector: "Consumer Discretionary", rationaleES: "Expansión de márgenes en comercio y AWS con CAGR BPA > 22%.", rationaleEN: "Margin expansion in AWS and digital commerce with Diluted EPS CAGR > 22%." }
+        ]
+      },
+      buffett: {
+        titleEN: "Buffett Style - Wonderful Companies @ Fair Price",
+        titleES: "Estilo Buffett - Negocios Extraordinarios a Precio Justo",
+        descEN: "High cash generation, durable consumer franchises, and fortress balance sheets with Diluted EPS CAGR > 15%.",
+        descES: "Filosofía value de calidad: alto flujo de caja libre, fidelidad de clientes y CAGR de BPA Diluido superior al 15%.",
+        fallbackTickers: [
+          { ticker: "AAPL", weight: 18, sector: "Technology", rationaleES: "Pilar definitivo gracias a su fidelidad de marca inigualable y CAGR BPA > 16%.", rationaleEN: "Core consumer franchise with extraordinary brand loyalty and Diluted EPS CAGR > 16%." },
+          { ticker: "AXP", weight: 16, sector: "Financials", rationaleES: "Red de pagos premium cerrada con clientes de alto poder adquisitivo y CAGR BPA > 16%.", rationaleEN: "Spend-centric payment network with affluent cardholders and Diluted EPS CAGR > 16%." },
+          { ticker: "BKNG", weight: 15, sector: "Consumer Discretionary", rationaleES: "Fuerte foso defensivo en viajes globales, enorme conversión a FCF y CAGR BPA > 26%.", rationaleEN: "High cash generator with massive consumer moat and Diluted EPS CAGR > 26%." },
+          { ticker: "MSFT", weight: 14, sector: "Technology", rationaleES: "Ecosistema de software y nube con ventaja competitiva insuperable y CAGR BPA > 18%.", rationaleEN: "Enterprise moat and sticky recurring software cash flows with Diluted EPS CAGR > 18%." },
+          { ticker: "GOOGL", weight: 13, sector: "Communication", rationaleES: "Monopolio en búsquedas con balance blindado de caja neta y CAGR BPA > 24%.", rationaleEN: "Search fortress balance sheet with net cash and Diluted EPS CAGR > 24%." },
+          { ticker: "V", weight: 12, sector: "Financials", rationaleES: "Duopolio de pagos con márgenes operativos del 65% y CAGR BPA > 15%.", rationaleEN: "Payment infrastructure duopoly with > 65% operating margin and Diluted EPS CAGR > 15%." },
+          { ticker: "COST", weight: 12, sector: "Consumer Staples", rationaleES: "Fidelidad de miembros inquebrantable, escala global y CAGR BPA > 16%.", rationaleEN: "Unrivaled membership loyalty and scale with Diluted EPS CAGR > 16%." }
+        ]
+      },
+      dividends: {
+        titleEN: "Dividend Growth & Defensive Champions",
+        titleES: "Dividendos Crecientes & Campeones Defensivos",
+        descEN: "Companies with consistent dividend growth and historical Diluted EPS CAGR > 15%.",
+        descES: "Líderes de dividendo seguro y creciente respaldados por un CAGR de BPA Diluido superior al 15%.",
+        fallbackTickers: [
+          { ticker: "AVGO", weight: 18, sector: "Technology", rationaleES: "Crecimiento de dividendo de doble dígito respaldado por CAGR BPA > 25%.", rationaleEN: "High dividend growth supported by cash generation and Diluted EPS CAGR > 25%." },
+          { ticker: "MSFT", weight: 16, sector: "Technology", rationaleES: "Crecimiento constante de dividendo con balance AAA y CAGR BPA > 18%.", rationaleEN: "Steady dividend grower with AAA balance sheet and Diluted EPS CAGR > 18%." },
+          { ticker: "AAPL", weight: 15, sector: "Technology", rationaleES: "El mayor generador de recompras y dividendos del mundo con CAGR BPA > 16%.", rationaleEN: "Massive capital return engine with Diluted EPS CAGR > 16%." },
+          { ticker: "V", weight: 14, sector: "Financials", rationaleES: "Crecimiento de dividendos a doble dígito por 15+ años y CAGR BPA > 15%.", rationaleEN: "Double-digit dividend growth record supported by Diluted EPS CAGR > 15%." },
+          { ticker: "COST", weight: 13, sector: "Consumer Staples", rationaleES: "Crecimiento sostenido en dividendos ordinarios y especiales con CAGR BPA > 16%.", rationaleEN: "Robust recurring + special dividend compounder with Diluted EPS CAGR > 16%." },
+          { ticker: "LLY", weight: 12, sector: "Healthcare", rationaleES: "Expansión rápida de dividendos apoyada en liderazgo farmacéutico y CAGR BPA > 28%.", rationaleEN: "Rapidly expanding dividend payout fueled by Diluted EPS CAGR > 28%." },
+          { ticker: "UNH", weight: 12, sector: "Healthcare", rationaleES: "Crecimiento de dividendo de doble dígito y CAGR BPA > 15%.", rationaleEN: "Double-digit dividend grower with defensive cash flow and Diluted EPS CAGR > 15%." }
+        ]
+      },
+      deepvalue: {
+        titleEN: "Deep Value & High Cash Flow Yield",
+        titleES: "Valor Profundo & Rendimiento de Flujo de Caja",
+        descEN: "Large-cap leaders trading at attractive valuation multiples while maintaining Diluted EPS CAGR > 15%.",
+        descES: "Líderes de gran capitalización cotizando con múltiplos atractivos y manteniendo un CAGR de BPA Diluido superior al 15%.",
+        fallbackTickers: [
+          { ticker: "GOOGL", weight: 18, sector: "Communication", rationaleES: "Valoración atractiva con ratio PEG por debajo de la media del mercado y CAGR BPA > 24%.", rationaleEN: "Deep value PEG multiple with fortress cash pile and Diluted EPS CAGR > 24%." },
+          { ticker: "META", weight: 16, sector: "Communication", rationaleES: "Alto rendimiento de flujo de caja libre con recompras masivas y CAGR BPA > 35%.", rationaleEN: "High FCF yield and disciplined operating expenses with Diluted EPS CAGR > 35%." },
+          { ticker: "QCOM", weight: 15, sector: "Technology", rationaleES: "Múltiplo P/E bajo respecto al sector y CAGR BPA > 17%.", rationaleEN: "Low valuation multiple with strong cash conversion and Diluted EPS CAGR > 17%." },
+          { ticker: "AMAT", weight: 14, sector: "Technology", rationaleES: "Valoración atractiva en equipamiento de semiconductores con CAGR BPA > 19%.", rationaleEN: "High-return semiconductor equipment leader with Diluted EPS CAGR > 19%." },
+          { ticker: "BKNG", weight: 13, sector: "Consumer Discretionary", rationaleES: "Generación masiva de caja con bajo ratio EV/EBITDA y CAGR BPA > 26%.", rationaleEN: "Massive cash flow yield and aggressive share count reduction with CAGR BPA > 26%." },
+          { ticker: "AXP", weight: 12, sector: "Financials", rationaleES: "Múltiplo P/E moderado con crecimiento sólido de ingresos y CAGR BPA > 16%.", rationaleEN: "Modest earnings multiple with high-spending customer base and CAGR BPA > 16%." },
+          { ticker: "KLAC", weight: 12, sector: "Technology", rationaleES: "Excelente conversión a caja y foso en metrología con CAGR BPA > 22%.", rationaleEN: "Top-tier cash conversion and inspection monopoly with Diluted EPS CAGR > 22%." }
+        ]
+      }
+    };
+
+    // Combine metadata for all selected strategies
+    const selectedMetas = selectedKeys
+      .map(k => STRATEGY_METADATA[k])
+      .filter(Boolean);
+
+    const activeMetas = selectedMetas.length > 0 ? selectedMetas : [STRATEGY_METADATA.balanced];
+
+    let strategyTitleText = "";
+    let strategyDescEN = "";
+    let strategyDescES = "";
+
+    if (activeMetas.length === 1) {
+      strategyTitleText = isES ? activeMetas[0].titleES : activeMetas[0].titleEN;
+      strategyDescEN = activeMetas[0].descEN;
+      strategyDescES = activeMetas[0].descES;
+    } else if (activeMetas.length === 2) {
+      strategyTitleText = isES
+        ? `${activeMetas[0].titleES} & ${activeMetas[1].titleES}`
+        : `${activeMetas[0].titleEN} & ${activeMetas[1].titleEN}`;
+      strategyDescEN = `Multi-style blend combining (${activeMetas[0].descEN}) with (${activeMetas[1].descEN}).`;
+      strategyDescES = `Portafolio híbrido combinando (${activeMetas[0].descES}) con (${activeMetas[1].descES}).`;
+    } else {
+      strategyTitleText = isES
+        ? `Portafolio Multi-Estilo (${activeMetas.length} Enfoques)`
+        : `Multi-Style Institutional Portfolio (${activeMetas.length} Styles)`;
+      strategyDescEN = `Strategic institutional synthesis across ${activeMetas.map(m => m.titleEN).join(", ")}.`;
+      strategyDescES = `Síntesis institucional combinando ${activeMetas.map(m => m.titleES).join(", ")}.`;
+    }
+
+    let candidateHoldings: Array<{ ticker: string; weight: number; sector: string; rationale: string; name?: string; archetype?: string }> = [];
+    let aiRationaleText = isES ? strategyDescES : strategyDescEN;
+
+    // Try calling Gemini to generate an optimal custom allocation
+    try {
+      const epsMandatePrompt = `CRITICAL DILUTED EPS CAGR MANDATE (PRIORITY #1 - STRICT REQUIREMENT):
+- MANDATORY POSITIVE DILUTED EPS CAGR (NON-NEGOTIABLE): EVERY SINGLE SELECTED TICKER MUST HAVE A POSITIVE HISTORICAL DILUTED EPS COMPOUND ANNUAL GROWTH RATE (CAGR > 0.0% / Diluted EPS Compound Annual Growth Rate strictly greater than zero).
+- Any company with a negative, zero, or contracting Diluted EPS CAGR (CAGR <= 0.0%) is STRICTLY PROHIBITED AND DISQUALIFIED across all portfolio styles.
+- DILUTED EPS CAGR THRESHOLD: ${
+  isHypergrowthExempt
+    ? `Because the chosen strategy is exclusively "Hyper-Growth & AI Leaders", companies undergoing massive secular scale are EXEMPT from the 15% historical Diluted EPS CAGR threshold, BUT THEY MUST STILL MAINTAIN A STRICTLY POSITIVE DILUTED EPS CAGR (> 0.0%).`
+    : `EVERY SINGLE SELECTED COMPANY MUST have a historical Diluted EPS Compound Annual Growth Rate (CAGR) strictly GREATER THAN 15% (> 15.0% Diluted EPS CAGR). Any stock with Diluted EPS CAGR <= 15% is STRICTLY DISQUALIFIED.
+- Examples of qualifying stocks with strong positive Diluted EPS CAGR (> 15%): NVDA, MSFT, AAPL, GOOGL, META, AMZN, AVGO, TSM, COST, V, LLY, UNH, BKNG, AMAT, KLAC, QCOM, NOW, CRM, AXP, HD, TXN.`
+}`;
+
+      const prompt = `You are a Chief Investment Officer and quantitative portfolio architect at a top-tier institutional asset management firm.
+Task: Construct an optimal, institutional-grade equity portfolio allocation for a client investing exactly $${numAmount.toLocaleString()} USD.
+
+CLIENT SPECIFICATIONS:
+- Strategy Focus: ${strategyTitleText}
+- Selected Styles & Directives: ${strategyDescEN}
+- Target Number of Stocks: ${numHoldings} positions
+- Custom User Preference: ${customNotes ? customNotes : "None"}
+- Language: ${language}
+
+CRITICAL RULES (NON-NEGOTIABLE):
+1. STRICT LARGE-CAP MANDATE: Every single chosen stock MUST be a US Large-Cap stock with a Market Capitalization strictly ABOVE $20 Billion USD (> $20B Market Cap). Never include small-caps, micro-caps, or speculative penny stocks.
+2. ${epsMandatePrompt}
+3. ALLOCATION WEIGHTS: Provide exact percentage weights summing to 100%. Ensure positions are weighted sensibly (between 5% and 25% each).
+4. HIGH CONVICTION: Select ONLY real, actively traded ticker symbols on US exchanges representing the chosen investment styles.
+5. RATIONALE: Provide a crisp 1-sentence institutional investment thesis explaining why this Large-Cap company fits the selected styles and satisfies the criteria.
+
+Respond strictly with valid JSON conforming to this schema:
+{
+  "strategyTitle": "${strategyTitleText}",
+  "strategySummary": "A concise 2-sentence summary of the portfolio strategy and expected risk/reward profile in ${language}",
+  "holdings": [
+    {
+      "ticker": "TICKER_SYMBOL",
+      "name": "Company Full Name",
+      "sector": "Sector Name",
+      "weight": 15,
+      "estimatedMarketCap": "$850B",
+      "archetype": "High-Quality Compounder",
+      "rationale": "One crisp sentence explaining the investment thesis and criteria fit."
+    }
+  ]
+}`;
+
+      const aiResponse = await generateGeminiContentWithRetry({
+        contents: prompt,
+        config: {
+          temperature: 0.3,
+          responseMimeType: "application/json",
+        },
+      });
+
+      if (aiResponse && aiResponse.text) {
+        const parsed = JSON.parse(aiResponse.text.trim());
+        if (parsed && Array.isArray(parsed.holdings) && parsed.holdings.length >= 4) {
+          candidateHoldings = parsed.holdings.slice(0, numHoldings).map((h: any) => ({
+            ticker: String(h.ticker || "").toUpperCase().trim(),
+            name: h.name,
+            sector: h.sector || "Large Cap",
+            weight: Number(h.weight) || (100 / parsed.holdings.length),
+            rationale: isES ? (h.rationale || h.thesis || "") : (h.rationale || h.thesis || ""),
+          }));
+          if (parsed.strategySummary) {
+            aiRationaleText = parsed.strategySummary;
+          }
+          if (parsed.strategyTitle) {
+            strategyTitleText = parsed.strategyTitle;
+          }
+        }
+      }
+    } catch (aiErr) {
+      console.warn("[Portfolio AI Generator] Gemini call failed or returned unparseable output, using institutional curated fallback:", aiErr);
+    }
+
+    // If Gemini didn't return valid candidates, blend the curated fallback lists across selected strategies
+    if (candidateHoldings.length === 0) {
+      const blendedTickersMap = new Map<string, { ticker: string; weight: number; sector: string; rationaleES: string; rationaleEN: string }>();
+      
+      // Round-robin selection from activeMetas fallback tickers
+      const maxPerStrat = 8;
+      for (let i = 0; i < maxPerStrat; i++) {
+        for (const meta of activeMetas) {
+          if (meta.fallbackTickers[i] && !blendedTickersMap.has(meta.fallbackTickers[i].ticker)) {
+            blendedTickersMap.set(meta.fallbackTickers[i].ticker, meta.fallbackTickers[i]);
+          }
+          if (blendedTickersMap.size >= numHoldings) break;
+        }
+        if (blendedTickersMap.size >= numHoldings) break;
+      }
+
+      candidateHoldings = Array.from(blendedTickersMap.values()).slice(0, numHoldings).map((f) => ({
+        ticker: f.ticker,
+        weight: f.weight,
+        sector: f.sector,
+        rationale: isES ? f.rationaleES : f.rationaleEN,
+      }));
+    }
+
+    // Query financials and real-time quotes in parallel to verify Diluted EPS CAGR & price
+    const tickerFinancialsMap: Record<string, { annual: any[]; quarterly: any[] }> = {};
+    const quoteMap: Record<string, any> = {};
+
+    await Promise.all(
+      candidateHoldings.map(async (item) => {
+        const ticker = item.ticker;
+        try {
+          const [fin, q] = await Promise.all([
+            fetchSingleTickerFinancials(ticker),
+            yahooFinance && typeof yahooFinance.quote === "function"
+              ? yahooFinance.quote(ticker.replace(/\./g, "-"), {}, { validateResult: false }).catch(() => null)
+              : Promise.resolve(null)
+          ]);
+          if (fin) tickerFinancialsMap[ticker] = fin;
+          if (q && q.symbol) quoteMap[ticker] = q;
+        } catch (e) {
+          // Handled gracefully
+        }
+      })
+    );
+
+    // List of reliable backup Large-Caps that strictly satisfy Positive Diluted EPS CAGR (> 15%)
+    const QUALIFIED_BACKUP_TICKERS = [
+      "MSFT", "AAPL", "NVDA", "GOOGL", "META", "AMZN", "AVGO", "TSM", "COST", "V", "LLY", "UNH", "BKNG", "AMAT", "KLAC", "QCOM", "NOW", "CRM", "AXP", "HD", "TXN"
+    ];
+
+    // Enforce POSITIVE DILUTED EPS CAGR MANDATE (> 0% strictly, and > 15% for non-hypergrowth)
+    const finalCandidateHoldings: Array<{
+      ticker: string;
+      weight: number;
+      sector: string;
+      rationale: string;
+      name?: string;
+      archetype?: string;
+      epsCagr: number | null;
+      isCagrPositive: boolean;
+    }> = [];
+    const usedTickers = new Set<string>();
+
+    for (let item of candidateHoldings) {
+      const fin = tickerFinancialsMap[item.ticker];
+
+      let epsCagr: number | null = null;
+      if (fin && fin.annual && fin.annual.length >= 2) {
+        epsCagr = calculateDilutedEpsCagrFromAnnual(fin.annual);
+      }
+      if (epsCagr === null && KNOWN_LARGE_CAP_METRICS[item.ticker]) {
+        epsCagr = KNOWN_LARGE_CAP_METRICS[item.ticker].epsCagr;
+      }
+
+      // POSITIVE DILUTED EPS CAGR MANDATE (PRIORITY #1):
+      // The Diluted EPS CAGR MUST be strictly positive (> 0.0%).
+      // For non-hypergrowth themes, it must also satisfy > 15.0%. For hypergrowth, it must still be strictly positive (> 0.0%).
+      const isCagrPositive = epsCagr !== null && epsCagr > 0;
+      const failsCagr = isHypergrowthExempt
+        ? !isCagrPositive
+        : (epsCagr === null || epsCagr < 15.0);
+
+      // If Diluted EPS CAGR fails positive/growth requirements, replace with a qualified Large-Cap
+      if (failsCagr) {
+        const backup = QUALIFIED_BACKUP_TICKERS.find(t => !usedTickers.has(t) && !candidateHoldings.some(c => c.ticker === t));
+        if (backup) {
+          const backupInfo = KNOWN_LARGE_CAP_METRICS[backup] || { name: backup, sector: "Large Cap", epsCagr: 18.0 };
+          item = {
+            ticker: backup,
+            name: backupInfo.name,
+            sector: backupInfo.sector,
+            weight: item.weight,
+            rationale: isES
+              ? `Líder Large-Cap con CAGR BPA Diluido positivo de +${backupInfo.epsCagr}% y crecimiento de beneficios sostenido.`
+              : `Large-Cap market leader with positive Diluted EPS CAGR of +${backupInfo.epsCagr}% and compounding earnings growth.`,
+          };
+          epsCagr = backupInfo.epsCagr;
+        }
+      }
+
+      const verifiedCagr = (epsCagr !== null && epsCagr > 0) ? epsCagr : (KNOWN_LARGE_CAP_METRICS[item.ticker]?.epsCagr || 16.5);
+
+      usedTickers.add(item.ticker);
+      finalCandidateHoldings.push({
+        ...item,
+        epsCagr: verifiedCagr,
+        isCagrPositive: true
+      });
+    }
+
+    // Normalize weights to sum exactly to 100%
+    const totalWeight = finalCandidateHoldings.reduce((sum, h) => sum + (h.weight || 0), 0);
+    const normalizedHoldings = finalCandidateHoldings.map((h) => ({
+      ...h,
+      weight: totalWeight > 0 ? (h.weight / totalWeight) * 100 : (100 / finalCandidateHoldings.length),
+    }));
+
+    // Fetch quotes for any newly added backup tickers if not already fetched
+    await Promise.all(
+      normalizedHoldings.map(async (item) => {
+        if (!quoteMap[item.ticker]) {
+          try {
+            if (yahooFinance && typeof yahooFinance.quote === "function") {
+              const q: any = await yahooFinance.quote(item.ticker.replace(/\./g, "-"), {}, { validateResult: false });
+              if (q && q.symbol) quoteMap[item.ticker] = q;
+            }
+          } catch (e) {
+            // Handled
+          }
+        }
+      })
+    );
+
+    const enrichedHoldings: any[] = [];
+    let totalAllocatedDollars = 0;
+
+    for (const item of normalizedHoldings) {
+      const q = quoteMap[item.ticker];
+      const defaultInfo = KNOWN_LARGE_CAP_METRICS[item.ticker];
+
+      let livePrice = 100;
+      let companyName = item.name || item.ticker;
+      let marketCap = 50000000000;
+      let sector = item.sector || "Large Cap";
+      let pe: number | null = null;
+      let divYield: number | null = null;
+
+      if (q) {
+        livePrice = Number(q.regularMarketPrice || q.price || q.previousClose || (defaultInfo ? defaultInfo.price : 100));
+        companyName = q.longName || q.shortName || (defaultInfo ? defaultInfo.name : item.ticker);
+        marketCap = Number(q.marketCap || (defaultInfo ? defaultInfo.mktCap : 50000000000));
+        if (q.trailingPE) pe = Number(q.trailingPE);
+        else if (q.forwardPE) pe = Number(q.forwardPE);
+        else if (defaultInfo) pe = defaultInfo.pe;
+
+        if (q.trailingAnnualDividendYield) divYield = Number(q.trailingAnnualDividendYield) * 100;
+        else if (defaultInfo) divYield = defaultInfo.divYield;
+      } else if (defaultInfo) {
+        livePrice = defaultInfo.price;
+        companyName = defaultInfo.name;
+        marketCap = defaultInfo.mktCap;
+        sector = defaultInfo.sector;
+        pe = defaultInfo.pe;
+        divYield = defaultInfo.divYield;
+      }
+
+      // Format market cap cleanly (e.g. $3.24T, $450.2B, $48.5B)
+      let marketCapFormatted = "> $20B";
+      if (marketCap >= 1000000000000) {
+        marketCapFormatted = `$${(marketCap / 1000000000000).toFixed(2)}T`;
+      } else if (marketCap >= 1000000000) {
+        marketCapFormatted = `$${(marketCap / 1000000000).toFixed(1)}B`;
+      }
+
+      // Calculate allocation and shares to achieve 100% full allocation across equities
+      const targetDollars = (item.weight / 100) * numAmount;
+      let shares = Math.max(1, Math.round(targetDollars / livePrice));
+      
+      if (livePrice > targetDollars && numAmount < 50000) {
+        shares = parseFloat((targetDollars / livePrice).toFixed(2));
+      }
+
+      const positionMktValue = Math.round(shares * livePrice * 100) / 100;
+      totalAllocatedDollars += positionMktValue;
+
+      enrichedHoldings.push({
+        ticker: item.ticker,
+        name: companyName,
+        shares,
+        avgCost: Math.round(livePrice * 100) / 100,
+        currentPrice: Math.round(livePrice * 100) / 100,
+        mktValue: positionMktValue,
+        weight: item.weight,
+        sector,
+        marketCap,
+        marketCapFormatted,
+        pe,
+        dividendYield: divYield,
+        dilutedEpsCagr: item.epsCagr,
+        isDilutedEpsCagrPositive: true,
+        rationale: item.rationale,
+        archetype: item.archetype || (strategyType === "compounders" ? "High-Quality Compounder" : "Large-Cap Leader"),
+      });
+    }
+
+    // No cash position is allocated - 100% allocated directly across equities
+    const cashRemaining = 0;
+
+    // Compute aggregate summary metrics
+    let weightedPeSum = 0;
+    let weightedDivYieldSum = 0;
+    let validPeWeight = 0;
+    const sectorWeights: Record<string, number> = {};
+
+    enrichedHoldings.forEach((h) => {
+      const w = h.weight / 100;
+      if (h.pe && h.pe > 0 && h.pe < 150) {
+        weightedPeSum += h.pe * w;
+        validPeWeight += w;
+      }
+      if (h.dividendYield && h.dividendYield > 0) {
+        weightedDivYieldSum += h.dividendYield * w;
+      }
+      sectorWeights[h.sector] = (sectorWeights[h.sector] || 0) + h.weight;
+    });
+
+    const weightedPe = validPeWeight > 0 ? Math.round((weightedPeSum / validPeWeight) * 10) / 10 : 25.4;
+    const weightedDivYield = Math.round(weightedDivYieldSum * 100) / 100;
+
+    res.json({
+      success: true,
+      strategyTitle: strategyTitleText,
+      strategyDescription: isES ? strategyDescES : strategyDescEN,
+      totalTargetAmount: numAmount,
+      totalAllocatedAmount: Math.round(totalAllocatedDollars * 100) / 100,
+      cashRemaining,
+      isHypergrowthExempt,
+      epsCagrFilterApplied: !isHypergrowthExempt,
+      dilutedEpsCagrPositiveVerified: true,
+      holdings: enrichedHoldings,
+      summaryMetrics: {
+        weightedPe,
+        weightedDivYield,
+        sectorWeights,
+        topHolding: enrichedHoldings[0]?.ticker || "MSFT",
+      },
+      aiRationale: aiRationaleText,
+    });
+  });
+
   // Fetch Yahoo Finance financials (fundamentalsTimeSeries) for single or multiple tickers
   app.post("/api/portfolio/financials", async (req, res) => {
     const { ticker, tickers } = req.body;
@@ -3255,6 +3759,710 @@ export function registerMarketRoutes(app: LegacyApp) {
     }
   });
 
+  // 3b. Tier-1 Financial News Endpoint with Search Grounding
+  app.post("/api/news", async (req, res) => {
+    const { tickers = [], language = "ES", filterTicker = "ALL", filterCategory = "ALL", forceRefresh = false } = req.body;
+
+    // Standard list of active tickers if none passed
+    const defaultTickers = ["NVDA", "MSFT", "META", "AVGO", "AMZN", "MAGS", "GOOGL", "IREN", "CRWV", "NBIS", "AAPL", "TSLA"];
+    const targetTickers = Array.isArray(tickers) && tickers.length > 0 ? tickers : defaultTickers;
+
+    const fallbackNews = [
+      {
+        id: "news_nvda_1",
+        ticker: "NVDA",
+        title: language === "ES" ? "NVIDIA amplía su liderazgo en infraestructura de IA con un nuevo contrato masivo de supercómputo" : "NVIDIA Expands AI Infrastructure Dominance with New Major Hyperscale Deal",
+        summary: language === "ES" 
+          ? "Analistas de Wall Street destacan que la demanda para las nuevas arquitecturas de chips Blackwell se mantiene 'extraordinariamente alta', superando las capacidades de producción para los próximos trimestres."
+          : "Wall Street analysts highlight that demand for Blackwell chip architectures remains extraordinarily elevated, outstripping production capacity for upcoming quarters.",
+        source: "Bloomberg",
+        url: "https://www.bloomberg.com",
+        publishedAt: language === "ES" ? "Hace 45 minutos" : "45 minutes ago",
+        sentiment: "positive",
+        category: "Product & AI",
+        impactScore: 9.5,
+        tickersRelated: ["NVDA", "MSFT", "AMZN", "MAGS"]
+      },
+      {
+        id: "news_msft_1",
+        ticker: "MSFT",
+        title: language === "ES" ? "Microsoft Azure reporta un acelerado crecimiento impulsado por la monetización de servicios Copilot" : "Microsoft Azure Reports Accelerated Growth Driven by Copilot Monetization",
+        summary: language === "ES"
+          ? "Los ingresos de nube comercial continúan expandiéndose a doble dígito. Citigroup reitera recomendación de Compra con un objetivo de precio revisado al alza."
+          : "Commercial cloud revenue continues expanding at double-digit rates. Citigroup reiterates Buy rating with raised price target.",
+        source: "Reuters",
+        url: "https://www.reuters.com",
+        publishedAt: language === "ES" ? "Hace 2 horas" : "2 hours ago",
+        sentiment: "positive",
+        category: "Earnings",
+        impactScore: 8.8,
+        tickersRelated: ["MSFT", "GOOGL", "AMZN"]
+      },
+      {
+        id: "news_crwv_1",
+        ticker: "CRWV",
+        title: language === "ES" ? "CoreWeave cierra ronda de refinanciamiento institucional para expandir centros de datos GPU" : "CoreWeave Secures Institutional Financing Round to Expand GPU Data Centers",
+        summary: language === "ES"
+          ? "La proveedora de infraestructura cloud para IA consolida nuevos acuerdos de capacidad con hyperscalers. Analistas elevan precio objetivo ante una mayor visibilidad de ingresos recurrentes."
+          : "The AI cloud infrastructure provider secures new capacity deals with hyperscalers. Analysts lift price targets on enhanced recurring revenue visibility.",
+        source: "The Wall Street Journal",
+        url: "https://www.wsj.com",
+        publishedAt: language === "ES" ? "Hace 3 horas" : "3 hours ago",
+        sentiment: "positive",
+        category: "M&A / Deals",
+        impactScore: 8.5,
+        tickersRelated: ["CRWV", "NVDA"]
+      },
+      {
+        id: "news_nbis_1",
+        ticker: "NBIS",
+        title: language === "ES" ? "Nebius Group anuncia expansión de centros de cómputo de alta densidad en Europa y EE.UU." : "Nebius Group Announces High-Density Compute Data Center Expansion in Europe & US",
+        summary: language === "ES"
+          ? "Nebius reporta un fuerte incremento en contrataciones de capacidad de procesamiento AI en la nube, impulsando las estimaciones de crecimiento de ingresos operativos para el segundo semestre."
+          : "Nebius reports surge in AI cloud processing capacity contracts, driving second-half operating revenue estimates higher.",
+        source: "Financial Times",
+        url: "https://www.ft.com",
+        publishedAt: language === "ES" ? "Hace 4 horas" : "4 hours ago",
+        sentiment: "positive",
+        category: "Product & AI",
+        impactScore: 8.2,
+        tickersRelated: ["NBIS"]
+      },
+      {
+        id: "news_iren_1",
+        ticker: "IREN",
+        title: language === "ES" ? "IREN Limited fortalece su transición a cómputo de alto rendimiento (HPC) y servicios GPU" : "IREN Limited Strengthens Transition to High-Performance Compute (HPC) and GPU Cloud Services",
+        summary: language === "ES"
+          ? "La compañía reporta eficiencias récord en sus instalaciones energéticas y una menor dependencia del minado tradicional de Bitcoin a favor del arrendamiento de clústeres Nvidia."
+          : "Company reports record power efficiency at data sites and reduced dependency on Bitcoin mining in favor of Nvidia GPU cluster leasing.",
+        source: "CNBC",
+        url: "https://www.cnbc.com",
+        publishedAt: language === "ES" ? "Hace 5 horas" : "5 hours ago",
+        sentiment: "positive",
+        category: "Analyst Rating",
+        impactScore: 8.0,
+        tickersRelated: ["IREN"]
+      },
+      {
+        id: "news_fed_1",
+        ticker: "GENERAL",
+        title: language === "ES" ? "La Reserva Federal mantiene la vigilancia sobre la inflación mientras el mercado evalúa el ritmo de recortes de tasas" : "Federal Reserve Maintains Watchful Stance on Inflation as Market Gauges Rate Cut Pace",
+        summary: language === "ES"
+          ? "Los funcionarios de la Fed enfatizan la dependencia de datos macroeconómicos para futuras decisiones monetarias, manteniendo el rendimiento de los bonos del Tesoro a 10 años en rangos estables."
+          : "Fed officials emphasize data dependency for future monetary shifts, keeping 10-year Treasury yields in steady ranges.",
+        source: "Barron's",
+        url: "https://www.barrons.com",
+        publishedAt: language === "ES" ? "Hace 6 horas" : "6 hours ago",
+        sentiment: "neutral",
+        category: "Macro & Fed",
+        impactScore: 9.0,
+        tickersRelated: ["VOO", "QQQ", "MSFT", "NVDA", "AAPL"]
+      },
+      {
+        id: "news_amzn_1",
+        ticker: "AMZN",
+        title: language === "ES" ? "Amazon AWS invierte $10B adicionales para infraestructura de centros de datos de IA" : "Amazon AWS Commits Additional $10B for AI Data Center Infrastructure",
+        summary: language === "ES"
+          ? "AWS busca atender la demanda masiva de entrenamiento y deducción de modelos LLM. JPMorgan mantiene sobreponderar con un catalizador alcista en márgenes operativos."
+          : "AWS seeks to meet massive LLM training and inference demand. JPMorgan maintains Overweight with bullish margin expansion catalyst.",
+        source: "Seeking Alpha",
+        url: "https://seekingalpha.com",
+        publishedAt: language === "ES" ? "Hace 7 horas" : "7 hours ago",
+        sentiment: "positive",
+        category: "Product & AI",
+        impactScore: 8.4,
+        tickersRelated: ["AMZN", "NVDA"]
+      },
+      {
+        id: "news_meta_1",
+        ticker: "META",
+        title: language === "ES" ? "Meta Platforms proyecta mayores retornos en publicidad tras la integración profunda de Llama 3.5" : "Meta Platforms Projects Higher Ad Yields Following Deep Llama 3.5 Integration",
+        summary: language === "ES"
+          ? "La monetización de anuncios inteligentes en Instagram y WhatsApp muestra mejoras en engagement. Goldman Sachs eleva precio objetivo a 12 meses."
+          : "AI ad targeting on Instagram and WhatsApp yields engagement gains. Goldman Sachs raises 12-month price target.",
+        source: "MarketWatch",
+        url: "https://www.marketwatch.com",
+        publishedAt: language === "ES" ? "Hace 8 horas" : "8 hours ago",
+        sentiment: "positive",
+        category: "Product & AI",
+        impactScore: 8.3,
+        tickersRelated: ["META"]
+      },
+      {
+        id: "news_googl_1",
+        ticker: "GOOGL",
+        title: language === "ES" ? "Alphabet acelera la monetización de Gemini Enterprise en Google Cloud Platform" : "Alphabet Accelerates Gemini Enterprise Monetization Across Google Cloud Platform",
+        summary: language === "ES"
+          ? "Adopción corporativa creció un 40% intertrimestral. Morgan Stanley resalta la sólida ventaja en TPU personalizadas para reducir costos de inferencia."
+          : "Enterprise adoption grew 40% QoQ. Morgan Stanley highlights structural TPU cost advantages for inference workloads.",
+        source: "Financial Times",
+        url: "https://ft.com",
+        publishedAt: language === "ES" ? "Hace 10 horas" : "10 hours ago",
+        sentiment: "positive",
+        category: "Earnings",
+        impactScore: 8.1,
+        tickersRelated: ["GOOGL", "NVDA"]
+      }
+    ];
+
+    try {
+      const prompt = `
+Eres la API de Inteligencia Financiera para la terminal investiando.ai.
+Tus usuarios requieren estar al tanto de las noticias MÁS RELEVANTES Y RECIENTES para los siguientes símbolos bursátiles de su portafolio/watchlist: ${targetTickers.join(", ")}.
+
+INSTRUCCIONES Y FUENTES:
+1. Debes rastrear y resumir noticias ÚNICAMENTE de fuentes financieras de primer nivel institucional: Bloomberg, Reuters, The Wall Street Journal (WSJ), Financial Times (FT), CNBC, Seeking Alpha, MarketWatch, Barron's, e Investopedia.
+2. Cada noticia debe enfocarse en un evento de alto impacto (Resultados Financieros, Calificaciones de Analistas de Wall Street, M&A/Adquisiciones, Lanzamientos de Productos/IA, Decisiones Reguladoras, Políticas de la Reserva Federal o Dinámica Macro).
+3. Idioma deseado de salida: ${language === "ES" ? "Español" : "Inglés"}.
+
+FORMATO DE SALIDA ESTRICTO:
+Debes responder ÚNICAMENTE con un objeto JSON válido (sin explicaciones previas ni texto introductorio) con esta estructura exacta:
+{
+  "news": [
+    {
+      "id": "string único",
+      "ticker": "Símbolo principal (ej. NVDA, MSFT, CRWV, NBIS, IREN, GOOGL, META, AMZN, GENERAL)",
+      "title": "Titular conciso, profesional y periodístico",
+      "summary": "Resumen analítico de 2 a 3 oraciones explicando el catalizador, volumen o relevancia para el inversionista",
+      "source": "Nombre exacto de la fuente de élite (ej. Bloomberg, Reuters, WSJ, CNBC, Financial Times, Seeking Alpha, MarketWatch, Barron's)",
+      "url": "https://www.fuente.com",
+      "publishedAt": "Tiempo relativo (ej. Hace 30 minutos, Hace 2 horas, Hoy)",
+      "sentiment": "positive | negative | neutral",
+      "category": "Earnings | Macro & Fed | M&A / Deals | Analyst Rating | Product & AI | Regulatory | Markets",
+      "impactScore": número de 1.0 a 10.0,
+      "tickersRelated": ["NVDA", "MSFT"]
+    }
+  ]
+}
+Recopila al menos 8 a 10 noticias verdaderamente relevantes de estas fuentes principales.
+`;
+
+      const response = await generateGeminiContentWithRetry({
+        primaryModel: "gemini-3.7-flash",
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        config: {
+          tools: [{ googleSearch: {} }],
+          temperature: 0.3,
+        },
+      });
+
+      let rawText = response.text || "";
+      // Strip markdown code fences if present
+      rawText = rawText.replace(/```json/gi, "").replace(/```/g, "").trim();
+
+      const parsed = JSON.parse(rawText);
+      if (parsed && Array.isArray(parsed.news) && parsed.news.length > 0) {
+        let filtered = parsed.news;
+        if (filterTicker && filterTicker !== "ALL") {
+          filtered = filtered.filter((n: any) => 
+            n.ticker === filterTicker || (Array.isArray(n.tickersRelated) && n.tickersRelated.includes(filterTicker))
+          );
+        }
+        if (filterCategory && filterCategory !== "ALL") {
+          filtered = filtered.filter((n: any) => n.category === filterCategory);
+        }
+        return res.json({ news: filtered.length > 0 ? filtered : parsed.news, liveGrounded: true });
+      }
+    } catch (err: any) {
+      // Quietly engage high-impact fallback news without flooding error logs
+    }
+
+    // Apply filtering on fallback data if search API didn't return
+    let resultNews = fallbackNews;
+    if (filterTicker && filterTicker !== "ALL") {
+      resultNews = resultNews.filter((n: any) => 
+        n.ticker === filterTicker || (Array.isArray(n.tickersRelated) && n.tickersRelated.includes(filterTicker))
+      );
+    }
+    if (filterCategory && filterCategory !== "ALL") {
+      resultNews = resultNews.filter((n: any) => n.category === filterCategory);
+    }
+
+    res.json({ news: resultNews.length > 0 ? resultNews : fallbackNews, liveGrounded: false });
+  });
+
+  // 4. AI Analyst Advisor with Gemini
+  app.post("/api/chat", async (req, res) => {
+    const { message, history = [], portfolio = null } = req.body;
+
+    if (!message) {
+      return res.status(400).json({ error: "Message is required" });
+    }
+
+    try {
+      let portfolioContext = "";
+      if (portfolio && Array.isArray(portfolio.positions) && portfolio.positions.length > 0) {
+        portfolioContext = `
+A continuación se detallan las tenencias actuales de la cartera del usuario:
+${portfolio.positions.map((p: any) => {
+  if (p.isCash) {
+    return `- Efectivo (Cash): Valor de Mercado $${p.mktValue.toFixed(2)} (Peso: ${p.weight.toFixed(1)}%)`;
+  }
+  return `- ${p.ticker} (${p.name}): ${p.shares} acciones, Costo Promedio $${p.avgCost.toFixed(2)}, Precio Actual $${p.price.toFixed(2)}, Valor de Mercado $${p.mktValue.toFixed(2)} (Peso: ${p.weight.toFixed(1)}%), P/E: ${p.pe || "N/A"}, PEG: ${p.peg || "N/A"}, Rendimiento Diario: ${p.chgPct.toFixed(2)}%, Retorno Total: $${p.returnAmt.toFixed(2)} (${p.returnPct.toFixed(2)}%)`;
+}).join("\n")}
+
+Resumen Total de Cartera:
+- Valor Total: $${portfolio.totals.mktValue.toFixed(2)}
+- Costo de Adquisición Total: $${portfolio.totals.costBasis.toFixed(2)}
+- Retorno Total de la Cartera: $${portfolio.totals.totalReturn.toFixed(2)} (${portfolio.totals.totalReturnPercent.toFixed(2)}%)
+- P&L Diario de la Cartera: $${portfolio.totals.dailyPnL.toFixed(2)} (${portfolio.totals.dailyPnLPercent.toFixed(2)}%)
+`;
+      } else {
+        portfolioContext = "El usuario no tiene posiciones en su cartera todavía.";
+      }
+
+      const systemInstruction = `
+Eres un analista financiero experto y asesor de inversiones de inteligencia artificial.
+Tu objetivo es responder de forma profesional, analítica, clara y útil a las consultas del usuario sobre su cartera de inversiones y el mercado de valores.
+
+Reglas de conducta:
+1. Habla siempre en español.
+2. Utiliza un tono analítico, sofisticado pero comprensible (sin tecnicismos innecesarios).
+3. Utiliza la información provista en el contexto de la cartera para dar respuestas específicas y calculadas sobre su portafolio real.
+4. Si el usuario te pregunta por recomendaciones, proporciona análisis basados en fundamentales (P/E, PEG, ponderaciones de riesgo, diversificación) y recuerda siempre añadir un descargo de responsabilidad amistoso al final informando que el análisis de IA es educativo y no constituye un consejo financiero regulado.
+5. Usa formato Markdown para que las respuestas se lean con hermosa estructura, usando viñetas, negritas, y tablas cortas si es apropiado.
+`;
+
+      const formattedContents = [
+        { role: "user", parts: [{ text: `${portfolioContext}\n\nConsulta del usuario: ${message}` }] }
+      ];
+
+      // If history is provided, we can map it to standard format (user/model)
+      const chatHistory = history.map((h: any) => ({
+        role: h.role === "user" ? "user" : "model",
+        parts: [{ text: h.content }],
+      }));
+
+      const response = await generateGeminiContentWithRetry({
+        primaryModel: "gemini-3.7-flash",
+        contents: [...chatHistory, { role: "user", parts: [{ text: `${portfolioContext}\n\nConsulta del usuario: ${message}` }] }],
+        config: {
+          systemInstruction,
+          temperature: 0.7,
+        },
+      });
+
+      res.json({ text: response.text });
+    } catch (error: any) {
+      console.warn("Gemini API error (engaging chat fallback):", error?.message || error);
+      
+      // Provide intelligent context-aware reply
+      const totalVal = portfolio?.totals?.mktValue ? `$${portfolio.totals.mktValue.toFixed(2)}` : "tu cartera";
+      const totalRet = portfolio?.totals?.totalReturnPercent ? `${portfolio.totals.totalReturnPercent.toFixed(2)}%` : "0.0%";
+      const topHoldings = portfolio?.positions?.filter((p: any) => !p.isCash).slice(0, 3).map((p: any) => p.ticker).join(", ") || "activos principales";
+      
+      const fallbackReply = `### 📊 Diagnóstico del Asesor de Inversiones
+
+He analizado tu consulta en relación a tu cartera actual (${totalVal}, con un retorno acumulado del **${totalRet}**):
+
+- **Asignación Principal:** Tus mayores posiciones activas (${topHoldings}) concentran el peso de tu exposición al mercado.
+- **Diversificación:** Se recomienda revisar periódicamente los múltiplos de valoración (P/E y PEG) y asegurar un balance adecuado entre crecimiento y estabilidad.
+- **Gestión de Liquidez:** Mantener un colchón de efectivo permite aprovechar correcciones de mercado para promediar a la baja en empresas de alta calidad.
+
+*Nota: Este análisis automatizado es estrictamente formativo y educativo.*`;
+
+      return res.json({ text: fallbackReply });
+    }
+  });
+
+  app.post("/api/financials-analysis", async (req, res) => {
+    const { ticker, financials } = req.body;
+    if (!ticker || !financials) {
+      return res.status(400).json({ error: "Ticker and financials data are required" });
+    }
+    
+    try {
+      const systemInstruction = `Eres un analista financiero experto de un hedge fund top (CFA).
+Tu objetivo es realizar un análisis ejecutivo de una compañía ordenado estrictamente de "Top-Line a Bottom-Line" (de arriba a abajo en el estado de resultados y flujo de caja).
+
+Debes incluir OBLIGATORIAMENTE 4 tarjetas en este ORDEN ESTRICTO:
+1. **Total Revenue / Ventas Totales (Top-Line)**: Análisis del crecimiento o tendencia de la facturación/ventas de la empresa.
+2. **Márgenes (Gross, Operating, Net Margins)**: Análisis de la expansión, estabilidad o contracción de los márgenes de beneficio.
+3. **Flujo de Caja (Cash Flow)**: Análisis de la generación de Operating Cash Flow y Free Cash Flow (FCF).
+4. **Estructura Financiera & Deuda / Salud de Balance**: Análisis de la deuda total, posición de caja y apalancamiento financiero.
+
+Debes devolver tu análisis EXCLUSIVAMENTE en formato JSON válido, sin texto adicional ni bloques markdown de código.
+La estructura del JSON debe ser un array de objetos "tarjeta" (cards), donde cada objeto contiene los siguientes campos:
+- "title": Título corto y profesional (ej. "Crecimiento de Ventas Totales", "Expansión de Margen Operativo", "Fuerte Generación de FCF", "Solvencia y Posición de Caja").
+- "metric": Métrica clave analizada (ej. "Total Revenue", "Margen Operativo", "Free Cash Flow", "Deuda / Caja").
+- "trend": Solo puede ser "positive", "negative", o "neutral".
+- "explanation": Explicación ejecutiva, muy concreta y directa de 1 a 2 oraciones con cifras clave o dinamismos relevantes.
+- "iconType": "revenue", "margin", "cashflow", o "debt".`;
+
+      const promptContext = `Por favor, analiza la siguiente compañía: ${ticker}.
+Aquí tienes los datos financieros resumidos (en JSON):
+${JSON.stringify(financials).substring(0, 5000)}
+
+Asegúrate de incluir las 4 tarjetas en el ORDEN ESTRICTO Top-Line to Bottom-Line:
+1. Total Revenue
+2. Márgenes
+3. Flujo de Caja
+4. Deuda / Estructura Financiera
+
+Devuelve SOLO un array JSON válido con la estructura solicitada.`;
+
+      const response = await generateGeminiContentWithRetry({
+        primaryModel: "gemini-3.7-flash",
+        contents: [{ role: "user", parts: [{ text: promptContext }] }],
+        config: {
+          systemInstruction,
+          temperature: 0.3,
+          responseMimeType: "application/json",
+        },
+      });
+
+      res.json({ text: response.text });
+    } catch (error: any) {
+      console.warn("Gemini API financials analysis error (engaging deterministic fundamental engine):", error?.message || error);
+
+      // Algorithmic Fallback: Calculate Top-Line to Bottom-Line metrics directly from the financials data
+      try {
+        const annualData = Array.isArray(financials.annual) ? financials.annual : [];
+        const latest = annualData[0] || {};
+        const prior = annualData[1] || {};
+
+        const revLatest = Number(latest.revenue || 0);
+        const revPrior = Number(prior.revenue || 0);
+        const revGrowth = revPrior > 0 ? ((revLatest - revPrior) / revPrior) * 100 : 0;
+
+        const opIncLatest = Number(latest.operatingIncome || 0);
+        const netIncLatest = Number(latest.netIncome || 0);
+        const opMargin = revLatest > 0 ? (opIncLatest / revLatest) * 100 : 0;
+        const netMargin = revLatest > 0 ? (netIncLatest / revLatest) * 100 : 0;
+
+        const fcfLatest = Number(latest.fcf || 0);
+        const cashLatest = Number(latest.cash || 0);
+        const debtLatest = Number(latest.debt || 0);
+
+        const formatB = (val: number) => {
+          const abs = Math.abs(val);
+          if (abs >= 1e9) return `$${(val / 1e9).toFixed(1)}B`;
+          if (abs >= 1e6) return `$${(val / 1e6).toFixed(1)}M`;
+          return `$${val.toLocaleString()}`;
+        };
+
+        const cards = [
+          {
+            title: revGrowth >= 0 ? "Expansión Sólida de Ingresos" : "Contracción Moderada de Ventas",
+            metric: "Total Revenue (Top-Line)",
+            trend: revGrowth > 5 ? "positive" : revGrowth >= 0 ? "neutral" : "negative",
+            explanation: `Ingresos anuales de ${formatB(revLatest)} reflejando una variación del ${revGrowth >= 0 ? "+" : ""}${revGrowth.toFixed(1)}% interanual.`,
+            iconType: "revenue"
+          },
+          {
+            title: opMargin >= 15 ? "Márgenes de Alta Calidad Operativa" : "Márgenes Operativos Bajo Control",
+            metric: "Margen Operativo & Neto",
+            trend: opMargin >= 15 ? "positive" : opMargin >= 5 ? "neutral" : "negative",
+            explanation: `Margen operativo del ${opMargin.toFixed(1)}% y margen neto del ${netMargin.toFixed(1)}%, demostrando disciplina de costos.`,
+            iconType: "margin"
+          },
+          {
+            title: fcfLatest > 0 ? "Generación Positiva de Free Cash Flow" : "Presión en Flujo de Caja Libre",
+            metric: "Free Cash Flow (FCF)",
+            trend: fcfLatest > 0 ? "positive" : "negative",
+            explanation: `Flujo de caja libre anual de ${formatB(fcfLatest)}, asegurando capacidad para reinversión y retorno al accionista.`,
+            iconType: "cashflow"
+          },
+          {
+            title: cashLatest >= debtLatest ? "Balance Sólido (Caja Neta Positiva)" : "Apalancamiento Moderado",
+            metric: "Estructura de Capital & Deuda",
+            trend: cashLatest >= debtLatest ? "positive" : debtLatest < cashLatest * 2 ? "neutral" : "negative",
+            explanation: `Posición de liquidez con ${formatB(cashLatest)} en efectivo frente a ${formatB(debtLatest)} de deuda total.`,
+            iconType: "debt"
+          }
+        ];
+
+        return res.json({ text: JSON.stringify(cards) });
+      } catch (fallbackErr: any) {
+        return res.json({
+          text: JSON.stringify([
+            {
+              title: "Análisis Top-Line de Ingresos",
+              metric: "Total Revenue",
+              trend: "positive",
+              explanation: "Facturación sostenida alineada con las expectativas del sector de referencia.",
+              iconType: "revenue"
+            },
+            {
+              title: "Estructura de Márgenes",
+              metric: "Márgenes Operativos",
+              trend: "positive",
+              explanation: "Rendimiento y eficiencia operativa estables en el ciclo actual.",
+              iconType: "margin"
+            },
+            {
+              title: "Flujo de Caja Libre",
+              metric: "Free Cash Flow",
+              trend: "positive",
+              explanation: "Generación de efectivo suficiente para el mantenimiento de operaciones.",
+              iconType: "cashflow"
+            },
+            {
+              title: "Solvencia y Posición de Balance",
+              metric: "Caja y Deuda",
+              trend: "neutral",
+              explanation: "Estructura patrimonial equilibrada con monitoreo de liquidez adecuado.",
+              iconType: "debt"
+            }
+          ])
+        });
+      }
+    }
+  });
+
+  // 4b. Hedge Fund Institutional Research Memo Endpoint with Gemini
+  app.post("/api/hedgefund-analysis", async (req, res) => {
+    const { portfolio = null } = req.body;
+
+    if (!portfolio || !Array.isArray(portfolio.positions) || portfolio.positions.length === 0) {
+      return res.status(400).json({ error: "Portfolio data is required and must contain active positions" });
+    }
+
+    try {
+      const positionsText = portfolio.positions.map((p: any) => {
+        if (p.isCash) {
+          return `- Efectivo (Cash Buffer): Valor de Mercado $${p.mktValue.toFixed(2)} (Peso: ${p.weight.toFixed(1)}%)`;
+        }
+        return `- ${p.ticker} (${p.name}): ${p.shares} acciones, Costo Promedio $${p.avgCost.toFixed(2)}, Precio Actual $${p.price.toFixed(2)}, Valor de Mercado $${p.mktValue.toFixed(2)} (Peso: ${p.weight.toFixed(1)}%), P/E: ${p.pe || "N/A"}, PEG: ${p.peg || "N/A"}, Variación Diaria: ${p.chgPct.toFixed(2)}%, Retorno Total: $${p.returnAmt.toFixed(2)} (${p.returnPct.toFixed(2)}%)`;
+      }).join("\n");
+
+      const totalsText = `
+Resumen Consolidado:
+- Valor de Mercado Total (AUM): $${portfolio.totals.mktValue.toFixed(2)}
+- Costo de Inversión Total: $${portfolio.totals.costBasis.toFixed(2)}
+- Retorno Absoluto del Portafolio: $${portfolio.totals.totalReturn.toFixed(2)} (${portfolio.totals.totalReturnPercent.toFixed(2)}%)
+- P&L Diario Consolidado: $${portfolio.totals.dailyPnL.toFixed(2)} (${portfolio.totals.dailyPnLPercent.toFixed(2)}%)
+`;
+
+      const systemInstruction = `
+Eres un Managing Director y Chief Investment Officer (CIO) de un Hedge Fund global de élite (estilo Citadel, Point72 o Millennium).
+Tu misión es redactar un memorándum de investigación institucional privado, extremadamente riguroso, crítico y de calidad "state-of-the-art" para el Comité de Inversiones sobre la cartera activa que te presenta el usuario.
+
+REGLAS DE CONDUCTA Y ESTILO:
+1. Habla siempre en un español impecable, sofisticado, elegante, y de alto nivel técnico bursátil.
+2. Evita consejos condescendientes, advertencias genéricas de principiantes, o frases hechas del tipo "invierte con cuidado". Queremos un análisis clínico y cuantitativo de nivel institucional.
+3. Sé incisivo. Si la cartera está sobreexpuesta a megacaps tecnológicas, diagnostica la "burbuja de correlación" o la dependencia extrema del factor "crecimiento/momentum".
+4. Usa terminología cuantitativa real de hedge funds: 'Alfa', 'Beta implícito', 'Volatilidad de cola (Tail Risk)', 'Drawdown máximo potencial', 'Exposición factorial de estilo', 'Prima de riesgo de renta variable', 'Asimetría positiva/negativa de retornos', 'Ratio Sharpe/Sortino', etc.
+5. Formatea la respuesta strictly con Markdown utilizando encabezados claros (##), tablas y viñetas para crear un documento extremadamente legible y visualmente impresionante.
+
+ESTRUCTURA OBLIGATORIA DEL MEMORÁNDUM:
+
+# MEMORÁNDUM DE INVESTIGACIÓN DE PORTAFOLIO (PRIVADO - COMITÉ DE INVERSIÓN)
+*Para: Comité de Inversiones de Aethelgard Alpha Management*
+*De: CIO & Senior Portfolio Manager*
+*Fecha: Con fecha de hoy*
+*Asunto: Diagnóstico Crítico de Posicionamiento de Activos y Estrategias de Arbitraje de Riesgo*
+
+## 1. RESUMEN EJECUTIVO Y TESIS DE CONVICCIÓN
+[Analiza la arquitectura general del portafolio. ¿Es un fondo agresivo, un index tracker encubierto, o una apuesta altamente concentrada? Relaciona el posicionamiento con la coyuntura macroeconómica actual (ciclos de tasas de interés de la Reserva Federal, inflación latente, y el ciclo de capital en semiconductores e inteligencia artificial).]
+
+## 2. EXPOSICIÓN FACTORIAL Y ANÁLISIS DE CORRELACIÓN CRUZADA
+[Evalúa en qué factores de riesgo está invertida realmente esta cartera (Growth, Momentum, Quality, Value, Low Volatility). Explica por qué la correlación cruzada entre las posiciones puede provocar que el portafolio se comporte como un solo activo de alta beta durante eventos de desapalancamiento.]
+
+## 3. ATRIBUCIÓN DE ACTIVO POR ACTIVO (ALPHA VS. BETA)
+[Proporciona un desglose quirúrgico de los activos más representativos del portafolio del usuario. Evalúa si las métricas de valoración como P/E y PEG justifican la asignación de capital o si están sobrevaloradas. Separa de forma analítica el Alfa real del activo del Beta que le proporciona el mercado.]
+
+## 4. ESTRATEGIA DE COBERTURA (HEDGING) Y TRADING DE COLA
+[Especifica recomendaciones operativas exactas para mitigar drawdowns graves. Por ejemplo: opciones PUT sobre el índice Nasdaq-100 (QQQ) con delta de 0.20, contratos de futuros cortos para inmunizar el beta de las megacaps, o ratios óptimos de efectivo líquido en este régimen de volatilidad.]
+
+## 5. EL ESLABÓN PERDIDO (WHAT'S MISSING)
+[Diagnostica críticamente qué clases de activos, sectores o geografías están COMPLETAMENTE AUSENTES en este portafolio pero que un portfolio manager senior de hedge fund añadiría de inmediato para optimizar la frontera eficiente (ej. oro físico, bonos soberanos de corta duración para capturar rendimientos libres de riesgo, energía tradicional para cobertura de commodities, o exposición geográfica en mercados asiáticos/emergentes).]
+
+## 6. VEREDICTO FINAL Y ACCIONES RECOMENDADAS
+[Termina con una tabla resumida de decisiones del Comité (COMPRAR / MANTENER / RECORTAR / REDUCIR) para las posiciones clave y una conclusión final de rebalanceo cuantitativo.]
+`;
+
+      const response = await generateGeminiContentWithRetry({
+        primaryModel: "gemini-3.7-flash",
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text: `Carga las siguientes posiciones actuales de la cartera del usuario para realizar el memorándum técnico institucional:\n\n${positionsText}\n\n${totalsText}\n\nPor favor, produce el memorándum en español de nivel Senior CIO.`
+              }
+            ]
+          }
+        ],
+        config: {
+          systemInstruction,
+          temperature: 0.8,
+        },
+      });
+
+      res.json({ text: response.text });
+    } catch (error: any) {
+      console.warn("Hedge Fund Analysis Fallback:", error?.message || error);
+      
+      const topPositions = portfolio.positions.filter((p: any) => !p.isCash);
+      const totalAUM = portfolio.totals.mktValue.toFixed(2);
+      const returnPct = portfolio.totals.totalReturnPercent.toFixed(2);
+
+      return res.json({
+        text: `# MEMORÁNDUM DE INVESTIGACIÓN INSTITUCIONAL (COMITÉ DE INVERSIÓN)
+*Para: Comité de Inversiones*
+*De: Chief Investment Officer (CIO) & Senior Portfolio Manager*
+*Asunto: Diagnóstico Cuantitativo de Posicionamiento y Gestión Factorial de Riesgo*
+
+---
+
+## 1. RESUMEN EJECUTIVO Y ARQUITECTURA DE CARTERA
+El portafolio administrado cuenta con un valor consolidado de **$${totalAUM}** y una rentabilidad acumulada del **${returnPct}%**. La distribución de capital refleja una estrategia predominantemente inclinada hacia factores de **Crecimiento (Growth)** y **Calidad (Quality)**.
+
+## 2. DESGLOSE FACTORIAL Y CONCENTRACIÓN
+- **Concentración de Capital:** Las principales posiciones (${topPositions.slice(0, 3).map((p: any) => p.ticker).join(", ")}) representan el núcleo motor del alfa de la cartera.
+- **Correlación de Mercado:** La cartera exhibe una sensibilidad correlacionada a las condiciones de liquidez global y expectativas de tasas de interés.
+
+## 3. ATRIBUCIÓN Y EVALUACIÓN POR ACTIVO
+| Ticker | Peso Cartera | Retorno (%) | Valoración | Veredicto Comité |
+| :--- | :--- | :--- | :--- | :--- |
+${topPositions.map((p: any) => `| **${p.ticker}** | ${p.weight.toFixed(1)}% | ${p.returnPct >= 0 ? "+" : ""}${p.returnPct.toFixed(1)}% | ${p.pe ? `${p.pe}x P/E` : "Moderada"} | **MANTENER / HOLD** |`).join("\n")}
+
+## 4. GESTIÓN DE RIESGO Y COBERTURA (HEDGING)
+- **Amortiguador de Liquidez:** Mantener un ratio de efectivo táctico mínimo entre el 5% y el 12% para absorber volatilidad de corto plazo.
+- **Control de Drawdown:** Vigilar zonas de soporte clave en los índices directores (S&P 500 y NASDAQ-100).
+
+## 5. VEREDICTO FINAL DEL COMITÉ
+Recomendamos mantener el sesgo de alta calidad, ejecutando rebalanceos sistemáticos cuando las ponderaciones individuales superen los umbrales de tolerancia de riesgo.`
+      });
+    }
+  });
+
+  // 4c. S&P 500 Sector Scanner AI Analysis Endpoint
+  app.post("/api/watchlist/scan-sector", async (req, res) => {
+    const { sector, sectorEs, scoreType, minScore, matchedTickers = [], totalScanned = 20, language = "ES" } = req.body;
+
+    if (!sector) {
+      return res.status(400).json({ error: "Sector parameter is required" });
+    }
+
+    const isSpanish = language === "ES";
+    const scoreTypeLabel = scoreType === "growth" 
+      ? (isSpanish ? "Score Growth" : "Growth Score")
+      : scoreType === "quality" 
+        ? (isSpanish ? "Score Quality" : "Quality Score")
+        : scoreType === "stability"
+          ? (isSpanish ? "Score Stability" : "Stability Score")
+          : scoreType === "valuation"
+            ? (isSpanish ? "Score Valuation" : "Valuation Score")
+            : (isSpanish ? "Score General" : "Overall Score");
+
+    try {
+      const tickersFormatted = matchedTickers.map((t: any, idx: number) => {
+        return `${idx + 1}. **${t.symbol}** (${t.name}): Score General = ${t.scoreGeneral ?? "N/A"}, Score Growth = ${t.scoreGrowth ?? "N/A"}, Score Quality = ${t.scoreQuality ?? "N/A"}, Score Stability = ${t.scoreStability ?? "N/A"}, Score Valuation = ${t.scoreValuation ?? "N/A"}${t.price ? `, Precio: $${t.price}` : ""}${t.changePct !== undefined ? `, Var: ${t.changePct > 0 ? "+" : ""}${t.changePct}%` : ""}${t.pe ? `, P/E: ${t.pe}` : ""}`;
+      }).join("\n");
+
+      const systemInstruction = isSpanish
+        ? `Eres un Analista Financiero Senior e Investigador de Estrategia de Renta Variable enfocado en el S&P 500.
+Tu objetivo es analizar los resultados de un escáner sectorial cuantitativo que ha evaluado las TOP 20 empresas del sector "${sectorEs || sector}" del S&P 500 buscando aquellas que superan un umbral de ${scoreTypeLabel} >= ${minScore}.
+
+REGLAS DE PRESENTACIÓN Y ESTILO:
+1. Responde en español financiero profesional, directo y conciso.
+2. Utiliza formato Markdown con títulos (##), listas con viñetas y resaltados en negrita.
+3. Analiza las compañías escaneadas que cumplen el criterio y explica por qué sus métricas factoriales (Growth, Quality, etc.) destacan en el contexto sectorial actual.
+4. Si no hubo ninguna empresa que superó el umbral o si hay pocas, analiza brevemente la razón (ej. requisitos de valoración exigentes o ciclos sectoriales) y menciona las más cercanas.
+
+ESTRUCTURA SUGERIDA:
+## 🔍 Resumen del Escaneo Sectorial: ${sectorEs || sector}
+[Análisis de la salud cuantitativa del sector y cuántas de las top 20 superaron el filtro de ${scoreTypeLabel} >= ${minScore}]
+
+## 🌟 Tickers Destacados y Fundamentos Clave
+[Para las mejores 2-3 empresas calificadas, explica sus ventajas competitivas, aceleradores de ingresos o calidad de márgenes que justifican su puntuación]
+
+## ⚠️ Factores de Riesgo y Sensibilidad Macro
+[Vientos en contra del sector a monitorear: tasas de interés, presiones de costos o valuación]
+
+## 💡 Veredicto para Watchlist
+[Recomendaciones puntuales sobre cuáles agregar inmediatamente a la Watchlist y bajo qué condiciones de precio o soporte]`
+        : `You are a Senior Equity Research Analyst specializing in the S&P 500 index.
+Your goal is to analyze the results of a quantitative sector scanner that evaluated the TOP 20 companies in the "${sector}" sector searching for those matching ${scoreTypeLabel} >= ${minScore}.
+
+STYLE & FORMATTING:
+1. Provide a professional, concise, and structured financial analysis in English.
+2. Use Markdown headings (##), bullet points, and bold emphasis.
+3. Evaluate the scanned candidates, highlighting their factor drivers (Growth, Quality, etc.) in the current sector context.
+
+STRUCTURE:
+## 🔍 Sector Scan Summary: ${sector}
+## 🌟 Top Matching Candidates & Thesis
+## ⚠️ Key Sector Risks & Macro Catalysts
+## 💡 Watchlist Recommendation`;
+
+      const userPrompt = isSpanish
+        ? `Resultados del Escaneo Sectorial del S&P 500:
+- Sector: ${sectorEs || sector}
+- Criterio de Selección: ${scoreTypeLabel} >= ${minScore}
+- Total Empresas Escaneadas del Sector: ${totalScanned}
+- Empresas que superan el umbral: ${matchedTickers.length}
+
+Empresas Calificadas:
+${tickersFormatted.length > 0 ? tickersFormatted : "(Ninguna empresa del sector superó el umbral especificado de " + minScore + ")"}
+
+Por favor, genera un análisis ejecutivo profesional del sector y sus mejores candidatos.`
+        : `S&P 500 Sector Scan Results:
+- Sector: ${sector}
+- Filter Criterion: ${scoreTypeLabel} >= ${minScore}
+- Total Companies Scanned: ${totalScanned}
+- Companies Matching Threshold: ${matchedTickers.length}
+
+Matching Companies:
+${tickersFormatted.length > 0 ? tickersFormatted : "(No companies in this sector exceeded the threshold of " + minScore + ")"}
+
+Please provide a professional executive summary and sector analysis.`;
+
+      const response = await generateGeminiContentWithRetry({
+        primaryModel: "gemini-3.7-flash",
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: userPrompt }]
+          }
+        ],
+        config: {
+          systemInstruction,
+          temperature: 0.7,
+        }
+      });
+
+      res.json({ text: response.text });
+    } catch (error: any) {
+      console.warn("Sector Scanner Analysis Fallback:", error?.message || error);
+      
+      const sectorName = sectorEs || sector;
+      const count = matchedTickers.length;
+
+      const fallbackText = isSpanish
+        ? `## 🔍 Resumen del Escaneo Sectorial: ${sectorName}
+Se evaluaron **${totalScanned} empresas** líderes del sector, identificando **${count} candidata(s)** que cumplen con el criterio cuantitativo **${scoreTypeLabel} ≥ ${minScore}**.
+
+## 🌟 Tickers Destacados y Fundamentos Clave
+${matchedTickers.length > 0 
+  ? matchedTickers.slice(0, 4).map((t: any) => `- **${t.symbol}** (${t.name}): Destaca con una puntuación destacada en su perfil factorial y sólidos fundamentos operativos.`).join("\n")
+  : "- Ninguna compañía superó el filtro exigente en este ciclo, lo que denota una valoración exigente o márgenes comprimidos en el sector."}
+
+## ⚠️ Factores de Riesgo y Sensibilidad Macro
+- **Entorno de Tipos de Interés:** Sensibilidad a la curva de rendimientos y coste de capital.
+- **Competencia y Márgenes:** Monitorear la capacidad de fijación de precios frente a la inflación de costes.
+
+## 💡 Veredicto para Watchlist
+${matchedTickers.length > 0 
+  ? `Se aconseja añadir a seguimiento las principales calificadas (${matchedTickers.slice(0, 2).map((t: any) => t.symbol).join(", ")}) vigilando retrocesos técnicos hacia zonas de soporte para optimizar el ratio riesgo/recompensa.`
+  : "Monitorear posibles correcciones que sitúen los múltiplos en niveles más atractivos para su inclusión."}`
+        : `## 🔍 Sector Scan Summary: ${sector}
+Evaluated **${totalScanned} top companies** in the sector, finding **${count} matching candidate(s)** satisfying **${scoreTypeLabel} ≥ ${minScore}**.
+
+## 🌟 Top Matching Candidates
+${matchedTickers.length > 0 
+  ? matchedTickers.slice(0, 4).map((t: any) => `- **${t.symbol}** (${t.name}): Strong factor ranking with robust operational fundamentals.`).join("\n")
+  : "- No companies surpassed the current screening threshold."}
+
+## 💡 Watchlist Recommendation
+Focus on top screened names during technical pullbacks to optimize entry risk/reward.`;
+
+      res.json({ text: fallbackText });
+    }
+  });
+
   // --- FX Rate Endpoint ---
   app.get("/api/fx", async (req, res) => {
     try {
@@ -3285,6 +4493,67 @@ export function registerMarketRoutes(app: LegacyApp) {
     } catch (err: any) {
       console.error("FX Error:", err.message);
       res.status(500).json({ error: "Failed to fetch FX rate" });
+    }
+  });
+
+  // --- AI Image Extraction Endpoint ---
+  app.post("/api/portfolio/extract-from-image", async (req, res) => {
+    try {
+      const { imageBase64 } = req.body;
+      if (!imageBase64) {
+        return res.status(400).json({ error: "Missing imageBase64" });
+      }
+
+      // Check if imageBase64 starts with data:image/...;base64,
+      let inlineData = imageBase64;
+      let mimeType = "image/png";
+      if (imageBase64.startsWith("data:")) {
+        const parts = imageBase64.split(";base64,");
+        mimeType = parts[0].replace("data:", "");
+        inlineData = parts[1];
+      }
+
+      const systemInstruction = "You are an AI specialized in reading financial portfolio screenshots. Given an image, extract the stock tickers and the quantity of shares. Return the data STRICTLY as a JSON array of objects with 'ticker' (string) and 'shares' (number). DO NOT include markdown formatting or any other text. Example: [{\"ticker\": \"AAPL\", \"shares\": 10}, {\"ticker\": \"MSFT\", \"shares\": 5.5}]";
+
+      const promptText = "Extract the portfolio positions from this screenshot.";
+
+      const response = await generateGeminiContentWithRetry({
+        primaryModel: "gemini-3.7-flash",
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { text: promptText },
+              {
+                inlineData: {
+                  data: inlineData,
+                  mimeType: mimeType
+                }
+              }
+            ]
+          }
+        ],
+        config: {
+          systemInstruction,
+          temperature: 0.1,
+          responseMimeType: "application/json"
+        }
+      });
+
+      const jsonString = response.text || "[]";
+      let parsed = [];
+      try {
+        parsed = JSON.parse(jsonString);
+      } catch (e) {
+        // cleanup possible markdown backticks if responseMimeType didn't stick
+        const cleaned = jsonString.replace(/```json\n/g, "").replace(/```/g, "").trim();
+        parsed = JSON.parse(cleaned);
+      }
+      
+      res.json(parsed);
+    } catch (err: any) {
+      console.error("Error extracting from image:", err);
+      res.status(500).json({ error: err.message || "Failed to process image" });
     }
   });
 }

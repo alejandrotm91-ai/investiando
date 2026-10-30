@@ -7,12 +7,13 @@ con la misma estructura que el proyecto trackerz. Mientras dure, `server.ts` sig
 - `src/worker/` — API nueva con Hono. Las rutas de `server.ts` se migran aquí por fases.
   - `yahoo.ts` — instancia única de yahoo-finance2. Su cola va sin límite (`queue.concurrency`): con límite, la consulta de una petición corre dentro de otra y Cloudflare la cancela (error 1101).
   - `legacy/express-shim.ts` — adaptador que permite usar en Hono los handlers estilo Express de `server.ts` tal cual. `bg(promesa)` lanza trabajo en segundo plano con `waitUntil`; sin eso Cloudflare lo corta al responder.
-  - `legacy/market.ts` — rutas de mercado copiadas de `server.ts` (Fase 2). Las cachés viven en memoria y se recargan solas al recibir peticiones.
+  - `legacy/routes.ts` — rutas de datos copiadas de `server.ts`: mercado (Fase 2) e IA (Fase 4). Generado desde server.ts; las cachés viven en memoria y se recargan solas al recibir peticiones.
+  - `llm.ts` — IA con Claude (`claude-opus-5-5`, `ANTHROPIC_API_KEY`). `generateContent` acepta los parámetros de la antigua función de Gemini y devuelve `{ text }`; traduce googleSearch a la búsqueda web de Claude y responseMimeType JSON a "responde solo JSON". Las rutas de IA exigen sesión (`index.ts`).
   - `auth/` — usuarios en D1 (Fase 3): `routes.ts` (`/api/auth/*` y `/api/user/*`, mismo contrato que server.ts), `password.ts` (PBKDF2, 100.000 iteraciones: el máximo de Workers), `session.ts` (JWT firmado con `SESSION_SECRET`, en cookie `investiando_session` y devuelto como `token`).
   - `email.ts` — correos con la API de Resend (`RESEND_API_KEY`, `EMAIL_FROM`). Sin ellos, solo se registran en el log.
 - `migrations/` — SQL de D1. Tabla `users`: datos de la app (carteras, watchlist, margen) como JSON en `data`; `/api/user/save-cloud-data` mezcla con `json_patch`.
 - `src/lib/cloudData.ts` — lado navegador de los datos del usuario (sustituye a `firebase.ts`): caché local, envío al servidor con reintento y consulta cada 60 s.
-- `scripts/smoke-market.ps1` y `scripts/smoke-auth.ps1` — pruebas de punta a punta contra el Worker publicado (la de auth crea y borra una cuenta @example.com).
+- `scripts/smoke-market.ps1` y `scripts/smoke-auth.ps1` — pruebas de punta a punta contra el Worker publicado (la de auth crea y borra una cuenta @example.com). `scripts/smoke-ai.ps1` prueba las rutas de IA (cada llamada cuesta).
 - `scripts/import-firestore-users.mjs` — importa usuarios de Firestore a D1 cifrando sus contraseñas. Firestore no deja listar: se le pasa un archivo con los correos.
 - Comandos: `npm run cf:dev` (local en http://localhost:8787), `npm run cf:lint`, `npm run cf:deploy` (publica en https://investiando.alejandrotm91.workers.dev).
 - Secretos: `npx wrangler secret put NOMBRE`; en local van en `.dev.vars` (ver `.dev.vars.example`). Nunca en el repositorio.

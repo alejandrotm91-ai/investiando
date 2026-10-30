@@ -5,6 +5,7 @@ export interface Env {
   DB: D1Database;
   // Secretos (npx wrangler secret put NOMBRE)
   SESSION_SECRET: string;
+  ANTHROPIC_API_KEY?: string;
   RESEND_API_KEY?: string;
   EMAIL_FROM?: string;
   // Variables opcionales
