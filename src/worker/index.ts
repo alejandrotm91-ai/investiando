@@ -4,6 +4,7 @@ import { legacyApp } from "./legacy/express-shim";
 import { registerLegacyRoutes } from "./legacy/routes";
 import { authRoutes, userRoutes } from "./auth/routes";
 import { requireUser } from "./auth/session";
+import { adminRoutes, smtpRoutes } from "./admin/routes";
 
 // API de investiando en Cloudflare Workers. Las rutas de server.ts se migran aquí por fases;
 // mientras tanto, las que faltan responden 404 en JSON.
@@ -18,6 +19,10 @@ app.get("/api/health", async (c) => {
 // Fase 3: usuarios en D1 (registro, sesión, recuperación de contraseña y datos de la app).
 app.route("/api/auth", authRoutes);
 app.route("/api/user", userRoutes);
+
+// Fase 5: administración, solo para usuarios con role = 'admin' en D1.
+app.route("/api/admin", adminRoutes);
+app.route("/api/smtp", smtpRoutes);
 
 // Fase 4: cada consulta a Claude cuesta dinero, así que las rutas de IA exigen sesión.
 const AI_ROUTES = [

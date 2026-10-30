@@ -243,7 +243,8 @@ export default function AccountSettings({ language, user }: { language: "EN" | "
       });
 
       if (!res.ok) {
-        throw new Error(language === "ES" ? "No se pudo guardar la configuración" : "Failed to save configuration");
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || (language === "ES" ? "No se pudo guardar la configuración" : "Failed to save configuration"));
       }
 
       setSmtpSaved(true);
