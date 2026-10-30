@@ -8,3 +8,5 @@ EMAIL_FROM="investiando <no-reply@tudominio.com>"
 APP_URL="https://investiando.alejandrotm91.workers.dev"
 # Fase 4
 ANTHROPIC_API_KEY="sk-ant-..."
+# Solo si la clave es de organización (no ligada a un workspace): ID del workspace, "wrkspc_..."
+# ANTHROPIC_WORKSPACE_ID="wrkspc_..."

@@ -109,7 +109,13 @@ export async function generateContent({ contents, config, effort = "medium" }: G
   const apiKey = ((env as any).ANTHROPIC_API_KEY as string | undefined)?.trim();
   if (!apiKey) throw new Error("Falta el secreto ANTHROPIC_API_KEY en Cloudflare.");
   // El SDK ya reintenta errores temporales (429, 5xx, red).
-  const client = new Anthropic({ apiKey, maxRetries: 3 });
+  // Las claves de organización (no ligadas a un workspace) exigen indicar el workspace.
+  const workspaceId = ((env as any).ANTHROPIC_WORKSPACE_ID as string | undefined)?.trim();
+  const client = new Anthropic({
+    apiKey,
+    maxRetries: 3,
+    ...(workspaceId ? { defaultHeaders: { "anthropic-workspace-id": workspaceId } } : {}),
+  });
 
   const wantsJson = String(config?.responseMimeType || "").toLowerCase() === "application/json";
   const useSearch = Array.isArray(config?.tools) && config.tools.some((t: any) => t && ("googleSearch" in t || "google_search" in t));
