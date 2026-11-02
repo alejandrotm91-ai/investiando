@@ -952,6 +952,74 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
   }, [searchQuery]);
 
   // Swap or add ticker handler
+  // ¿Le faltan a la posición los datos de la vista Valuation?
+  const lacksValuationData = (p: Partial<Position>) =>
+    p.dataSource === "synthetic" || p.dataSource === "fallback" ||
+    [p.pe, p.fwdPe, p.peg, p.fiftyTwoWeekHigh, p.targetMeanPrice, p.targetHighPrice].every(v => v === null || v === undefined);
+
+  // Completa precio y ratios de valoración con /api/stock (otra consulta a Yahoo, con su propio
+  // respaldo). Devuelve null si Yahoo tampoco responde: así no se usan datos inventados.
+  const fetchValuationFields = async (symbol: string): Promise<Partial<Position> | null> => {
+    try {
+      const r = await fetch(`/api/stock/${encodeURIComponent(symbol)}`);
+      if (!r.ok) return null;
+      const d = await r.json();
+      if (!d || d.isFallback || !(d.price > 0)) return null;
+      const n = (v: any) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+      return {
+        price: d.price,
+        chgPct: n(d.changePct) ?? 0,
+        name: d.name,
+        pe: n(d.trailingPE),
+        fwdPe: n(d.forwardPE),
+        peg: n(d.pegRatio),
+        evEbitda: n(d.evEbitda),
+        dividendRate: n(d.dividendRate),
+        fiftyTwoWeekHigh: n(d.fiftyTwoWeekHigh),
+        targetMeanPrice: n(d.targetMeanPrice),
+        targetHighPrice: n(d.targetHighPrice),
+        piotroskiScore: n(d.piotroskiScore),
+        dataSource: "live",
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  // Reintento automático: posiciones de la simulación (no presentes en la cartera real, que ya se
+  // sincroniza sola) que se quedaron sin datos de valoración. Un intento por ticker y montaje.
+  const valuationRetryRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const realTickers = new Set((portfolio?.positions || []).map(p => p.ticker?.toUpperCase()));
+    const pending = Array.from(new Set(
+      [...simPositions, ...marginPositions]
+        .filter(p => !p.isCash && p.ticker && !realTickers.has(p.ticker.toUpperCase()) && lacksValuationData(p))
+        .map(p => p.ticker.toUpperCase())
+    )).filter(t => !valuationRetryRef.current.has(t));
+    if (pending.length === 0) return;
+    pending.forEach(t => valuationRetryRef.current.add(t));
+    (async () => {
+      const results = await Promise.all(pending.map(async t => [t, await fetchValuationFields(t)] as const));
+      const found = new Map(results.filter(([, v]) => v) as [string, Partial<Position>][]);
+      if (found.size === 0) return;
+      const merge = (list: Position[]) => list.map(p => {
+        const extra = found.get(p.ticker.toUpperCase());
+        if (!extra) return p;
+        // Si el precio era provisional, se conserva el valor de mercado y se recalculan las acciones.
+        const priceWasReal = p.dataSource === "live";
+        const price = priceWasReal ? p.price : (extra.price as number);
+        return {
+          ...p,
+          ...extra,
+          price,
+          shares: !priceWasReal && price > 0 ? p.mktValue / price : p.shares,
+        };
+      });
+      setSimPositions(prev => recalculateWeights(merge(prev)));
+      setMarginPositions(prev => recalculateWeights(merge(prev)));
+    })();
+  }, [simPositions, marginPositions, portfolio]);
+
   const handleSelectTicker = async (selectedSymbol: string, selectedName: string) => {
     const symbol = selectedSymbol.toUpperCase();
     setSearchModalOpen(false);
@@ -991,7 +1059,19 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
         throw new Error(`No se encontró información para ${symbol}`);
       }
 
-      const fetchedPos = resultData.positions[0];
+      let fetchedPos = resultData.positions[0];
+
+      // Si Yahoo no dio la valoración (o el precio es de respaldo), se completa con /api/stock.
+      if (lacksValuationData(fetchedPos)) {
+        const extra = await fetchValuationFields(symbol);
+        if (extra) {
+          fetchedPos = { ...fetchedPos, ...extra };
+        } else if (fetchedPos.dataSource !== "live") {
+          setError(language === "EN"
+            ? `Yahoo did not respond for ${symbol}: price and valuation are provisional. It will retry automatically.`
+            : `Yahoo no respondió para ${symbol}: precio y valoración son provisionales. Se reintentará automáticamente.`);
+        }
+      }
 
       if (searchTarget === "margin") {
         setHasCustomMarginSim(true);
@@ -2767,7 +2847,9 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                   </tr>
                 </thead>
                 <tbody>
-                  {processedMarginPositions.map((pos, index) => {
+                  {processedMarginPositions.map((pos, rowIdx) => {
+                    // Índice real en marginPositions (la tabla puede estar ordenada)
+                    const index = marginPositions.findIndex(p => p.ticker === pos.ticker);
                     const cagrVal = getPositionCagr(pos.ticker);
                     const analyst = getAnalystData(pos.ticker, pos.price);
                     

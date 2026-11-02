@@ -2150,14 +2150,13 @@ export function registerLegacyRoutes(app: LegacyApp) {
           };
         }
 
-        // Retrieve quote from live results, fallback map, or mock random drift around standard prices to look real-time
+        // Origen del dato: Yahoo en vivo, tabla de respaldo o, si no hay nada, el costo medio como
+        // precio provisional. En ese último caso no se inventan ratios de valoración (quedan null).
+        const dataSource: "live" | "fallback" | "synthetic" = liveQuotes[ticker] ? "live" : FALLBACK_QUOTES[ticker] ? "fallback" : "synthetic";
         const quoteSource = liveQuotes[ticker] || FALLBACK_QUOTES[ticker] || {
           regularMarketPrice: h.avgCost || 100,
-          regularMarketPreviousClose: (h.avgCost || 100) * 0.98,
-          longName: h.company || h.name || `${ticker} Corporation`,
-          trailingPE: 20,
-          forwardPE: 18,
-          pegRatio: 1.2,
+          regularMarketPreviousClose: h.avgCost || 100,
+          longName: h.company || h.name || ticker,
         };
 
         const price = quoteSource.regularMarketPrice;
@@ -2194,6 +2193,7 @@ export function registerLegacyRoutes(app: LegacyApp) {
           returnPct,
           isCash: false,
           isMargin: Boolean(h.isMargin),
+          dataSource,
           isAfterHoursPrice: !!quoteSource.isAfterHoursPrice,
           postMarketPrice: quoteSource.postMarketPrice || null,
           preMarketPrice: quoteSource.preMarketPrice || null,
