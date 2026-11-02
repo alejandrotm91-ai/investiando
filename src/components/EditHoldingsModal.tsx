@@ -20,6 +20,20 @@ interface LocalHolding {
   originalCost?: number | string;
 }
 
+/**
+ * Valor del campo de costo medio. Mientras se escribe es texto y se muestra tal cual; si es un
+ * número guardado (p. ej. tras convertir de divisa, 145.236666…) se muestra con 2 decimales,
+ * o con hasta 4 si es menor que 1.
+ */
+function formatCostInput(v: unknown): string {
+  if (v === undefined || v === null || v === "") return "";
+  if (typeof v === "string") return v;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "";
+  if (n === 0) return "0";
+  return Math.abs(n) >= 1 ? n.toFixed(2) : String(Number(n.toFixed(4)));
+}
+
 export default function EditHoldingsModal({ holdings, positions, onClose, onSave, language = "EN" }: EditHoldingsModalProps) {
   const [localHoldings, setLocalHoldings] = useState<LocalHolding[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -686,7 +700,7 @@ export default function EditHoldingsModal({ holdings, positions, onClose, onSave
                         </button>
                       </div>
 
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 flex-1 items-center">
+                      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)] sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1.6fr)_auto] gap-3 flex-1 items-center">
                         {/* Shares */}
                         <div className="flex items-center gap-1.5">
                           <span className="text-[10px] text-slate-500 font-bold uppercase whitespace-nowrap">
@@ -712,11 +726,11 @@ export default function EditHoldingsModal({ holdings, positions, onClose, onSave
                           <span className="text-[10px] text-slate-500 font-bold uppercase whitespace-nowrap">
                             {language === "EN" ? "Cost:" : "Costo:"}
                           </span>
-                          <div className="flex w-full">
+                          <div className="flex w-full min-w-0">
                             <input
                               type="text"
                               inputMode="decimal"
-                              value={hold.originalCost === 0 ? "0" : (hold.originalCost ?? hold.avgCost ?? "")}
+                              value={formatCostInput(hold.originalCost ?? hold.avgCost)}
                               placeholder="0.00"
                               onChange={(e) => {
                                 const val = e.target.value.replace(",", ".");
@@ -724,12 +738,12 @@ export default function EditHoldingsModal({ holdings, positions, onClose, onSave
                                   handleUpdateField(index, "originalCost", val);
                                 }
                               }}
-                              className="w-full bg-slate-900 border-y border-l border-slate-800 focus:border-emerald-500 rounded-l px-2 py-1 text-xs text-white outline-none font-mono font-semibold min-w-[50px]"
+                              className="w-full bg-slate-900 border-y border-l border-slate-800 focus:border-emerald-500 rounded-l px-2 py-1 text-xs text-white outline-none font-mono font-semibold min-w-[84px] text-right tabular-nums"
                             />
                             <select
                               value={hold.inputCurrency || "USD"}
                               onChange={(e) => handleUpdateField(index, "inputCurrency", e.target.value)}
-                              className="bg-slate-900 border-y border-r border-slate-800 focus:border-emerald-500 rounded-r px-1 py-1 text-[10px] text-slate-300 outline-none font-bold cursor-pointer"
+                              className="shrink-0 bg-slate-900 border-y border-r border-slate-800 focus:border-emerald-500 rounded-r px-1 py-1 text-[10px] text-slate-300 outline-none font-bold cursor-pointer"
                             >
                               <option value="USD">USD</option>
                               <option value="EUR">EUR</option>
