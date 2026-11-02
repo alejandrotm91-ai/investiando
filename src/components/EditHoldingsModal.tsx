@@ -653,10 +653,6 @@ export default function EditHoldingsModal({ holdings, positions, onClose, onSave
               <div className="bg-slate-950/40 border border-slate-800 rounded-2xl divide-y divide-slate-800/60">
                 {localHoldings.map((hold, index) => {
                   const isMarginPos = Boolean(hold.isMargin);
-                  const sharesNum = typeof hold.shares === "string" ? parseFloat(hold.shares) || 0 : Number(hold.shares) || 0;
-                  const costNum = typeof hold.avgCost === "string" ? parseFloat(hold.avgCost) || 0 : Number(hold.avgCost) || 0;
-                  const posCost = sharesNum * costNum;
-                  const posMonthlyInterest = posCost * (Math.pow(1 + 0.0625, 1 / 12) - 1);
 
                   return (
                     <div
@@ -767,14 +763,6 @@ export default function EditHoldingsModal({ holdings, positions, onClose, onSave
                               {language === "EN" ? "Margin" : "Margen"}
                             </span>
                           </label>
-                          {isMarginPos && (
-                            <span 
-                              title={language === "EN" ? `Financing cost: ~$${posMonthlyInterest.toFixed(2)}/mo (6.25% E.A.)` : `Costo financiamiento: ~$${posMonthlyInterest.toFixed(2)}/mes (6.25% E.A.)`}
-                              className="text-[9px] font-mono text-amber-300/90 ml-1.5 font-semibold"
-                            >
-                              ~${posMonthlyInterest.toFixed(1)}/m
-                            </span>
-                          )}
                         </div>
                       </div>
 
