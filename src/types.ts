@@ -28,8 +28,10 @@ export interface Position {
   fiftyTwoWeekHigh?: number | null;
   targetMeanPrice?: number | null;
   targetHighPrice?: number | null;
-  /** Origen de la cotización en /api/portfolio/quotes: Yahoo en vivo, respaldo o provisional */
-  dataSource?: "live" | "fallback" | "synthetic";
+  /** Origen de la cotización en /api/portfolio/quotes: Yahoo en vivo, último precio real guardado o provisional */
+  dataSource?: "live" | "cached" | "synthetic";
+  /** Fecha del precio (ISO) cuando no es en vivo */
+  quoteAsOf?: string | null;
   isAfterHoursPrice?: boolean;
   marketState?: string | null;
   postMarketPrice?: number | null;

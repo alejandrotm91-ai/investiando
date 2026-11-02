@@ -218,33 +218,7 @@ export default function WatchlistDashboard({
         }
       } catch (err) {
         console.error("Error fetching watchlist quotes:", err);
-        // Fallback local generation if API fails
-        if (isMounted) {
-          const list: WatchlistItem[] = watchlist.map((sym) => {
-            const dbItem = STOCK_DATABASE[sym.toUpperCase()];
-            if (dbItem) {
-              return {
-                symbol: sym.toUpperCase(),
-                name: dbItem.name,
-                price: dbItem.price,
-                change: dbItem.change,
-                changePct: dbItem.changePct,
-              };
-            }
-            const hash = sym.charCodeAt(0) + (sym.charCodeAt(1) || 0);
-            const fallbackPrice = 50 + (hash % 400);
-            const changePct = ((hash % 10) - 4.5) / 2;
-            const change = (fallbackPrice * changePct) / 100;
-            return {
-              symbol: sym.toUpperCase(),
-              name: `${sym.toUpperCase()} Corporation`,
-              price: Number(fallbackPrice.toFixed(2)),
-              change: Number(change.toFixed(2)),
-              changePct: Number(changePct.toFixed(2)),
-            };
-          });
-          setItems(list);
-        }
+        // Sin conexión con la API: se conservan los últimos precios mostrados; nunca se inventan.
       } finally {
         if (isMounted) setLoading(false);
       }

@@ -7,6 +7,7 @@
 import { getYahoo } from "../yahoo";
 import { generateContent as generateGeminiContentWithRetry } from "../llm";
 import { bg, type LegacyApp, type LegacyReq, type LegacyRes } from "./express-shim";
+import { rememberQuotes, recallQuotes } from "../quoteCache";
 import { SUPERINVESTORS } from "../../superinvestors";
 import { SUPERINVESTOR_SCORES } from "../../utils/superinvestorScore";
 import { SECTOR_TOP_HOLDINGS } from "../../data/sp500SectorHoldings";
@@ -1064,8 +1065,9 @@ export function registerLegacyRoutes(app: LegacyApp) {
     { symbol: "PLTR", defaultPrice: 28.50, defaultChgPct: 4.12 },
   ];
 
+  // Empieza vacía: solo se sirven precios reales (de Yahoo o el último real guardado en D1).
   let top50Cache: { data: any[]; timestamp: number } = {
-    data: TOP_50_DEFAULTS.map((t) => ({ symbol: t.symbol, price: t.defaultPrice, changePct: t.defaultChgPct })),
+    data: [],
     timestamp: 0,
   };
   let isUpdatingTop50 = false;
@@ -1098,16 +1100,42 @@ export function registerLegacyRoutes(app: LegacyApp) {
         })
       );
 
+      // Guarda los precios reales; para los que falten usa el último real guardado, nunca los
+      // valores fijos de TOP_50_DEFAULTS (desfasados). Un ticker sin ningún precio real se omite.
+      const liveRows = TOP_50_DEFAULTS
+        .map((item) => ({ item, q: quoteMap[item.symbol.replace(/\./g, "-").toUpperCase()] || quoteMap[item.symbol.toUpperCase()] }))
+        .filter(({ q }) => typeof q?.regularMarketPrice === "number" && q.regularMarketPrice > 0);
+      if (liveRows.length) {
+        bg(rememberQuotes(liveRows.map(({ item, q }) => ({ ticker: item.symbol, data: {
+          regularMarketPrice: q.regularMarketPrice, regularMarketPreviousClose: q.regularMarketPreviousClose ?? null, longName: q.longName || q.shortName || item.symbol,
+        } }))));
+      }
+      const missingSymbols = TOP_50_DEFAULTS.map((t) => t.symbol).filter((sym) => !liveRows.some((r) => r.item.symbol === sym));
+      const recalled = missingSymbols.length ? await recallQuotes(missingSymbols) : {};
+
       const results = TOP_50_DEFAULTS.map((item) => {
         const yahooSymbol = item.symbol.replace(/\./g, "-").toUpperCase();
         const quote = quoteMap[yahooSymbol] || quoteMap[item.symbol.toUpperCase()];
         const prev = top50Cache.data.find((t) => t.symbol === item.symbol);
-        return {
-          symbol: item.symbol,
-          price: typeof quote?.regularMarketPrice === "number" ? Number(quote.regularMarketPrice.toFixed(2)) : (prev?.price ?? item.defaultPrice),
-          changePct: typeof quote?.regularMarketChangePercent === "number" ? Number(quote.regularMarketChangePercent.toFixed(2)) : (prev?.changePct ?? item.defaultChgPct),
-        };
-      });
+        if (typeof quote?.regularMarketPrice === "number" && quote.regularMarketPrice > 0) {
+          return {
+            symbol: item.symbol,
+            price: Number(quote.regularMarketPrice.toFixed(2)),
+            changePct: typeof quote.regularMarketChangePercent === "number" ? Number(quote.regularMarketChangePercent.toFixed(2)) : 0,
+          };
+        }
+        if (prev) return prev; // último dato real de este aislamiento
+        const c = recalled[item.symbol.toUpperCase()]?.data;
+        if (c?.regularMarketPrice > 0) {
+          const pc = c.regularMarketPreviousClose;
+          return {
+            symbol: item.symbol,
+            price: Number(c.regularMarketPrice.toFixed(2)),
+            changePct: pc > 0 ? Number(((c.regularMarketPrice / pc - 1) * 100).toFixed(2)) : 0,
+          };
+        }
+        return null;
+      }).filter(Boolean) as any[];
 
       top50Cache = { data: results, timestamp: Date.now() };
     } catch {
@@ -1169,12 +1197,33 @@ export function registerLegacyRoutes(app: LegacyApp) {
         }
       }
 
+      // Guarda los precios reales y recupera el último real de los que Yahoo no dio, para no servir
+      // los precios fijos de SECTOR_TOP_HOLDINGS (desfasados) tras un arranque en frío.
+      const liveSector = Object.values(quoteMap).filter((q: any) => typeof q?.regularMarketPrice === "number" && q.regularMarketPrice > 0);
+      if (liveSector.length) {
+        bg(rememberQuotes(liveSector.map((q: any) => ({ ticker: String(q.symbol).toUpperCase(), data: {
+          regularMarketPrice: q.regularMarketPrice, regularMarketPreviousClose: q.regularMarketPreviousClose ?? null, longName: q.longName || q.shortName || q.symbol,
+        } }))));
+      }
+      const sectorMissing = symbolList.map((s) => s.toUpperCase()).filter((s) => !quoteMap[s]);
+      const sectorRecalled = sectorMissing.length ? await recallQuotes(sectorMissing) : {};
+
       const updatedData: Record<string, any> = {};
       for (const [secTicker, secConfig] of Object.entries(sectorTop10Cache.data)) {
         const updatedHoldings = (secConfig as any).holdings.map((h: any) => {
           const ySym = h.symbol.replace(/\./g, "-").toUpperCase();
           const quote = quoteMap[ySym] || quoteMap[h.symbol.toUpperCase()];
-          if (!quote) return h;
+          if (!quote) {
+            const c = sectorRecalled[ySym]?.data;
+            if (!(c?.regularMarketPrice > 0)) return h;
+            const pc = c.regularMarketPreviousClose;
+            return {
+              ...h,
+              price: Number(c.regularMarketPrice.toFixed(2)),
+              returns: { ...h.returns, "1D": pc > 0 ? Number(((c.regularMarketPrice / pc - 1) * 100).toFixed(2)) : 0 },
+              priceAsOf: sectorRecalled[ySym]?.updatedAt,
+            };
+          }
 
           const curPrice = typeof quote.regularMarketPrice === "number" ? Number(quote.regularMarketPrice.toFixed(2)) : h.price;
           const chgPct1D = typeof quote.regularMarketChangePercent === "number" ? Number(quote.regularMarketChangePercent.toFixed(2)) : h.returns["1D"];
@@ -1936,12 +1985,29 @@ export function registerLegacyRoutes(app: LegacyApp) {
 
       if (tickers.length > 0) {
         try {
-          // Fetch quotes and quote summaries from Yahoo Finance in parallel
+          // 1. Precios de todos los tickers en UNA petición a Yahoo (antes, una por ticker: con
+          //    carteras grandes Yahoo rechazaba parte de ellas y salían precios de respaldo).
+          //    Si el lote falla, se reintenta una vez y después se pide cada ticker por separado.
+          const yahooTickers = Array.from(new Set(tickers.map((t: string) => t.replace(/\./g, "-"))));
+          const batchMap: Record<string, any> = {};
+          for (let attempt = 0; attempt < 2 && Object.keys(batchMap).length === 0; attempt++) {
+            try {
+              const arr: any = await yahooFinance.quote(yahooTickers, {}, { validateResult: false });
+              (Array.isArray(arr) ? arr : arr ? [arr] : []).forEach((q: any) => {
+                if (q?.symbol) batchMap[String(q.symbol).toUpperCase()] = q;
+              });
+            } catch (batchErr: any) {
+              console.log(`[Quotes] Lote fallido (intento ${attempt + 1}): ${batchErr?.message || batchErr}`);
+              if (attempt === 0) await new Promise((r) => setTimeout(r, 400));
+            }
+          }
+
+          // 2. Ratios de valoración por ticker (quoteSummary); si fallan, el precio sigue siendo real.
           const quotePromises = tickers.map(async (ticker) => {
             try {
               const yahooTicker = ticker.replace(/\./g, "-");
-              // 1. Fetch basic quote for prices
-              const q: any = await yahooFinance.quote(yahooTicker, {}, { validateResult: false });
+              let q: any = batchMap[yahooTicker.toUpperCase()];
+              if (!q) q = await yahooFinance.quote(yahooTicker, {}, { validateResult: false }).catch(() => null);
               if (!q) return null;
               
               // 2. Fetch quoteSummary for valuation metrics
@@ -2107,6 +2173,12 @@ export function registerLegacyRoutes(app: LegacyApp) {
         }
       }
 
+      // Guarda los precios reales y, para los que Yahoo no dio, recupera el último real conocido.
+      const liveRows = tickers.filter((t: string) => liveQuotes[t]).map((t: string) => ({ ticker: t, data: liveQuotes[t] }));
+      if (liveRows.length) bg(rememberQuotes(liveRows));
+      const missing = tickers.filter((t: string) => !liveQuotes[t]);
+      const cachedQuotes = missing.length ? await recallQuotes(missing) : {};
+
       // Merge live data with our defaults or fallbacks
       const positions = holdings.map((h: any) => {
         const ticker = h.ticker.toUpperCase();
@@ -2150,10 +2222,13 @@ export function registerLegacyRoutes(app: LegacyApp) {
           };
         }
 
-        // Origen del dato: Yahoo en vivo, tabla de respaldo o, si no hay nada, el costo medio como
-        // precio provisional. En ese último caso no se inventan ratios de valoración (quedan null).
-        const dataSource: "live" | "fallback" | "synthetic" = liveQuotes[ticker] ? "live" : FALLBACK_QUOTES[ticker] ? "fallback" : "synthetic";
-        const quoteSource = liveQuotes[ticker] || FALLBACK_QUOTES[ticker] || {
+        // Origen del dato: Yahoo en vivo, último precio real guardado (con su fecha) o, si no hay
+        // nada, el costo medio como precio provisional sin ratios. La tabla fija FALLBACK_QUOTES ya
+        // no se usa para precios: está desfasada (p. ej. NFLX antes de su split).
+        const cachedQuote = cachedQuotes[ticker];
+        const dataSource: "live" | "cached" | "synthetic" = liveQuotes[ticker] ? "live" : cachedQuote ? "cached" : "synthetic";
+        const quoteAsOf = dataSource === "live" ? new Date().toISOString() : cachedQuote?.updatedAt || null;
+        const quoteSource = liveQuotes[ticker] || cachedQuote?.data || {
           regularMarketPrice: h.avgCost || 100,
           regularMarketPreviousClose: h.avgCost || 100,
           longName: h.company || h.name || ticker,
@@ -2194,6 +2269,7 @@ export function registerLegacyRoutes(app: LegacyApp) {
           isCash: false,
           isMargin: Boolean(h.isMargin),
           dataSource,
+          quoteAsOf,
           isAfterHoursPrice: !!quoteSource.isAfterHoursPrice,
           postMarketPrice: quoteSource.postMarketPrice || null,
           preMarketPrice: quoteSource.preMarketPrice || null,
@@ -3218,13 +3294,17 @@ Respond strictly with valid JSON conforming to this schema:
       // Extract price and extended hours info
       const priceData = extractPriceAndQuoteData(q, summary);
 
-      const price = priceData.price || getVal(sp.regularMarketPrice) || getVal(sd.regularMarketPrice) || FALLBACK_QUOTES[rawSymbol]?.regularMarketPrice || 100;
-      const prevClose = priceData.regularMarketPreviousClose || getVal(sp.regularMarketPreviousClose) || getVal(sd.regularMarketPreviousClose) || price * 0.99;
+      // Sin respuesta de Yahoo: último precio real guardado (no la tabla fija, que está desfasada)
+      const cachedEntry = !q && !summary ? (await recallQuotes([rawSymbol]))[rawSymbol] : undefined;
+      const cached = cachedEntry?.data ?? null;
+      const livePrice = priceData.price || getVal(sp.regularMarketPrice) || getVal(sd.regularMarketPrice) || null;
+      const price = livePrice || cached?.regularMarketPrice || 100;
+      const prevClose = priceData.regularMarketPreviousClose || getVal(sp.regularMarketPreviousClose) || getVal(sd.regularMarketPreviousClose) || cached?.regularMarketPreviousClose || price;
       const change = Number((price - prevClose).toFixed(2));
       const changePct = prevClose > 0 ? Number((((price - prevClose) / prevClose) * 100).toFixed(2)) : 0;
 
       // Extract company profile
-      const companyName = q?.longName || q?.shortName || getVal(sp.longName) || getVal(sp.shortName) || FALLBACK_QUOTES[rawSymbol]?.longName || `${rawSymbol} Inc.`;
+      const companyName = q?.longName || q?.shortName || getVal(sp.longName) || getVal(sp.shortName) || cached?.longName || FALLBACK_QUOTES[rawSymbol]?.longName || rawSymbol;
       const sector = ap.sector || "Technology";
       const industry = ap.industry || "Software & Technology";
       const description = ap.longBusinessSummary || "";
@@ -3242,9 +3322,9 @@ Respond strictly with valid JSON conforming to this schema:
         : [];
 
       // Valuation & Metrics
-      const trailingPE = getVal(sd.trailingPE) ?? getVal(q?.trailingPE) ?? FALLBACK_QUOTES[rawSymbol]?.trailingPE ?? null;
-      const forwardPE = getVal(dks.forwardPE) ?? getVal(sd.forwardPE) ?? getVal(q?.forwardPE) ?? FALLBACK_QUOTES[rawSymbol]?.forwardPE ?? null;
-      const pegRatio = getVal(dks.pegRatio) ?? getVal(sd.pegRatio) ?? getVal(q?.pegRatio) ?? FALLBACK_QUOTES[rawSymbol]?.pegRatio ?? null;
+      const trailingPE = getVal(sd.trailingPE) ?? getVal(q?.trailingPE) ?? cached?.trailingPE ?? null;
+      const forwardPE = getVal(dks.forwardPE) ?? getVal(sd.forwardPE) ?? getVal(q?.forwardPE) ?? cached?.forwardPE ?? null;
+      const pegRatio = getVal(dks.pegRatio) ?? getVal(sd.pegRatio) ?? getVal(q?.pegRatio) ?? cached?.pegRatio ?? null;
       const priceToSales = getVal(sd.priceToSalesTrailing12Months) ?? getVal(q?.priceToSales) ?? null;
       const priceToBook = getVal(dks.priceToBook) ?? getVal(q?.priceToBook) ?? null;
       const enterpriseValue = getVal(dks.enterpriseValue) ?? null;
@@ -3331,11 +3411,23 @@ Respond strictly with valid JSON conforming to this schema:
       // Piotroski score calculation
       const piotroskiScore = calculatePiotroskiScoreFromSummary(summary, q);
 
+      // Guarda el precio real para usarlo de respaldo si Yahoo falla más adelante
+      if (livePrice) {
+        bg(rememberQuotes([{ ticker: rawSymbol, data: {
+          regularMarketPrice: price, regularMarketPreviousClose: prevClose, longName: companyName,
+          trailingPE, forwardPE, pegRatio,
+          fiftyTwoWeekHigh: getVal(sd.fiftyTwoWeekHigh) ?? getVal(q?.fiftyTwoWeekHigh) ?? null,
+          targetMeanPrice: getVal(fd.targetMeanPrice) ?? null,
+          targetHighPrice: getVal(fd.targetHighPrice) ?? null,
+        } }]));
+      }
+
       res.json({
         symbol: rawSymbol,
         yahooSymbol,
-        // true si Yahoo no respondió y los datos son de respaldo (precio posiblemente desfasado)
+        // true si Yahoo no respondió: precio = último real guardado (quoteAsOf) o provisional
         isFallback: !q && !summary,
+        quoteAsOf: livePrice ? new Date().toISOString() : cachedEntry?.updatedAt ?? null,
         name: companyName,
         exchange: q?.exchange || sp.exchangeName || "US",
         currency: q?.currency || sp.currency || "USD",

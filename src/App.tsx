@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Holding, Position, PortfolioData, TabType, SidebarTabType, UserPortfolio } from "./types";
 import { getMarketStatus } from "./utils/market";
 import SummaryDashboard from "./components/SummaryDashboard";
@@ -479,8 +479,16 @@ export default function App() {
     }
   }, [user, checkingAuth, getPortfoliosStorageKey, getActivePortfolioStorageKey, getLegacyStorageKey, language]);
 
+  // Reintentos silenciosos cuando algún precio no llega en vivo (ver fetchQuotesAndCalculations)
+  const quoteRetryRef = useRef(0);
+  const quoteRetryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fetchQuotesAndCalculationsRef = useRef<((h: Holding[], isRefresh?: boolean) => Promise<void>) | null>(null);
+
   // Fetch portfolio quotes & calculations with retry & fallback
   const fetchQuotesAndCalculations = useCallback(async (currentHoldings: Holding[], isRefresh = false) => {
+    // Una petición nueva cancela el reintento pendiente (p. ej. al cambiar de cartera).
+    if (quoteRetryTimer.current) { clearTimeout(quoteRetryTimer.current); quoteRetryTimer.current = null; }
+    if (!isRefresh) quoteRetryRef.current = 0;
     if (!currentHoldings || currentHoldings.length === 0) {
       setPortfolioData(null);
       setLoading(false);
@@ -523,6 +531,19 @@ export default function App() {
         setPortfolioData(data);
         if (selectedPortfolioId === "user") {
           setUserPortfolioData(data);
+        }
+        // Si Yahoo no dio el precio en vivo de alguna posición (llega el último precio guardado o
+        // uno provisional), se reintenta en silencio: hasta 3 veces, a los 5, 10 y 20 s.
+        const notLive = data.positions.some((p: Position) => !p.isCash && p.dataSource && p.dataSource !== "live");
+        if (notLive && quoteRetryRef.current < 3) {
+          const delay = 5000 * Math.pow(2, quoteRetryRef.current);
+          quoteRetryRef.current += 1;
+          if (quoteRetryTimer.current) clearTimeout(quoteRetryTimer.current);
+          quoteRetryTimer.current = setTimeout(() => {
+            fetchQuotesAndCalculationsRef.current?.(currentHoldings, true);
+          }, delay);
+        } else if (!notLive) {
+          quoteRetryRef.current = 0;
         }
       }
     } catch (err) {
@@ -577,6 +598,8 @@ export default function App() {
       setRefreshing(false);
     }
   }, [selectedPortfolioId]);
+  fetchQuotesAndCalculationsRef.current = fetchQuotesAndCalculations;
+  useEffect(() => () => { if (quoteRetryTimer.current) clearTimeout(quoteRetryTimer.current); }, []);
 
   const getActiveHoldings = useCallback(() => {
     if (selectedPortfolioId === "user") {

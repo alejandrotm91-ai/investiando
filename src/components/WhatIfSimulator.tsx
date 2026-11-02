@@ -954,7 +954,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
   // Swap or add ticker handler
   // ¿Le faltan a la posición los datos de la vista Valuation?
   const lacksValuationData = (p: Partial<Position>) =>
-    p.dataSource === "synthetic" || p.dataSource === "fallback" ||
+    p.dataSource === "synthetic" || p.dataSource === "cached" ||
     [p.pe, p.fwdPe, p.peg, p.fiftyTwoWeekHigh, p.targetMeanPrice, p.targetHighPrice].every(v => v === null || v === undefined);
 
   // Completa precio y ratios de valoración con /api/stock (otra consulta a Yahoo, con su propio
