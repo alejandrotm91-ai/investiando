@@ -366,7 +366,7 @@
 /* Table header light mode overrides */
 .light thead tr,
 .light thead th {
-  background-color: var(--theme-sidebar) !important;
+  background-color: var(--theme-card) !important;
   color: var(--theme-text) !important;
   border-color: var(--theme-border) !important;
 }
@@ -518,7 +518,7 @@
 }
 
 .light #summary-section > div:first-child > div:nth-child(1) .bg-slate-950\/40 {
-  background-color: var(--theme-sidebar) !important;
+  background-color: var(--theme-card) !important;
   border-color: var(--theme-border) !important;
 }
 
@@ -550,10 +550,6 @@
   border-color: #e5e3da !important;
 }
 
-/* Make the outer tabs container transparent to delete the empty white background in light mode */
-.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) {
-  background-color: transparent !important;
-}
 
 /* Light mode popover card overrides for Daily Dynamics (Suben & Bajan) */
 .light .daily-dynamics-popover {
@@ -1012,14 +1008,16 @@ div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-
   color: var(--theme-text-muted) !important;
 }
 
-.light div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) {
-  background-color: #ffffff !important;
+/* Barra de controles de Superinvestors (antes con un selector por posición que también ponía en
+   blanco la franja de Global Indices en Market y la de las pestañas de Your Portfolio) */
+.light .superinvestors-control-bar {
+  background-color: var(--theme-card) !important;
   border-color: var(--theme-border) !important;
 }
 
 /* Light mode for Superinvestors Table View */
 .light table th {
-  background-color: var(--theme-sidebar) !important;
+  background-color: var(--theme-card) !important;
   border-color: var(--theme-border) !important;
   color: var(--theme-text-muted) !important;
 }

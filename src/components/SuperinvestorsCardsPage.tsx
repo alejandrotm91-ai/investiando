@@ -245,7 +245,7 @@ export default function SuperinvestorsCardsPage({ onSelect, language, theme }: S
       </div>
 
       {/* Control / View Toggle Bar */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-[#0f111a]/30 border border-slate-900/40 p-3 rounded-2xl shadow-md backdrop-blur-sm">
+      <div className="superinvestors-control-bar flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-[#0f111a]/30 border border-slate-900/40 p-3 rounded-2xl shadow-md backdrop-blur-sm">
         <div className="flex flex-wrap items-center gap-2 pl-1">
           <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400">
             {language === "EN" ? "SORT BY:" : "ORDENAR POR:"}
