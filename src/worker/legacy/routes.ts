@@ -2543,16 +2543,8 @@ export function registerLegacyRoutes(app: LegacyApp) {
         ? { name: sec.name, cik: sec.cik, lastFiled: sec.lastFiled, lastForm: sec.lastForm, lastPeriod: sec.lastPeriod, syncedAt: sec.syncedAt }
         : null;
 
-      // Extract year-end closing prices from monthly quotes
-      const yearCloses: Record<number, number> = {};
+      // Cierres mensuales (para el P/E de cada ejercicio)
       const quotes = chart?.quotes || [];
-      quotes.forEach((q: any) => {
-        if (q && q.close && !isNaN(q.close)) {
-          const d = new Date(q.date);
-          const yr = d.getUTCFullYear();
-          yearCloses[yr] = Number(q.close); // Later months in the same year overwrite earlier ones (ending on Dec close)
-        }
-      });
 
       const currentPrice = Number(quote?.regularMarketPrice || chart?.meta?.regularMarketPrice || quotes[quotes.length - 1]?.close || 0);
       const currentYear = 2026;
@@ -2602,14 +2594,18 @@ export function registerLegacyRoutes(app: LegacyApp) {
           ? col.dilutedEPS
           : ((typeof col.basicEPS === "number" && !isNaN(col.basicEPS)) ? col.basicEPS : null);
 
-        let price = yearCloses[yr];
-        if (!price || isNaN(price) || price <= 0) {
+        // Precio al cierre del ejercicio: el mensual más cercano a la fecha de cierre. Antes se usaba
+        // el último cierre del año natural, que para ejercicios que acaban en enero (NVDA, WMT, CRM)
+        // es casi un año posterior y disparaba el P/E (NVDA FY2024: precio de dic-2024 / BPA de ene-2024).
+        let price = 0;
+        {
           const targetTime = d.getTime();
           let closestQ: any = null;
           let minDiff = Infinity;
           for (const q of quotes) {
             if (q && q.close && !isNaN(q.close)) {
-              const diff = Math.abs(new Date(q.date).getTime() - targetTime);
+              // Velas mensuales: la fecha es el día 1 y el cierre es el de fin de mes
+              const diff = Math.abs(new Date(q.date).getTime() + 30 * 86400000 - targetTime);
               if (diff < minDiff) {
                 minDiff = diff;
                 closestQ = q;
