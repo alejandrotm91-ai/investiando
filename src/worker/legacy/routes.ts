@@ -8,6 +8,9 @@ import { getYahoo, resetYahoo } from "../yahoo";
 import { generateContent as generateGeminiContentWithRetry } from "../llm";
 import { bg, type LegacyApp, type LegacyReq, type LegacyRes } from "./express-shim";
 import { rememberQuotes, recallQuotes, rememberPayload, recallPayload } from "../quoteCache";
+import { env as cfEnv } from "cloudflare:workers";
+import { secForModels } from "../sec/sync";
+import { mergeSecWithYahoo, adjustForSplits } from "../sec/merge";
 import { SUPERINVESTORS } from "../../superinvestors";
 import { SUPERINVESTOR_SCORES } from "../../utils/superinvestorScore";
 import { SECTOR_TOP_HOLDINGS } from "../../data/sp500SectorHoldings";
@@ -2484,6 +2487,8 @@ export function registerLegacyRoutes(app: LegacyApp) {
       const yahooTicker = sym.replace(/\./g, "-");
       const startDate = new Date();
       startDate.setFullYear(startDate.getFullYear() - 10);
+      // Estados oficiales de la SEC (D1). Si el ticker aún no está cargado, se carga en segundo plano.
+      const secPromise = secForModels((cfEnv as any)?.DB ?? null, yahooTicker, bg, (cfEnv as any)?.SEC_USER_AGENT);
       
       let [annual, quarterly, chart, quote] = await Promise.all([
         yahooFinance.fundamentalsTimeSeries(yahooTicker, {
@@ -2527,8 +2532,16 @@ export function registerLegacyRoutes(app: LegacyApp) {
       }
       
       const sortFn = (a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime();
-      const cleanAnnual = Array.isArray(annual) ? [...annual].sort(sortFn) : [];
-      const cleanQuarterly = Array.isArray(quarterly) ? [...quarterly].sort(sortFn) : [];
+      // SEC primero (10-K/10-Q); Yahoo rellena lo que falte y aporta precios y P/E.
+      const sec = await secPromise;
+      const yahooAnnual = Array.isArray(annual) ? [...annual].sort(sortFn) : [];
+      const yahooQuarterly = Array.isArray(quarterly) ? [...quarterly].sort(sortFn) : [];
+      const splits = (chart as any)?.events?.splits ?? [];
+      const cleanAnnual = sec ? adjustForSplits(mergeSecWithYahoo(sec.annual, yahooAnnual), splits) : yahooAnnual;
+      const cleanQuarterly = sec ? adjustForSplits(mergeSecWithYahoo(sec.quarterly, yahooQuarterly), splits) : yahooQuarterly;
+      const secSource = sec
+        ? { name: sec.name, cik: sec.cik, lastFiled: sec.lastFiled, lastForm: sec.lastForm, lastPeriod: sec.lastPeriod, syncedAt: sec.syncedAt }
+        : null;
 
       // Extract year-end closing prices from monthly quotes
       const yearCloses: Record<number, number> = {};
@@ -2634,11 +2647,14 @@ export function registerLegacyRoutes(app: LegacyApp) {
         quarterly: cleanQuarterly,
         avgPe,
         peHistory,
-        currentPrice: currentPrice || null
+        currentPrice: currentPrice || null,
+        dataSource: sec ? "sec" : "yahoo",
+        secSource,
       };
       if (cleanAnnual.length > 0) {
         // Solo se guardan resultados con datos: un fallo de Yahoo no debe quedar en caché 30 min.
-        financialsCache[sym] = { data: result, timestamp: Date.now() };
+        // Sin datos de la SEC (cargándose ahora), caché corta para recogerlos en cuanto estén.
+        financialsCache[sym] = { data: result, timestamp: sec ? Date.now() : Date.now() - FINANCIALS_CACHE_TTL + 2 * 60 * 1000 };
         bg(rememberPayload(`FIN:${sym}`, result, 6 * 60 * 60 * 1000));
         return result;
       }

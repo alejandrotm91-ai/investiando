@@ -18,7 +18,7 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]!));
 }
 
-const requireAdmin: MiddlewareHandler<AppEnv> = async (c, next) => {
+export const requireAdmin: MiddlewareHandler<AppEnv> = async (c, next) => {
   const session = await readSession(c);
   if (!session) return c.json({ error: "Sesión no iniciada o vencida." }, 401);
   const row = await c.env.DB.prepare("SELECT id, role, status FROM users WHERE email = ?")

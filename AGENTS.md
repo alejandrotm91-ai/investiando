@@ -524,6 +524,7 @@ Cómo aplica el código esta memoria, para que la cifra de la pantalla se pueda 
 
 | Paso | Regla implementada |
 |---|---|
+| Fuente | Estados oficiales de la SEC (10-K anual, 10-Q trimestral vía XBRL; `src/worker/sec/`). Yahoo solo rellena los campos que la SEC no trae para ese periodo (BPA por clases de acción, variación de circulante, beneficio bruto de quien no lo publica) y aporta precios y P/E. Cifras GAAP tal como se presentaron: beneficio operativo sin ajustes, deuda financiera sin arrendamientos operativos (coherente con un FCFF que ya descuenta el alquiler), capex = inmovilizado + software + compras de intangibles. BPA y acciones ajustados por splits posteriores al informe. T4 = ejercicio − 9 meses (no hay 10-Q del T4) |
 | Datos | Solo periodos con ingresos > 0 (Yahoo devuelve trimestres vacíos). Partida que falta = 0; nunca se inventa como % de ventas |
 | Ancla | TTM = suma de los 4 últimos trimestres consecutivos; si el último trimestre es el cierre anual, el ancla es ese ejercicio |
 | `g_fase1` | Media de: CAGR de ventas, crecimiento del último ejercicio y crecimiento interanual del último trimestre. Recorte del 30 % si > 40 %, tope 25 %, suelo −10 % (§2.3) |

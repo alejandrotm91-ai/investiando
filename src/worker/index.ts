@@ -5,6 +5,8 @@ import { registerLegacyRoutes } from "./legacy/routes";
 import { authRoutes, userRoutes } from "./auth/routes";
 import { requireUser } from "./auth/session";
 import { adminRoutes, smtpRoutes } from "./admin/routes";
+import { secRoutes } from "./sec/routes";
+import { runSecCron } from "./sec/sync";
 
 // API de investiando en Cloudflare Workers. Las rutas de server.ts se migran aquí por fases;
 // mientras tanto, las que faltan responden 404 en JSON.
@@ -23,6 +25,9 @@ app.route("/api/user", userRoutes);
 // Fase 5: administración, solo para usuarios con role = 'admin' en D1.
 app.route("/api/admin", adminRoutes);
 app.route("/api/smtp", smtpRoutes);
+
+// Estados financieros oficiales de la SEC (10-K/10-Q), guardados en D1.
+app.route("/api/sec", secRoutes);
 
 // Fase 4: cada consulta a Claude cuesta dinero, así que las rutas de IA exigen sesión.
 const AI_ROUTES = [
@@ -44,4 +49,15 @@ app.all("/api/*", (c) => c.json({ error: `API route ${c.req.method} ${c.req.path
 // Todo lo demás: la app React compilada en dist/ (la sirve Cloudflare).
 app.all("*", (c) => c.env.ASSETS.fetch(c.req.raw));
 
-export default app;
+export default {
+  fetch: app.fetch,
+  // Cron (wrangler.jsonc): mantiene al día los 10-K/10-Q de la SEC.
+  async scheduled(_controller: ScheduledController, env: AppEnv["Bindings"], ctx: ExecutionContext) {
+    ctx.waitUntil(
+      runSecCron(env.DB, env.SEC_USER_AGENT).then(
+        (r) => console.log("SEC cron", JSON.stringify(r)),
+        (e) => console.error("SEC cron error", e)
+      )
+    );
+  },
+} satisfies ExportedHandler<AppEnv["Bindings"]>;

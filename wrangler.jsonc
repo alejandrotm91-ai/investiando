@@ -13,6 +13,8 @@
     "run_worker_first": ["/api/*"]
   },
   "observability": { "enabled": true },
+  // Cada 10 minutos: alta y carga de los 10-K/10-Q de la SEC (src/worker/sec/sync.ts)
+  "triggers": { "crons": ["*/10 * * * *"] },
   "d1_databases": [
     {
       "binding": "DB",

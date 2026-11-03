@@ -9,6 +9,7 @@ export interface Env {
   ANTHROPIC_WORKSPACE_ID?: string; // solo si la clave es de organización, no de un workspace
   RESEND_API_KEY?: string;
   EMAIL_FROM?: string;
+  SEC_USER_AGENT?: string; // identificación ante la SEC, p. ej. "investiando.app contacto@dominio.com"
   // Variables opcionales
   APP_URL?: string;
 }

@@ -10,3 +10,5 @@ APP_URL="https://investiando.alejandrotm91.workers.dev"
 ANTHROPIC_API_KEY="sk-ant-..."
 # Solo si la clave es de organización (no ligada a un workspace): ID del workspace, "wrkspc_..."
 # ANTHROPIC_WORKSPACE_ID="wrkspc_..."
+# Identificación ante la SEC (EDGAR pide un contacto). Opcional: sin ella se usa una genérica.
+# SEC_USER_AGENT="investiando.app contacto@tudominio.com"

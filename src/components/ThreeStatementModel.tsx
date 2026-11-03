@@ -89,6 +89,8 @@ export default function ThreeStatementModel({
   const [calibration, setCalibration] = useState<ModelCalibration | null>(null);
   // Si Yahoo no respondió y se usan los últimos estados financieros guardados: su fecha
   const [financialsAsOf, setFinancialsAsOf] = useState<string | null>(null);
+  // Origen de los estados: SEC (10-K/10-Q oficiales) o Yahoo si el ticker no presenta en la SEC
+  const [secSource, setSecSource] = useState<{ lastForm: string | null; lastFiled: string | null; lastPeriod: string | null } | null>(null);
 
   // Drivers editables (escenario Personalizado). Se inicializan con la calibración del base.
   const [customDrivers, setCustomDrivers] = useState<ModelDrivers>({
@@ -121,11 +123,13 @@ export default function ThreeStatementModel({
         let sData: any = null;
 
         let finAsOf: string | null = null;
+        let secSrc: any = null;
         if (finRes.ok) {
           const json = await finRes.json();
           fData = json[selectedTicker]?.annual || [];
           qData = json[selectedTicker]?.quarterly || [];
           finAsOf = json[selectedTicker]?.stale ? json[selectedTicker]?.asOf ?? null : null;
+          secSrc = json[selectedTicker]?.secSource ?? null;
         }
 
         if (stockRes.ok) {
@@ -137,6 +141,7 @@ export default function ThreeStatementModel({
           setRawQuarterly(qData);
           setStockQuote(sData);
           setFinancialsAsOf(finAsOf);
+          setSecSource(secSrc);
           setScenario("base");
 
           // Calibración del escenario base con datos reportados (ver utils/threeStatementModel.ts)
@@ -234,6 +239,12 @@ export default function ThreeStatementModel({
         staleQuote: stockQuote?.isFallback === true,
       }
     );
+    const fmtDate = (d: string | null) => (d ? new Date(`${d.slice(0, 10)}T12:00:00Z`).toLocaleDateString("es-ES") : "—");
+    result.flags.unshift(
+      secSource
+        ? { level: "ok", text: `Estados financieros oficiales de la SEC: último ${secSource.lastForm ?? "informe"} presentado el ${fmtDate(secSource.lastFiled)} (periodo cerrado el ${fmtDate(secSource.lastPeriod)}).` }
+        : { level: "warn", text: "Estados financieros de Yahoo Finance: este ticker no tiene 10-K/10-Q en la SEC o aún se están cargando." }
+    );
     const asOf = stockQuote?.stale ? stockQuote?.quoteAsOf : financialsAsOf;
     if (asOf) {
       result.flags.unshift({
@@ -242,7 +253,7 @@ export default function ThreeStatementModel({
       });
     }
     return result;
-  }, [annualHistory, annualProjection, assumptions, stockQuote, calibration, financialsAsOf]);
+  }, [annualHistory, annualProjection, assumptions, stockQuote, calibration, financialsAsOf, secSource]);
 
   // Memoria de cálculo DCF en el formato de AGENTS.md §6
   const standardMemoryText = useMemo(() => {
