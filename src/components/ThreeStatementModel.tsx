@@ -87,6 +87,8 @@ export default function ThreeStatementModel({
   const [stockQuote, setStockQuote] = useState<any>(null);
   const [historicalCAGRs, setHistoricalCAGRs] = useState<HistoricalCAGRs | null>(null);
   const [calibration, setCalibration] = useState<ModelCalibration | null>(null);
+  // Si Yahoo no respondió y se usan los últimos estados financieros guardados: su fecha
+  const [financialsAsOf, setFinancialsAsOf] = useState<string | null>(null);
 
   // Drivers editables (escenario Personalizado). Se inicializan con la calibración del base.
   const [customDrivers, setCustomDrivers] = useState<ModelDrivers>({
@@ -118,10 +120,12 @@ export default function ThreeStatementModel({
         let qData: any[] = [];
         let sData: any = null;
 
+        let finAsOf: string | null = null;
         if (finRes.ok) {
           const json = await finRes.json();
           fData = json[selectedTicker]?.annual || [];
           qData = json[selectedTicker]?.quarterly || [];
+          finAsOf = json[selectedTicker]?.stale ? json[selectedTicker]?.asOf ?? null : null;
         }
 
         if (stockRes.ok) {
@@ -132,6 +136,7 @@ export default function ThreeStatementModel({
           setRawFinancials(fData);
           setRawQuarterly(qData);
           setStockQuote(sData);
+          setFinancialsAsOf(finAsOf);
           setScenario("base");
 
           // Calibración del escenario base con datos reportados (ver utils/threeStatementModel.ts)
@@ -214,7 +219,7 @@ export default function ThreeStatementModel({
   const dcfValuation = useMemo(() => {
     const curPrice = stockQuote?.price || 0;
     const mktCap = calibration?.marketCap || curPrice * assumptions.dilutedShares;
-    return computeDCFValuation(
+    const result = computeDCFValuation(
       annualHistory.anchor,
       annualProjection,
       assumptions,
@@ -229,7 +234,15 @@ export default function ThreeStatementModel({
         staleQuote: stockQuote?.isFallback === true,
       }
     );
-  }, [annualHistory, annualProjection, assumptions, stockQuote, calibration]);
+    const asOf = stockQuote?.stale ? stockQuote?.quoteAsOf : financialsAsOf;
+    if (asOf) {
+      result.flags.unshift({
+        level: "warn",
+        text: `Yahoo no respondió: se usan los últimos datos guardados (${new Date(asOf).toLocaleString("es-ES")}). Las cifras pueden no reflejar el último precio.`,
+      });
+    }
+    return result;
+  }, [annualHistory, annualProjection, assumptions, stockQuote, calibration, financialsAsOf]);
 
   // Memoria de cálculo DCF en el formato de AGENTS.md §6
   const standardMemoryText = useMemo(() => {

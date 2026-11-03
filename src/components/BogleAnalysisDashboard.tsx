@@ -558,6 +558,13 @@ No constituye asesoría de inversión.`;
             </div>
           ) : calc && stockMetrics ? (
             <div className="space-y-6">
+      {stockMetrics?.dataAsOf && (
+        <div className="mb-3 px-3 py-2 rounded-xl border border-amber-500/30 bg-amber-500/10 text-[11px] font-mono text-amber-300">
+          {language === "EN"
+            ? `Yahoo did not respond: using the last saved data (${new Date(stockMetrics.dataAsOf).toLocaleString("en-US")}).`
+            : `Yahoo no respondió: se usan los últimos datos guardados (${new Date(stockMetrics.dataAsOf).toLocaleString("es-ES")}).`}
+        </div>
+      )}
               
               {/* Scenario Toggle */}
               <div className="flex items-center justify-end">

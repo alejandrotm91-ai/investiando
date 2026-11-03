@@ -58,6 +58,8 @@ export interface BogleInputs {
   industry: string;
   issues: string[];
   valid: boolean;
+  /** Si Yahoo no respondió y se usan los últimos datos guardados: su fecha (ISO) */
+  dataAsOf: string | null;
 }
 
 export interface BogleScenario {
@@ -247,6 +249,7 @@ export function buildBogleInputs(symbol: string, stock: any, fin: any, priceOver
     sector: stock?.profile?.sector || "",
     industry: stock?.profile?.industry || "",
     issues,
+    dataAsOf: stock?.stale ? (stock?.quoteAsOf ?? null) : fin?.stale ? (fin?.asOf ?? null) : null,
     valid: !stale && price !== null && price > 0 && epsTTM !== null && epsTTM > 0 && epsGrowthModel !== null,
   };
 }

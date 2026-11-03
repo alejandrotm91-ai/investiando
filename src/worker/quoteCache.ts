@@ -63,3 +63,36 @@ export async function recallQuotes(tickers: string[]): Promise<Record<string, Ca
   }
   return out;
 }
+
+// --- Respuestas completas (por ejemplo /api/stock o los estados financieros) ---
+// Misma tabla, con claves "STOCK:NVDA" o "FIN:NVDA". Si Yahoo falla, la ruta sirve la última
+// respuesta buena indicando su fecha, en lugar de quedarse sin datos.
+
+const lastPayloadWrite = new Map<string, number>();
+
+/** Guarda una respuesta buena (como mucho una vez cada minIntervalMs por clave y aislamiento). */
+export async function rememberPayload(key: string, data: unknown, minIntervalMs = 10 * 60 * 1000): Promise<void> {
+  const d = db();
+  if (!d) return;
+  const now = Date.now();
+  if (now - (lastPayloadWrite.get(key) ?? 0) < minIntervalMs) return;
+  lastPayloadWrite.set(key, now);
+  await d
+    .prepare("INSERT INTO quote_cache (ticker, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(ticker) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at")
+    .bind(key, JSON.stringify(data), new Date(now).toISOString())
+    .run();
+}
+
+/** Última respuesta buena guardada para esa clave, o null. */
+export async function recallPayload<T = any>(key: string): Promise<{ data: T; updatedAt: string } | null> {
+  const d = db();
+  if (!d) return null;
+  try {
+    const row = await d.prepare("SELECT data, updated_at FROM quote_cache WHERE ticker = ?").bind(key).first<{ data: string; updated_at: string }>();
+    return row ? { data: JSON.parse(row.data), updatedAt: row.updated_at } : null;
+  } catch (err: any) {
+    console.error("[quote_cache] lectura fallida:", err?.message || err);
+    return null;
+  }
+}
+

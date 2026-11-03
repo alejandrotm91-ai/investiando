@@ -27,3 +27,13 @@ export function getYahoo(): any {
   instance = yf;
   return yf;
 }
+
+/**
+ * Descarta la instancia (y con ella la cookie y el "crumb" de Yahoo). Se usa cuando Yahoo rechaza
+ * a la vez la cotización y el resumen de un valor: suele ser la sesión, y la siguiente consulta
+ * crea una nueva.
+ */
+export function resetYahoo(): void {
+  instance = null;
+}
+

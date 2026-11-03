@@ -4,15 +4,22 @@
 //   - tipos de Express sustituidos por los del adaptador
 //   - generateGeminiContentWithRetry ahora llama a Claude (ver ../llm.ts); las rutas no cambian
 // @ts-nocheck -- código heredado sin tipos estrictos; se revisa al limpiar server.ts.
-import { getYahoo } from "../yahoo";
+import { getYahoo, resetYahoo } from "../yahoo";
 import { generateContent as generateGeminiContentWithRetry } from "../llm";
 import { bg, type LegacyApp, type LegacyReq, type LegacyRes } from "./express-shim";
-import { rememberQuotes, recallQuotes } from "../quoteCache";
+import { rememberQuotes, recallQuotes, rememberPayload, recallPayload } from "../quoteCache";
 import { SUPERINVESTORS } from "../../superinvestors";
 import { SUPERINVESTOR_SCORES } from "../../utils/superinvestorScore";
 import { SECTOR_TOP_HOLDINGS } from "../../data/sp500SectorHoldings";
 
-const yahooFinance: any = getYahoo();
+// Siempre la instancia vigente: resetYahoo() la renueva cuando Yahoo rechaza la sesión.
+const yahooFinance: any = new Proxy({}, {
+  get: (_t, prop) => {
+    const y = getYahoo();
+    const v = y[prop as any];
+    return typeof v === "function" ? v.bind(y) : v;
+  },
+});
 
 /**
  * Universal safe helper to fetch historical/chart data using modern chart() endpoint first,
@@ -2478,7 +2485,7 @@ export function registerLegacyRoutes(app: LegacyApp) {
       const startDate = new Date();
       startDate.setFullYear(startDate.getFullYear() - 10);
       
-      const [annual, quarterly, chart, quote] = await Promise.all([
+      let [annual, quarterly, chart, quote] = await Promise.all([
         yahooFinance.fundamentalsTimeSeries(yahooTicker, {
           period1: startDate.toISOString().split("T")[0],
           module: "all",
@@ -2495,6 +2502,29 @@ export function registerLegacyRoutes(app: LegacyApp) {
         }).catch(() => null),
         yahooFinance.quote(yahooTicker).catch(() => null)
       ]);
+
+      // Yahoo falló (sin estados anuales): se renueva la sesión y se repite una vez.
+      if (!Array.isArray(annual) || annual.length === 0) {
+        resetYahoo();
+        await new Promise((r) => setTimeout(r, 400));
+        [annual, quarterly, chart, quote] = await Promise.all([
+        yahooFinance.fundamentalsTimeSeries(yahooTicker, {
+          period1: startDate.toISOString().split("T")[0],
+          module: "all",
+          type: "annual"
+        }).catch(() => []),
+        yahooFinance.fundamentalsTimeSeries(yahooTicker, {
+          period1: startDate.toISOString().split("T")[0],
+          module: "all",
+          type: "quarterly"
+        }).catch(() => []),
+        yahooFinance.chart(yahooTicker, {
+          period1: startDate.toISOString().split("T")[0],
+          interval: "1mo"
+        }).catch(() => null),
+        yahooFinance.quote(yahooTicker).catch(() => null)
+      ]);
+      }
       
       const sortFn = (a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime();
       const cleanAnnual = Array.isArray(annual) ? [...annual].sort(sortFn) : [];
@@ -2606,10 +2636,19 @@ export function registerLegacyRoutes(app: LegacyApp) {
         peHistory,
         currentPrice: currentPrice || null
       };
-      financialsCache[sym] = { data: result, timestamp: Date.now() };
+      if (cleanAnnual.length > 0) {
+        // Solo se guardan resultados con datos: un fallo de Yahoo no debe quedar en caché 30 min.
+        financialsCache[sym] = { data: result, timestamp: Date.now() };
+        bg(rememberPayload(`FIN:${sym}`, result, 6 * 60 * 60 * 1000));
+        return result;
+      }
+      const saved = await recallPayload(`FIN:${sym}`);
+      if (saved?.data) return { ...saved.data, stale: true, asOf: saved.updatedAt };
       return result;
     } catch (e) {
       console.warn(`Could not fetch financials for ${sym}:`, e);
+      const saved = await recallPayload(`FIN:${sym}`);
+      if (saved?.data) return { ...saved.data, stale: true, asOf: saved.updatedAt };
       return { annual: [], quarterly: [], avgPe: null, peHistory: [], currentPrice: null };
     }
   }
@@ -3255,6 +3294,18 @@ Respond strictly with valid JSON conforming to this schema:
 
     const yahooSymbol = rawSymbol.replace(/\./g, "-");
 
+    // Respuesta buena → se guarda completa. Sin Yahoo → la última buena guardada (stale + fecha);
+    // solo si no hay ninguna se responde con los datos de respaldo (isFallback).
+    const sendStock = async (data: any) => {
+      if (!data.isFallback && data.price > 0) {
+        bg(rememberPayload(`STOCK:${rawSymbol}`, data));
+        return res.json(data);
+      }
+      const saved = await recallPayload(`STOCK:${rawSymbol}`);
+      if (saved?.data) return res.json({ ...saved.data, isFallback: false, stale: true, quoteAsOf: saved.updatedAt });
+      return res.json(data);
+    };
+
     try {
       // Helper to safely extract raw number or string from summary fields
       const getVal = (val: any) => {
@@ -3264,7 +3315,7 @@ Respond strictly with valid JSON conforming to this schema:
       };
 
       // Query quote and quoteSummary concurrently
-      const [quoteRes, summaryRes] = await Promise.allSettled([
+      let [quoteRes, summaryRes] = await Promise.allSettled([
         yahooFinance.quote(yahooSymbol, {}, { validateResult: false }),
         yahooFinance.quoteSummary(yahooSymbol, {
           modules: [
@@ -3279,6 +3330,28 @@ Respond strictly with valid JSON conforming to this schema:
           ]
         }, { validateResult: false })
       ]);
+
+      // Si Yahoo rechaza las dos consultas, suele ser la sesión: se renueva y se repite una vez.
+      if (quoteRes.status === "rejected" && summaryRes.status === "rejected") {
+        console.log(`[stock] ${yahooSymbol}: Yahoo rechazó quote y quoteSummary (${String((quoteRes as any).reason?.message || "").slice(0, 120)}); reintento`);
+        resetYahoo();
+        await new Promise((r) => setTimeout(r, 400));
+        [quoteRes, summaryRes] = await Promise.allSettled([
+        yahooFinance.quote(yahooSymbol, {}, { validateResult: false }),
+        yahooFinance.quoteSummary(yahooSymbol, {
+          modules: [
+            "summaryDetail",
+            "defaultKeyStatistics",
+            "financialData",
+            "price",
+            "assetProfile",
+            "recommendationTrend",
+            "calendarEvents",
+            "earnings"
+          ]
+        }, { validateResult: false })
+      ]);
+      }
 
       const q = quoteRes.status === "fulfilled" ? quoteRes.value : null;
       const summary = summaryRes.status === "fulfilled" ? summaryRes.value : null;
@@ -3422,7 +3495,7 @@ Respond strictly with valid JSON conforming to this schema:
         } }]));
       }
 
-      res.json({
+      await sendStock({
         symbol: rawSymbol,
         yahooSymbol,
         // true si Yahoo no respondió: precio = último real guardado (quoteAsOf) o provisional
@@ -3512,7 +3585,7 @@ Respond strictly with valid JSON conforming to this schema:
         forwardPE: 22,
         pegRatio: 1.3
       };
-      res.json({
+      await sendStock({
         symbol: rawSymbol,
         yahooSymbol,
         isFallback: true,

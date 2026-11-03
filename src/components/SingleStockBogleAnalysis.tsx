@@ -156,6 +156,13 @@ export default function SingleStockBogleAnalysis({
 
   return (
     <div className={`space-y-6 ${theme === "light" ? "text-slate-900" : "text-white"}`}>
+      {inputs?.dataAsOf && (
+        <div className="mb-3 px-3 py-2 rounded-xl border border-amber-500/30 bg-amber-500/10 text-[11px] font-mono text-amber-300">
+          {language === "EN"
+            ? `Yahoo did not respond: using the last saved data (${new Date(inputs.dataAsOf).toLocaleString("en-US")}).`
+            : `Yahoo no respondió: se usan los últimos datos guardados (${new Date(inputs.dataAsOf).toLocaleString("es-ES")}).`}
+        </div>
+      )}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Core Metrics Summary */}
         <div className="col-span-1 space-y-4">
