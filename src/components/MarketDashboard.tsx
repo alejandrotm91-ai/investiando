@@ -1100,7 +1100,7 @@ export default function MarketDashboard({
                       }`}
                     >
                       {/* Left Info: Ticker badge + Sector Name + ETF Price */}
-                      <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 sm:w-56 flex-shrink-0">
+                      <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1 sm:flex-none sm:w-56 sm:flex-shrink-0">
                         <span
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1140,8 +1140,8 @@ export default function MarketDashboard({
                       </div>
 
                       {/* Metrics right: % Return + RSI Gauge + Sentiment + Top 10 indicator */}
-                      <div className="w-auto sm:w-60 flex items-center justify-end gap-2 sm:gap-2.5 flex-shrink-0 pl-1">
-                        <span className={`font-mono font-bold min-w-[56px] text-right text-xs ${isPositive ? "text-emerald-400" : "text-rose-400"}`}>
+                      <div className="w-auto sm:w-60 flex items-center justify-end gap-1.5 sm:gap-2.5 flex-shrink-0 pl-1">
+                        <span className={`font-mono font-bold min-w-[48px] sm:min-w-[56px] text-right text-xs ${isPositive ? "text-emerald-400" : "text-rose-400"}`}>
                           {isPositive ? "+" : ""}{val.toFixed(2)}%
                         </span>
 

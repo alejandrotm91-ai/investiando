@@ -588,7 +588,8 @@ No constituye asesoría de inversión.`;
 
       {/* Main Tab Navigation inside 3-Statement Hub */}
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-3">
-        <div className="flex items-center gap-2">
+        {/* En móvil las pestañas se reparten en varias líneas (antes desbordaban el ancho) */}
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setActiveSubTab("statements")}
             className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer transition-all border ${

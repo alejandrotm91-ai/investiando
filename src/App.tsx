@@ -1149,7 +1149,7 @@ export default function App() {
       )}
 
       {/* 3. CONTENT FRAME (RIGHT PANELS) */}
-      <div id="main-content-scroll-container" className="flex-1 flex flex-col h-screen overflow-y-auto min-w-0">
+      <div id="main-content-scroll-container" className="flex-1 flex flex-col h-screen overflow-y-auto overflow-x-hidden min-w-0">
         
         {/* GLOBAL HEADER/NAVBAR */}
         <header className="border-b border-theme-border bg-theme-card/80 backdrop-blur-md sticky top-0 z-40 px-4 sm:px-6 py-2.5 flex items-center justify-between gap-4 shadow-md min-w-0">
