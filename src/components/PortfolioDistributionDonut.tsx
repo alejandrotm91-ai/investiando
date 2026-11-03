@@ -477,7 +477,8 @@ export const PortfolioDistributionDonut: React.FC<PortfolioDistributionDonutProp
           </div>
         ) : (
           <div className="relative w-full flex items-center justify-center py-1 min-h-[290px] sm:min-h-[320px]">
-            <div className="relative w-full max-w-[340px] sm:max-w-[370px] aspect-square flex items-center justify-center select-none">
+            {/* donut-stage: sin fondo propio (index.css tiene reglas posicionales antiguas que lo pintaban en modo claro) */}
+            <div className="donut-stage relative w-full max-w-[340px] sm:max-w-[370px] aspect-square flex items-center justify-center select-none">
               
               {/* SVG Donut Ring & Inside Percentage Badges */}
               <svg
