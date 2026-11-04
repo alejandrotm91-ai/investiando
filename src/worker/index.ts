@@ -7,6 +7,7 @@ import { requireUser } from "./auth/session";
 import { adminRoutes, smtpRoutes } from "./admin/routes";
 import { secRoutes } from "./sec/routes";
 import { runSecCron } from "./sec/sync";
+import { runSegmentsCron } from "./sec/segmentSync";
 
 // API de investiando en Cloudflare Workers. Las rutas de server.ts se migran aquí por fases;
 // mientras tanto, las que faltan responden 404 en JSON.
@@ -54,10 +55,11 @@ export default {
   // Cron (wrangler.jsonc): mantiene al día los 10-K/10-Q de la SEC.
   async scheduled(_controller: ScheduledController, env: AppEnv["Bindings"], ctx: ExecutionContext) {
     ctx.waitUntil(
-      runSecCron(env.DB, env.SEC_USER_AGENT).then(
-        (r) => console.log("SEC cron", JSON.stringify(r)),
-        (e) => console.error("SEC cron error", e)
-      )
+      runSecCron(env.DB, env.SEC_USER_AGENT)
+        .then((r) => console.log("SEC cron", JSON.stringify(r)), (e) => console.error("SEC cron error", e))
+        // Después, segmentos (capa 2) de las empresas recargadas o pendientes
+        .then(() => runSegmentsCron(env.DB, env.SEC_USER_AGENT))
+        .then((r) => console.log("SEC segmentos", JSON.stringify(r)), (e) => console.error("SEC segmentos error", e))
     );
   },
 } satisfies ExportedHandler<AppEnv["Bindings"]>;

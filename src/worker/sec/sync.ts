@@ -99,10 +99,10 @@ async function fetchFacts(cik: number, ua?: string): Promise<CompanyFacts | null
   return (await r.json()) as CompanyFacts;
 }
 
-interface Filing { accn: string; form: string; filed: string; period: string; doc: string }
+export interface Filing { accn: string; form: string; filed: string; period: string; doc: string }
 
 /** 10-K/10-Q de los últimos 2 años según la lista oficial de informes de la empresa. */
-async function recentFilings(cik: number, ua?: string): Promise<Filing[]> {
+export async function recentFilings(cik: number, ua?: string): Promise<Filing[]> {
   const r = await secFetch(`https://data.sec.gov/submissions/CIK${cik10(cik)}.json`, ua);
   if (!r.ok) return [];
   const s = (await r.json()) as any;
@@ -117,23 +117,34 @@ async function recentFilings(cik: number, ua?: string): Promise<Filing[]> {
   return out;
 }
 
-/** XBRL de un informe concreto (si companyfacts no lo trae). */
-async function fetchFilingFacts(cik: number, f: Filing, ua?: string): Promise<CompanyFacts["facts"] | null> {
+/**
+ * Archivo XBRL de un informe: la instancia (*_htm.xml, las cifras) o las etiquetas (*_lab.xml).
+ * Si el nombre no sigue la convención (informes presentados por agentes), se busca en el índice.
+ */
+export async function fetchFilingText(cik: number, f: Filing, kind: "instance" | "labels", ua?: string): Promise<string | null> {
   const base = `https://www.sec.gov/Archives/edgar/data/${cik}/${f.accn.replace(/-/g, "")}`;
-  let name = f.doc?.endsWith(".htm") ? f.doc.replace(/\.htm$/, "_htm.xml") : null;
+  const suffix = kind === "instance" ? "_htm.xml" : "_lab.xml";
+  let name = f.doc?.endsWith(".htm") ? f.doc.replace(/\.htm$/, suffix) : null;
   let r = name ? await secFetch(`${base}/${name}`, ua) : null;
   if (!r || !r.ok) {
-    // Nombre no estándar: se busca el XML de instancia en el índice del informe.
+    await r?.body?.cancel();
     const idx = await secFetch(`${base}/index.json`, ua);
     if (!idx.ok) return null;
-    const items: { name: string }[] = ((await idx.json()) as any)?.directory?.item ?? [];
-    name = items.map((x) => x.name).find((n) => /_htm\.xml$/.test(n))
-      ?? items.map((x) => x.name).find((n) => /\.xml$/.test(n) && !/(_cal|_def|_lab|_pre|FilingSummary)/.test(n)) ?? null;
+    const names: string[] = (((await idx.json()) as any)?.directory?.item ?? []).map((x: { name: string }) => x.name);
+    name = kind === "instance"
+      ? names.find((n) => /_htm\.xml$/.test(n)) ?? names.find((n) => /\.xml$/.test(n) && !/(_cal|_def|_lab|_pre|FilingSummary)/.test(n)) ?? null
+      : names.find((n) => /_lab\.xml$/.test(n)) ?? null;
     if (!name) return null;
     r = await secFetch(`${base}/${name}`, ua);
     if (!r.ok) return null;
   }
-  return parseXbrlInstance(await r.text(), { accn: f.accn, form: f.form, filed: f.filed });
+  return r.text();
+}
+
+/** XBRL de un informe concreto (si companyfacts no lo trae). */
+async function fetchFilingFacts(cik: number, f: Filing, ua?: string): Promise<CompanyFacts["facts"] | null> {
+  const xml = await fetchFilingText(cik, f, "instance", ua);
+  return xml ? parseXbrlInstance(xml, { accn: f.accn, form: f.form, filed: f.filed }) : null;
 }
 
 function accnsIn(cf: CompanyFacts): Set<string> {
