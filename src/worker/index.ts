@@ -58,12 +58,12 @@ export default {
     ctx.waitUntil(
       runSecCron(env.DB, env.SEC_USER_AGENT)
         .then((r) => console.log("SEC cron", JSON.stringify(r)), (e) => console.error("SEC cron error", e))
-        // Después, segmentos (capa 2) de las empresas recargadas o pendientes
-        .then(() => runSegmentsCron(env.DB, env.SEC_USER_AGENT))
-        .then((r) => console.log("SEC segmentos", JSON.stringify(r)), (e) => console.error("SEC segmentos error", e))
-        // Avances de resultados de los 8-K (capa 3)
+        // Avances de resultados de los 8-K (capa 3): antes que los segmentos, que descargan mucho
         .then(() => runPreviewsCron(env.DB, env))
         .then((r) => console.log("SEC avances", JSON.stringify(r)), (e) => console.error("SEC avances error", e))
+        // Segmentos (capa 2) de las empresas recargadas o pendientes
+        .then(() => runSegmentsCron(env.DB, env.SEC_USER_AGENT))
+        .then((r) => console.log("SEC segmentos", JSON.stringify(r)), (e) => console.error("SEC segmentos error", e))
     );
   },
 } satisfies ExportedHandler<AppEnv["Bindings"]>;

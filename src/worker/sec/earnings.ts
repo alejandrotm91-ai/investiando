@@ -303,11 +303,32 @@ export async function runPreviewsCron(db: D1Database, env: any, max = 4): Promis
   const universe = tracked.filter((t) => t.in_universe);
   if (offset >= 0 && offset < universe.length) {
     const slice = universe.slice(offset, offset + 15);
-    for (const t of slice) await queueFromSubmissions(db, t.ticker, t.cik, ua).catch(() => 0);
-    const next = slice.length < 15 ? -1 : offset + 15;
+    const errors: string[] = [];
+    let found = 0;
+    for (const t of slice) {
+      try {
+        found += await queueFromSubmissions(db, t.ticker, t.cik, ua);
+      } catch (e: any) {
+        errors.push(`${t.ticker}: ${e?.message || e}`);
+      }
+    }
+    report.backfillFound = found;
+    if (errors.length) report.backfillErrors = errors.slice(0, 5);
+    // Si la SEC no respondió, se repite este tramo en la próxima ejecución
+    const next = errors.length > slice.length / 2 ? offset : slice.length < 15 ? -1 : offset + 15;
     await db.prepare("INSERT OR REPLACE INTO sec_meta (key, value, updated_at) VALUES ('previews_backfill', ?, ?)").bind(String(next), Date.now()).run();
     report.backfill = slice.length;
   }
+
+  // Errores pasajeros (saldo de la API, sobrecarga, red) se reintentan cada 6 horas mientras el
+  // 8-K tenga menos de 60 días. Los que no tienen anexo 99.1 no se reintentan.
+  await db
+    .prepare(
+      `UPDATE sec_previews SET status = 'pending' WHERE status = 'error' AND updated_at < ? AND filed >= ?
+         AND (error IS NULL OR error NOT LIKE 'sin anexo%')`
+    )
+    .bind(Date.now() - 6 * 3600000, new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10))
+    .run();
 
   // 3. Pendientes (los más recientes primero)
   // Los descartados (ya hay 10-Q) no llaman a Claude y no cuentan para el cupo de `max` extracciones
