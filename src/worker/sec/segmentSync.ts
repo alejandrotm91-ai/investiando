@@ -4,7 +4,8 @@
 // del año anterior, y el 10-K tres ejercicios.
 
 import { buildSegments, membersIn, parseLabels, parseSegmentFacts, type SegFact, type SegmentData } from "./segments";
-import { fetchFilingText, getSecFinancials, normTicker, recentFilings } from "./sync";
+import { fetchFilingText, getSecFinancials, isBudgetError, normTicker, recentFilings } from "./sync";
+import { fetchBudgetLeft } from "./client";
 
 const KEEP_FILINGS = 6;
 const YEARS_KEPT = 4.5;
@@ -79,6 +80,7 @@ export async function syncSegments(db: D1Database, ticker: string, ua?: string, 
       .run();
     return { read: todo.length, data };
   } catch (e: any) {
+    if (isBudgetError(e)) throw e; // se reintenta en la próxima ejecución, sin marcar error
     await db
       .prepare(
         `INSERT INTO sec_segments (ticker, updated_at, error) VALUES (?, ?, ?)
@@ -121,12 +123,15 @@ export async function runSegmentsCron(db: D1Database, ua?: string, budget = 60):
     .all<{ ticker: string }>();
   let left = budget;
   for (const { ticker } of results) {
-    if (left <= 0) break;
+    // Conexiones: lista de informes + uno por informe + etiquetas
+    const room = fetchBudgetLeft() - 3;
+    if (left <= 0 || room < 2) break;
     try {
-      const r = await syncSegments(db, ticker, ua, Math.min(KEEP_FILINGS, left));
+      const r = await syncSegments(db, ticker, ua, Math.min(KEEP_FILINGS, left, room));
       left -= Math.max(1, r.read);
       out.synced.push(ticker);
-    } catch {
+    } catch (e) {
+      if (isBudgetError(e)) break;
       left -= 1;
       out.failed.push(ticker);
     }

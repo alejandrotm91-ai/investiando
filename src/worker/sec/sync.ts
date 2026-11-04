@@ -8,7 +8,7 @@
 //  - Índice diario de EDGAR: las empresas con un 10-K/10-Q nuevo se marcan para resincronizar.
 //  - Cola: universo sin cargar, marcadas y las que llevan más de 7 días sin revisar.
 
-import { secFetch, cik10 } from "./client";
+import { secFetch, cik10, fetchBudgetLeft, BudgetExhausted } from "./client";
 import { mergeCompanyFacts, normalizeCompanyFacts, type CompanyFacts, type SecPeriod } from "./normalize";
 import { parseXbrlInstance } from "./xbrl";
 import { SEC_UNIVERSE } from "./universe";
@@ -218,6 +218,8 @@ export async function syncCompany(db: D1Database, ticker: string, ua?: string): 
       .run();
     return { ticker: t, cik: id.cik, name: all[0].entityName ?? id.name, annual, quarterly, lastFiled: latest?.filed ?? null, lastForm: latest?.form ?? null, lastPeriod, syncedAt: now };
   } catch (e: any) {
+    // Límite de conexiones de la ejecución: no es un fallo de la empresa, se reintenta en la próxima
+    if (isBudgetError(e)) throw e;
     await db
       .prepare(
         `INSERT INTO sec_companies (ticker, cik, name, in_universe, synced_at, error) VALUES (?, ?, ?, ?, ?, ?)
@@ -227,6 +229,11 @@ export async function syncCompany(db: D1Database, ticker: string, ua?: string): 
       .run();
     throw e;
   }
+}
+
+/** Error por el límite de conexiones de la ejecución (no es un fallo de los datos). */
+export function isBudgetError(e: any): boolean {
+  return e instanceof BudgetExhausted || /Too many subrequests|Presupuesto de conexiones/.test(String(e?.message || e));
 }
 
 // ---------------------------------------------------------------- lectura
@@ -314,7 +321,8 @@ export async function runSecCron(db: D1Database, ua?: string, max = 12): Promise
     const key = `index:${d.toISOString().slice(0, 10)}`;
     if (done.has(key)) continue;
     const dow = d.getUTCDay();
-    const filers = dow === 0 || dow === 6 ? new Set<number>() : await dailyFilers(d, ua).catch(() => null);
+    if (fetchBudgetLeft() < 8) break;
+    const filers = dow === 0 || dow === 6 ? new Set<number>() : await dailyFilers(d, ua).catch((e) => { if (isBudgetError(e)) throw e; return null; });
     // Sin índice: festivo (si ya pasaron 3 días) o aún no publicado (se reintenta luego)
     if (!filers && back < 3) continue;
     for (const cik of filers ?? []) {
@@ -342,6 +350,7 @@ export async function runSecCron(db: D1Database, ua?: string, max = 12): Promise
       .all<{ ticker: string }>()
   ).results;
   for (const { ticker } of queue) {
+    if (fetchBudgetLeft() < 6) break; // el resto, en la próxima ejecución
     try {
       await syncCompany(db, ticker, ua);
       report.synced.push(ticker);

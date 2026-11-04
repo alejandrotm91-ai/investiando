@@ -9,9 +9,37 @@ let nextSlot = 0;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// Presupuesto de conexiones salientes por ejecución. Cloudflare limita cada invocación del Worker
+// (50 conexiones en el plan gratuito, contando reintentos); la tarea programada encadena varios
+// pasos y cada uno consulta cuántas quedan antes de empezar otra empresa. Fuera de la tarea
+// programada no hay presupuesto (Infinity).
+let budget = Infinity;
+let used = 0;
+export class BudgetExhausted extends Error {
+  constructor() {
+    super("Presupuesto de conexiones de esta ejecución agotado");
+  }
+}
+export function startFetchBudget(n: number) {
+  budget = n;
+  used = 0;
+}
+export function endFetchBudget() {
+  budget = Infinity;
+  used = 0;
+}
+export const fetchBudgetLeft = () => budget - used;
+/** Reserva conexiones para llamadas que no pasan por secFetch (API de Claude). */
+export function useFetchBudget(n: number) {
+  if (used + n > budget) throw new BudgetExhausted();
+  used += n;
+}
+
 export async function secFetch(url: string, userAgent?: string): Promise<Response> {
   let lastStatus = 0;
   for (let attempt = 0; attempt < 3; attempt++) {
+    if (used >= budget) throw new BudgetExhausted();
+    used++;
     const now = Date.now();
     const wait = Math.max(0, nextSlot - now);
     nextSlot = Math.max(now, nextSlot) + GAP_MS;

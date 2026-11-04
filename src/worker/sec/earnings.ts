@@ -12,8 +12,8 @@
 //  - El trimestre anunciado es posterior al último 10-Q/10-K y los ingresos son plausibles.
 
 import Anthropic from "@anthropic-ai/sdk";
-import { secFetch } from "./client";
-import { getSecFinancials, normTicker, recentEarnings8K, type Filing } from "./sync";
+import { secFetch, fetchBudgetLeft, useFetchBudget } from "./client";
+import { getSecFinancials, isBudgetError, normTicker, recentEarnings8K, type Filing } from "./sync";
 
 export const PREVIEW_MODEL = "claude-opus-5-5";
 const MAX_TEXT = 180_000; // caracteres del comunicado que se envían (los habituales tienen 20-80 mil)
@@ -165,7 +165,10 @@ async function extractWithClaude(env: { ANTHROPIC_API_KEY?: string; ANTHROPIC_WO
   const apiKey = env.ANTHROPIC_API_KEY?.trim();
   if (!apiKey) throw new Error("Falta ANTHROPIC_API_KEY");
   const workspaceId = env.ANTHROPIC_WORKSPACE_ID?.trim();
-  const client = new Anthropic({ apiKey, maxRetries: 3, ...(workspaceId ? { defaultHeaders: { "anthropic-workspace-id": workspaceId } } : {}) });
+  // Dentro de la tarea programada cada intento cuenta en el límite de conexiones: 1 reintento como mucho
+  const limited = Number.isFinite(fetchBudgetLeft());
+  if (limited) useFetchBudget(2);
+  const client = new Anthropic({ apiKey, maxRetries: limited ? 1 : 3, ...(workspaceId ? { defaultHeaders: { "anthropic-workspace-id": workspaceId } } : {}) });
   const body = text.length > MAX_TEXT ? text.slice(0, MAX_TEXT) : text;
   const msg = await client.beta.messages.create({
     model: PREVIEW_MODEL,
@@ -277,6 +280,7 @@ export async function processPreview(db: D1Database, env: any, accn: string): Pr
     });
     return v.ok ? "done" : "rejected";
   } catch (e: any) {
+    if (isBudgetError(e)) return "budget"; // sigue pendiente para la próxima ejecución
     await set({ status: "error", error: String(e?.message || e).slice(0, 500) });
     return "error";
   }
@@ -312,19 +316,23 @@ export async function runPreviewsCron(db: D1Database, env: any, max = 4): Promis
     const slice = universe.slice(offset, offset + 15);
     const errors: string[] = [];
     let found = 0;
+    let processed = 0;
     for (const t of slice) {
+      if (fetchBudgetLeft() < 12) break;
       try {
         found += await queueFromSubmissions(db, t.ticker, t.cik, ua);
       } catch (e: any) {
+        if (isBudgetError(e)) break;
         errors.push(`${t.ticker}: ${e?.message || e}`);
       }
+      processed++;
     }
     report.backfillFound = found;
     if (errors.length) report.backfillErrors = errors.slice(0, 5);
-    // Si la SEC no respondió, se repite este tramo en la próxima ejecución
-    const next = errors.length > slice.length / 2 ? offset : slice.length < 15 ? -1 : offset + 15;
+    // Avanza solo lo procesado; si la SEC no respondió, se repite el tramo en la próxima ejecución
+    const next = errors.length > processed / 2 && errors.length > 0 ? offset : offset + processed >= universe.length ? -1 : offset + processed;
     await db.prepare("INSERT OR REPLACE INTO sec_meta (key, value, updated_at) VALUES ('previews_backfill', ?, ?)").bind(String(next), Date.now()).run();
-    report.backfill = slice.length;
+    report.backfill = processed;
   }
 
   // Errores pasajeros (saldo de la API, sobrecarga, red) se reintentan cada 6 horas mientras el
@@ -343,9 +351,10 @@ export async function runPreviewsCron(db: D1Database, env: any, max = 4): Promis
   const results: Record<string, string> = {};
   let extracted = 0;
   for (const p of pending) {
-    if (extracted >= max) break;
+    if (extracted >= max || fetchBudgetLeft() < 7) break;
     const r = await processPreview(db, env, p.accn);
     results[p.accn] = r;
+    if (r === "budget") break;
     if (r !== "skipped") extracted++;
   }
   report.processed = results;

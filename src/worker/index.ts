@@ -9,6 +9,7 @@ import { secRoutes } from "./sec/routes";
 import { runSecCron } from "./sec/sync";
 import { runSegmentsCron } from "./sec/segmentSync";
 import { runPreviewsCron } from "./sec/earnings";
+import { startFetchBudget, endFetchBudget } from "./sec/client";
 
 // API de investiando en Cloudflare Workers. Las rutas de server.ts se migran aquí por fases;
 // mientras tanto, las que faltan responden 404 en JSON.
@@ -55,6 +56,9 @@ export default {
   fetch: app.fetch,
   // Cron (wrangler.jsonc): mantiene al día los 10-K/10-Q de la SEC.
   async scheduled(_controller: ScheduledController, env: AppEnv["Bindings"], ctx: ExecutionContext) {
+    // Límite de Cloudflare por ejecución: 50 conexiones salientes. Se reservan 45 para la SEC y
+    // Claude; cada paso deja de empezar empresas nuevas cuando no le quedan suficientes.
+    startFetchBudget(45);
     ctx.waitUntil(
       runSecCron(env.DB, env.SEC_USER_AGENT)
         .then((r) => console.log("SEC cron", JSON.stringify(r)), (e) => console.error("SEC cron error", e))
@@ -64,6 +68,7 @@ export default {
         // Segmentos (capa 2) de las empresas recargadas o pendientes
         .then(() => runSegmentsCron(env.DB, env.SEC_USER_AGENT))
         .then((r) => console.log("SEC segmentos", JSON.stringify(r)), (e) => console.error("SEC segmentos error", e))
+        .finally(() => endFetchBudget())
     );
   },
 } satisfies ExportedHandler<AppEnv["Bindings"]>;
