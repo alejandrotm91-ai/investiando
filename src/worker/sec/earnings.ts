@@ -250,6 +250,13 @@ export async function processPreview(db: D1Database, env: any, accn: string): Pr
     await set({ status: "skipped", error: "el 10-Q/10-K ya está presentado" });
     return "skipped";
   }
+  // El último trimestre cargado cerró hace menos de 75 días: el 8-K anuncia ese mismo trimestre
+  // (los resultados salen 2-6 semanas después del cierre), que ya está en la SEC.
+  const lastQ = fin.quarterly[0]?.date;
+  if (lastQ && new Date(row.filed).getTime() - new Date(lastQ).getTime() < 75 * 86400000) {
+    await set({ status: "skipped", error: `el trimestre ${lastQ} ya está en la SEC` });
+    return "skipped";
+  }
   try {
     const pr = await fetchPressRelease(row.cik, accn, env.SEC_USER_AGENT);
     if (!pr) {
