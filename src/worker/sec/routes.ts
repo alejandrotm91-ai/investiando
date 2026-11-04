@@ -4,6 +4,7 @@ import { requireAdmin } from "../admin/routes";
 import { getSecFinancials, runSecCron, syncCompany } from "./sync";
 import { SEC_UNIVERSE, SEC_UNIVERSE_AS_OF } from "./universe";
 import { getSegments, syncSegments } from "./segmentSync";
+import { getPreview, processPreview, queueFromSubmissions } from "./earnings";
 
 // /api/sec/*: estados financieros oficiales (10-K/10-Q) normalizados.
 export const secRoutes = new Hono<AppEnv>();
@@ -19,6 +20,25 @@ secRoutes.get("/segments/:ticker", async (c) => {
   const d = await getSegments(c.env.DB, c.req.param("ticker"), c.env.SEC_USER_AGENT);
   if (!d || Object.keys(d.axes).length === 0) return c.json({ error: "Sin desglose por segmentos en la SEC para este ticker." }, 404);
   return c.json(d);
+});
+
+// Capa 3: avance de resultados del 8-K (provisional hasta que llega el 10-Q/10-K)
+secRoutes.get("/preview/:ticker", async (c) => {
+  const p = await getPreview(c.env.DB, c.req.param("ticker"));
+  return p ? c.json(p) : c.json({ preview: null });
+});
+
+// Procesar a mano los 8-K de resultados de un ticker (solo admin)
+secRoutes.post("/preview/process", requireAdmin, async (c) => {
+  const body = await c.req.json().catch(() => ({}) as any);
+  const t = String(body.ticker || "").toUpperCase();
+  const row = await c.env.DB.prepare("SELECT cik FROM sec_companies WHERE ticker = ?").bind(t).first<{ cik: number }>();
+  if (!row) return c.json({ error: "ticker sin datos de la SEC" }, 404);
+  await queueFromSubmissions(c.env.DB, t, row.cik, c.env.SEC_USER_AGENT);
+  const { results } = await c.env.DB.prepare("SELECT accn FROM sec_previews WHERE ticker = ? AND status IN ('pending','error') ORDER BY filed DESC LIMIT 2").bind(t).all<{ accn: string }>();
+  const out: Record<string, string> = {};
+  for (const r of results) out[r.accn] = await processPreview(c.env.DB, c.env, r.accn);
+  return c.json(out);
 });
 
 // Estado de la carga: qué empresas tienen datos y de qué informe.

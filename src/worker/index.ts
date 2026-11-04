@@ -8,6 +8,7 @@ import { adminRoutes, smtpRoutes } from "./admin/routes";
 import { secRoutes } from "./sec/routes";
 import { runSecCron } from "./sec/sync";
 import { runSegmentsCron } from "./sec/segmentSync";
+import { runPreviewsCron } from "./sec/earnings";
 
 // API de investiando en Cloudflare Workers. Las rutas de server.ts se migran aquí por fases;
 // mientras tanto, las que faltan responden 404 en JSON.
@@ -60,6 +61,9 @@ export default {
         // Después, segmentos (capa 2) de las empresas recargadas o pendientes
         .then(() => runSegmentsCron(env.DB, env.SEC_USER_AGENT))
         .then((r) => console.log("SEC segmentos", JSON.stringify(r)), (e) => console.error("SEC segmentos error", e))
+        // Avances de resultados de los 8-K (capa 3)
+        .then(() => runPreviewsCron(env.DB, env))
+        .then((r) => console.log("SEC avances", JSON.stringify(r)), (e) => console.error("SEC avances error", e))
     );
   },
 } satisfies ExportedHandler<AppEnv["Bindings"]>;

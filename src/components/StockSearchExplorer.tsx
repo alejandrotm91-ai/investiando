@@ -52,6 +52,7 @@ import { CompanyFinancials } from "./CompanyFinancials";
 import SingleStockBogleAnalysis from "./SingleStockBogleAnalysis";
 import ThreeStatementModel from "./ThreeStatementModel";
 import SegmentBreakdown from "./SegmentBreakdown";
+import EarningsPreviewCard from "./EarningsPreviewCard";
 import { SearchResult } from "../types";
 import { saveUserCloudData, subscribeUserCloudData } from "../lib/cloudData";
 import { getRawFeatures, buildScores, overrideFeaturesWithFinancials, ScoredRow } from "../utils/engine";
@@ -1548,6 +1549,9 @@ export default function StockSearchExplorer({
               )}
             </div>
           </div>
+
+          {/* Avance de resultados del 8-K (capa 3 de la SEC): solo si hay uno pendiente del 10-Q */}
+          {stockData && <EarningsPreviewCard ticker={stockData.symbol} language={language} theme={theme} />}
 
           {/* 5. SUB-TABS NAVIGATION (Overview / Financials / Bogle) */}
           <div className="flex border-b border-theme-border gap-2 overflow-x-auto pb-1">

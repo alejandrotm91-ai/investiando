@@ -102,16 +102,40 @@ async function fetchFacts(cik: number, ua?: string): Promise<CompanyFacts | null
 export interface Filing { accn: string; form: string; filed: string; period: string; doc: string }
 
 /** 10-K/10-Q de los últimos 2 años según la lista oficial de informes de la empresa. */
-export async function recentFilings(cik: number, ua?: string): Promise<Filing[]> {
+// Lista "submissions" de la empresa; caché de 2 minutos para no pedirla dos veces en la misma tarea
+const subCache = new Map<number, { at: number; rec: any }>();
+async function submissionsRecent(cik: number, ua?: string): Promise<any | null> {
+  const hit = subCache.get(cik);
+  if (hit && Date.now() - hit.at < 120000) return hit.rec;
   const r = await secFetch(`https://data.sec.gov/submissions/CIK${cik10(cik)}.json`, ua);
-  if (!r.ok) return [];
-  const s = (await r.json()) as any;
-  const rec = s?.filings?.recent;
+  if (!r.ok) return null;
+  const rec = ((await r.json()) as any)?.filings?.recent ?? null;
+  subCache.set(cik, { at: Date.now(), rec });
+  if (subCache.size > 50) subCache.delete(subCache.keys().next().value!);
+  return rec;
+}
+
+/** 10-K/10-Q de los últimos 2 años según la lista oficial de informes de la empresa. */
+export async function recentFilings(cik: number, ua?: string): Promise<Filing[]> {
+  const rec = await submissionsRecent(cik, ua);
   if (!rec?.form) return [];
   const since = new Date(Date.now() - 730 * DAY).toISOString().slice(0, 10);
   const out: Filing[] = [];
   for (let i = 0; i < rec.form.length; i++) {
     if (!FORMS.has(rec.form[i]) || rec.filingDate[i] < since) continue;
+    out.push({ accn: rec.accessionNumber[i], form: rec.form[i], filed: rec.filingDate[i], period: rec.reportDate[i], doc: rec.primaryDocument[i] });
+  }
+  return out;
+}
+
+/** 8-K de resultados (Item 2.02) de los últimos `days` días. */
+export async function recentEarnings8K(cik: number, ua?: string, days = 120): Promise<Filing[]> {
+  const rec = await submissionsRecent(cik, ua);
+  if (!rec?.form) return [];
+  const since = new Date(Date.now() - days * DAY).toISOString().slice(0, 10);
+  const out: Filing[] = [];
+  for (let i = 0; i < rec.form.length; i++) {
+    if (rec.form[i] !== "8-K" || rec.filingDate[i] < since || !String(rec.items?.[i] ?? "").split(",").includes("2.02")) continue;
     out.push({ accn: rec.accessionNumber[i], form: rec.form[i], filed: rec.filingDate[i], period: rec.reportDate[i], doc: rec.primaryDocument[i] });
   }
   return out;
