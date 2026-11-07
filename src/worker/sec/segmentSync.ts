@@ -144,7 +144,7 @@ export async function runSegmentsCron(db: D1Database, ua?: string, budget = 60):
       `SELECT c.ticker FROM sec_companies c LEFT JOIN sec_segments s ON s.ticker = c.ticker
        WHERE c.annual IS NOT NULL AND (c.in_universe = 1 OR c.requested_at > ?)
          AND (s.ticker IS NULL OR (s.updated_at < c.synced_at) OR (s.error IS NOT NULL AND s.updated_at < ?))
-       ORDER BY s.updated_at IS NOT NULL, c.in_universe DESC
+       ORDER BY COALESCE(s.updated_at, -1), c.in_universe DESC
        LIMIT 40`
     )
     .bind(Date.now() - 60 * 86400000, Date.now() - 86400000)
