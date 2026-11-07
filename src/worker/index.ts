@@ -66,12 +66,13 @@ export default {
         // Avances de resultados de los 8-K (capa 3): antes que los segmentos, que descargan mucho
         .then(() => runPreviewsCron(env.DB, env))
         .then((r) => console.log("SEC avances", JSON.stringify(r)), (e) => console.error("SEC avances error", e))
+        // Histórico rehecho tras reorganizaciones (capa 4): pocas y baratas, antes que los segmentos
+        // para que una recarga grande de segmentos no las deje sin conexiones
+        .then(() => runRecastsCron(env.DB, env))
+        .then((r) => Object.keys(r).length && console.log("SEC reorganizaciones", JSON.stringify(r)), (e) => console.error("SEC reorganizaciones error", e))
         // Segmentos (capa 2) de las empresas recargadas o pendientes
         .then(() => runSegmentsCron(env.DB, env.SEC_USER_AGENT))
         .then((r) => console.log("SEC segmentos", JSON.stringify(r)), (e) => console.error("SEC segmentos error", e))
-        // Histórico rehecho tras reorganizaciones (capa 4): con lo que quede del límite
-        .then(() => runRecastsCron(env.DB, env))
-        .then((r) => Object.keys(r).length && console.log("SEC reorganizaciones", JSON.stringify(r)), (e) => console.error("SEC reorganizaciones error", e))
         .finally(() => endFetchBudget())
     );
   },
