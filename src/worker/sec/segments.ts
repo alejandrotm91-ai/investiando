@@ -383,6 +383,8 @@ function withoutParents(vals: [string, number][], labels: Record<string, string>
   return vals
     .filter(([id, v]) => {
       const n = name(id);
+      // Líneas de total ("Total sales and revenues from reportable segments" de Caterpillar)
+      if (/^total\b/.test(n) && vals.length > 2) return false;
       const kids = vals.filter(([o]) => o !== id && name(o).startsWith(n + " "));
       return !(kids.length >= 2 && v >= Math.max(...kids.map(([, x]) => x)));
     })
