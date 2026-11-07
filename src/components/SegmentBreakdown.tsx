@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
-import { Loader2, PieChart as PieIcon, Info } from "lucide-react";
+import { Loader2, PieChart as PieIcon, Info, ExternalLink } from "lucide-react";
 
 // Capa 2 de la SEC: ingresos por segmento, producto y geografía (XBRL de los 10-Q/10-K).
-// Datos: GET /api/sec/segments/:ticker (src/worker/sec/segments.ts).
+// Datos: GET /api/sec/segments/:ticker (src/worker/sec/segments.ts). Los periodos con "†" vienen
+// rehechos del 8-K de reorganización (capa 4, src/worker/sec/recast.ts).
 
 type AxisKey = "segment" | "product" | "geography";
 interface SegPeriod {
@@ -16,8 +17,14 @@ interface SegPeriod {
   operatingIncome: Record<string, number>;
   total: number | null;
   matched: boolean;
+  recast?: boolean; // rehecho con la estructura actual a partir del 8-K de reorganización (capa 4)
 }
-interface SegAxis { tag: string; members: { id: string; label: string }[]; periods: SegPeriod[] }
+interface SegAxis {
+  tag: string;
+  members: { id: string; label: string }[];
+  periods: SegPeriod[];
+  recast?: { filed: string; accn: string; url: string | null };
+}
 interface SegmentData { asOf: string | null; axes: Partial<Record<AxisKey, SegAxis>> }
 
 interface Props {
@@ -106,7 +113,7 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
     const label = (p: SegPeriod) =>
       p.kind === "Q" ? `${isES ? "T" : "Q"}${p.fiscalQuarter} FY${String(p.fiscalYear).slice(2)}` : `FY${p.fiscalYear}`;
     const rows = periods.map((p) => {
-      const row: Record<string, any> = { name: label(p), date: p.date, total: p.total, matched: p.matched };
+      const row: Record<string, any> = { name: `${label(p)}${p.recast ? " †" : ""}`, date: p.date, total: p.total, matched: p.matched, recast: !!p.recast };
       for (const s of series) row[s.id] = valueOf(p, s.id, "revenue");
       return row;
     });
@@ -132,7 +139,8 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
     });
     const gap = latest.total !== null && !latest.matched ? latest.total - sumLatest : null;
     const hasOI = table.some((r) => r.oi !== undefined);
-    return { periods, latest, prior, series, rows, table, gap, hasOI, label };
+    const anyRecast = periods.some((p) => p.recast) || !!prior?.recast;
+    return { periods, latest, prior, series, rows, table, gap, hasOI, label, anyRecast };
   }, [axisData, activeKind, theme, isES]);
 
   const axisNames: Record<AxisKey, string> = isES
@@ -179,6 +187,11 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
             <span className="font-mono text-theme-text-bright">{fmtMoney(p.value)}</span>
           </div>
         ))}
+        {row.recast && (
+          <div className="text-[10px] text-theme-text-muted mt-1">
+            {isES ? "† Rehecho con la estructura actual (8-K)" : "† Recast to the current structure (8-K)"}
+          </div>
+        )}
         {row.total !== null && (
           <div className="flex justify-between gap-3 pt-1.5 mt-1 border-t border-theme-border text-theme-text-bright font-semibold">
             <span>{isES ? "Total consolidado" : "Consolidated total"}</span>
@@ -314,6 +327,28 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
           </tbody>
         </table>
       </div>
+
+      {view.anyRecast && axisData?.recast && (
+        <p className="text-[11px] text-theme-text-muted flex items-start gap-1.5">
+          <Info size={12} className="mt-0.5 shrink-0" />
+          <span>
+            {isES
+              ? "† Periodos rehechos con la estructura actual de la empresa, según el histórico que publicó tras reorganizar sus segmentos ("
+              : "† Periods recast to the company's current structure, from the history it published after reorganizing its segments ("}
+            <a
+              href={axisData.recast.url ?? `https://www.sec.gov/edgar/search/#/q=%22${axisData.recast.accn}%22`}
+              target="_blank"
+              rel="noreferrer"
+              className="underline hover:text-theme-text-bright inline-flex items-center gap-0.5"
+            >
+              {isES ? "8-K del " : "8-K filed "}
+              {new Date(`${axisData.recast.filed}T12:00:00Z`).toLocaleDateString(isES ? "es-ES" : "en-US")}
+              <ExternalLink size={10} />
+            </a>
+            {isES ? "). El 10-Q/10-K original los presentó con la estructura anterior." : "). The original 10-Q/10-K reported them under the previous structure."}
+          </span>
+        </p>
+      )}
 
       {!view.latest.matched && (
         <p className="text-[11px] text-theme-text-muted flex items-start gap-1.5">

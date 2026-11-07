@@ -9,6 +9,7 @@ import { secRoutes } from "./sec/routes";
 import { runSecCron } from "./sec/sync";
 import { runSegmentsCron } from "./sec/segmentSync";
 import { runPreviewsCron } from "./sec/earnings";
+import { runRecastsCron } from "./sec/recast";
 import { startFetchBudget, endFetchBudget } from "./sec/client";
 
 // API de investiando en Cloudflare Workers. Las rutas de server.ts se migran aquí por fases;
@@ -68,6 +69,9 @@ export default {
         // Segmentos (capa 2) de las empresas recargadas o pendientes
         .then(() => runSegmentsCron(env.DB, env.SEC_USER_AGENT))
         .then((r) => console.log("SEC segmentos", JSON.stringify(r)), (e) => console.error("SEC segmentos error", e))
+        // Histórico rehecho tras reorganizaciones (capa 4): con lo que quede del límite
+        .then(() => runRecastsCron(env.DB, env))
+        .then((r) => Object.keys(r).length && console.log("SEC reorganizaciones", JSON.stringify(r)), (e) => console.error("SEC reorganizaciones error", e))
         .finally(() => endFetchBudget())
     );
   },

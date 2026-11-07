@@ -11,11 +11,11 @@
 //  - BPA ≈ beneficio neto ÷ acciones diluidas.
 //  - El trimestre anunciado es posterior al último 10-Q/10-K y los ingresos son plausibles.
 
-import Anthropic from "@anthropic-ai/sdk";
-import { secFetch, fetchBudgetLeft, useFetchBudget } from "./client";
+import { secFetch, fetchBudgetLeft } from "./client";
+import { askClaudeJson, SEC_MODEL, type ClaudeEnv } from "./claude";
 import { getSecFinancials, isBudgetError, normTicker, recentEarnings8K, type Filing } from "./sync";
 
-export const PREVIEW_MODEL = "claude-opus-5-5";
+export const PREVIEW_MODEL = SEC_MODEL;
 const MAX_TEXT = 180_000; // caracteres del comunicado que se envían (los habituales tienen 20-80 mil)
 
 // ---------------------------------------------------------------- detección
@@ -167,30 +167,11 @@ function withNulls(x: any): Extracted {
   return { ...x, quarter: fill(x?.quarter), prior_year_quarter: fill(x?.prior_year_quarter) };
 }
 
-async function extractWithClaude(env: { ANTHROPIC_API_KEY?: string; ANTHROPIC_WORKSPACE_ID?: string }, ticker: string, text: string): Promise<{ data: Extracted; usage: { input: number; output: number } }> {
-  const apiKey = env.ANTHROPIC_API_KEY?.trim();
-  if (!apiKey) throw new Error("Falta ANTHROPIC_API_KEY");
-  const workspaceId = env.ANTHROPIC_WORKSPACE_ID?.trim();
-  // Dentro de la tarea programada cada intento cuenta en el límite de conexiones: 1 reintento como mucho
-  const limited = Number.isFinite(fetchBudgetLeft());
-  if (limited) useFetchBudget(2);
-  const client = new Anthropic({ apiKey, maxRetries: limited ? 1 : 3, ...(workspaceId ? { defaultHeaders: { "anthropic-workspace-id": workspaceId } } : {}) });
+async function extractWithClaude(env: ClaudeEnv, ticker: string, text: string): Promise<{ data: Extracted; usage: { input: number; output: number } }> {
   const body = text.length > MAX_TEXT ? text.slice(0, MAX_TEXT) : text;
-  const msg = await client.beta.messages.create({
-    model: PREVIEW_MODEL,
-    max_tokens: 4000,
-    system: SYSTEM,
-    // Tarea de extracción: esfuerzo bajo basta y abarata. Salida JSON validada contra el esquema.
-    output_config: { effort: "low", format: { type: "json_schema", schema: SCHEMA } },
-    // Si los filtros de seguridad rechazan la solicitud, Anthropic la reintenta con otro modelo.
-    betas: ["server-side-fallback-2026-07-01"],
-    fallbacks: "default",
-    messages: [{ role: "user", content: `Empresa: ${ticker}\n\nComunicado:\n${body}` }],
-  } as any);
-  if (msg.stop_reason === "refusal") throw new Error("El modelo rechazó la solicitud");
-  if (msg.stop_reason === "max_tokens") throw new Error("Respuesta incompleta (max_tokens)");
-  const txt = msg.content.filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
-  return { data: withNulls(JSON.parse(txt)), usage: { input: msg.usage.input_tokens, output: msg.usage.output_tokens } };
+  // Tarea de extracción: esfuerzo bajo basta y abarata.
+  const r = await askClaudeJson<any>(env, { system: SYSTEM, user: `Empresa: ${ticker}\n\nComunicado:\n${body}`, schema: SCHEMA, maxTokens: 4000, effort: "low" });
+  return { data: withNulls(r.data), usage: r.usage };
 }
 
 // ---------------------------------------------------------------- validación

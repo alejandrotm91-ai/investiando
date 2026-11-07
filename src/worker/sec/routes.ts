@@ -5,6 +5,7 @@ import { getSecFinancials, runSecCron, syncCompany } from "./sync";
 import { SEC_UNIVERSE, SEC_UNIVERSE_AS_OF } from "./universe";
 import { getSegments, syncSegments } from "./segmentSync";
 import { getPreview, processPreview, queueFromSubmissions } from "./earnings";
+import { processRecast } from "./recast";
 
 // /api/sec/*: estados financieros oficiales (10-K/10-Q) normalizados.
 export const secRoutes = new Hono<AppEnv>();
@@ -39,6 +40,28 @@ secRoutes.post("/preview/process", requireAdmin, async (c) => {
   const out: Record<string, string> = {};
   for (const r of results) out[r.accn] = await processPreview(c.env.DB, c.env, r.accn);
   return c.json(out);
+});
+
+// Capa 4: reorganizaciones de segmentos detectadas y su histórico rehecho (sin las cifras)
+secRoutes.get("/recasts", async (c) => {
+  const t = c.req.query("ticker")?.toUpperCase();
+  const { results } = await c.env.DB.prepare(
+    `SELECT id, ticker, axis, status, accn, filed, doc_url, checks, error, updated_at,
+            json_extract(info, '$.oldPeriods') AS old_periods, json_extract(info, '$.best.score') AS score,
+            json_extract(data, '$.source') AS source
+     FROM sec_recasts ${t ? "WHERE ticker = ?" : ""} ORDER BY ticker, axis`
+  )
+    .bind(...(t ? [t] : []))
+    .all();
+  return c.json(results.map((r: any) => ({ ...r, checks: r.checks ? JSON.parse(r.checks) : null, old_periods: r.old_periods ? JSON.parse(r.old_periods) : null })));
+});
+
+// Procesar a mano una reorganización (solo admin): {id}
+secRoutes.post("/recast/process", requireAdmin, async (c) => {
+  const body = await c.req.json().catch(() => ({}) as any);
+  const id = String(body.id || "");
+  if (body.reset) await c.env.DB.prepare("UPDATE sec_recasts SET status = 'searching', info = json_remove(info, '$.checked', '$.best'), accn = NULL, updated_at = 0 WHERE id = ?").bind(id).run();
+  return c.json({ id, result: await processRecast(c.env.DB, c.env, id) });
 });
 
 // Estado de la carga: qué empresas tienen datos y de qué informe.

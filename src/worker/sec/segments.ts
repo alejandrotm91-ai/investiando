@@ -146,6 +146,7 @@ export function humanize(member: string): string {
   const local = member.split(":").pop()!.replace(/Member$/, "").replace(/Segment$/, "");
   if (COUNTRIES[local]) return COUNTRIES[local];
   return local
+    .replace(/ThreeSixFive/g, "365")
     .replace(/([a-z])([A-Z])/g, "$1 $2")
     .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
     .replace(/\bAnd\b/g, "&")
@@ -164,13 +165,18 @@ export interface SegPeriod {
   operatingIncome: Record<string, number>; // miembro → beneficio operativo (si lo hay)
   total: number | null; // ingresos consolidados oficiales del periodo
   matched: boolean; // el desglose suma el total
+  recast?: boolean; // cifras rehechas con la estructura actual, del 8-K de reorganización (capa 4)
 }
 
 export interface SegAxis {
   tag: string;
   members: { id: string; label: string }[];
   periods: SegPeriod[];
+  recast?: RecastRef; // 8-K de reorganización usado para los periodos con recast = true
 }
+
+/** 8-K con el histórico rehecho tras una reorganización (capa 4, recast.ts). */
+export interface RecastRef { axis: AxisKey; filed: string; accn: string; url: string | null }
 
 export interface SegmentData {
   asOf: string | null; // último informe usado
@@ -225,10 +231,10 @@ interface PeriodRef { date: string; start: string; kind: "Q" | "FY"; fiscalYear:
 /**
  * Agrupa las cifras por periodo (calendario fiscal de la capa 1) y elige el desglose de cada eje.
  */
-export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: SecPeriod[], labels: Record<string, string>, asOf: string | null): SegmentData {
-  // Cifra más reciente por (eje, miembro, etiqueta, inicio, fin)
+export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: SecPeriod[], labels: Record<string, string>, asOf: string | null, recasts: RecastRef[] = []): SegmentData {
+  // Cifra más reciente por (eje, miembro, etiqueta, inicio, fin), con los renombres unificados
   const latest = new Map<string, SegFact>();
-  for (const f of facts) {
+  for (const f of applyAliases(facts, labels)) {
     const k = `${f[0]}|${f[1]}|${f[2]}|${f[3]}|${f[4]}`;
     const cur = latest.get(k);
     if (!cur || f[6] >= cur[6]) latest.set(k, f);
@@ -283,6 +289,7 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
       if (!membersOf.has(f[2])) membersOf.set(f[2], new Set());
       membersOf.get(f[2])!.add(f[1]);
     }
+    const recast = recasts.find((r) => r.axis === axis);
     let bestAxis: SegAxis | null = null;
     let bestScore = -1;
     for (const tag of REVENUE_TAGS) {
@@ -290,6 +297,7 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
       if (!members || members.size === 0) continue;
       const periods: SegPeriod[] = [];
       let matchedCount = 0;
+      const newestOf: string[] = [];
       const perPeriod = refs.map((p) => {
         const found: [string, number, string][] = [];
         for (const m of members) {
@@ -300,6 +308,7 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
         // Reorganizaciones: manda el informe más reciente que publica el periodo. Los miembros que
         // ese informe ya no usa (segmentos antiguos) se descartan para ese periodo.
         const newest = found.reduce((mx, f) => (f[2] > mx ? f[2] : mx), "");
+        newestOf.push(newest);
         return found.filter((f) => f[2] === newest).map(([m, v]) => [m, v] as [string, number]);
       });
       // Un miembro es el total de otros solo si coincide con su suma en al menos dos periodos
@@ -331,13 +340,16 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
           if (o !== undefined) oi[m] = o;
         }
         if (chosen) matchedCount++;
-        periods.push({ date: p.date, start: p.start, kind: p.kind, fiscalYear: p.fiscalYear, fiscalQuarter: p.fiscalQuarter, revenue, operatingIncome: oi, total: p.total, matched: !!chosen });
+        const sp: SegPeriod = { date: p.date, start: p.start, kind: p.kind, fiscalYear: p.fiscalYear, fiscalQuarter: p.fiscalQuarter, revenue, operatingIncome: oi, total: p.total, matched: !!chosen };
+        if (recast && newestOf[pi] === `${recast.filed}R`) sp.recast = true; // recastKey() en recast.ts
+        periods.push(sp);
       }
       if (periods.length === 0) continue;
       const score = matchedCount * 1000 + periods.length;
       if (score > bestScore) {
         bestScore = score;
         bestAxis = { tag, members: [], periods };
+        if (recast && periods.some((x) => x.recast)) bestAxis.recast = recast;
       }
     }
     if (!bestAxis) continue;
@@ -375,6 +387,74 @@ function withoutParents(vals: [string, number][], labels: Record<string, string>
       return !(kids.length >= 2 && v >= Math.max(...kids.map(([, x]) => x)));
     })
     .map(([id]) => id);
+}
+
+/** Nombre normalizado para comparar etiquetas ("Datacenter" = "Data Center", "&" = "and"). */
+export const normLabel = (s: string) =>
+  s.toLowerCase().replace(/&/g, " and ").replace(/\b(operating|reportable|segments?|member|and)\b/g, "").replace(/[^a-z0-9]/g, "");
+
+/**
+ * Renombres: el mismo segmento con otro miembro XBRL según el informe (Texas Instruments en el 10-K
+ * frente a sus 10-Q, "OptumRx" → "Optum Rx", "Commercial Operating" → "Commercial"). Dos miembros del
+ * mismo eje son el mismo si nunca aparecen en el mismo informe, ninguna cifra de un periodo común
+ * difiere más de un 1 % y o bien se llaman igual o bien coinciden en algún periodo común.
+ * Devuelve miembro antiguo → miembro más reciente.
+ */
+export function memberAliases(facts: SegFact[], labels: Record<string, string>): Map<string, string> {
+  interface Info { axis: AxisKey; filed: Set<string>; last: string; vals: Map<string, number> }
+  const info = new Map<string, Info>();
+  for (const f of facts) {
+    const k = `${f[0]}|${f[1]}`;
+    let x = info.get(k);
+    if (!x) info.set(k, (x = { axis: f[0], filed: new Set(), last: "", vals: new Map() }));
+    x.filed.add(f[6]);
+    if (f[6] > x.last) x.last = f[6];
+    x.vals.set(`${f[2]}|${f[3]}|${f[4]}`, f[5]);
+  }
+  const ids = [...info.keys()];
+  const alias = new Map<string, string>();
+  const best = new Map<string, number>();
+  for (const a of ids) {
+    for (const b of ids) {
+      const A = info.get(a)!, B = info.get(b)!;
+      if (a === b || A.axis !== B.axis || A.last >= B.last) continue; // a = antiguo, b = reciente
+      if ([...A.filed].some((d) => B.filed.has(d))) continue;
+      let same = 0, bad = false;
+      for (const [k, v] of A.vals) {
+        const w = B.vals.get(k);
+        if (w === undefined) continue;
+        if (Math.abs(v - w) <= Math.abs(w) * 0.0005 + 5e5) same++;
+        else if (Math.abs(v - w) > Math.abs(w) * 0.01) bad = true;
+      }
+      if (bad) continue;
+      const ma = a.slice(a.indexOf("|") + 1), mb = b.slice(b.indexOf("|") + 1);
+      const la = normLabel(labels[ma] || humanize(ma)), lb = normLabel(labels[mb] || humanize(mb));
+      const score = (la && la === lb ? 100 : 0) + same;
+      if (score === 0 || (la !== lb && same === 0)) continue;
+      if (score > (best.get(a) ?? 0)) {
+        best.set(a, score);
+        alias.set(a, b);
+      }
+    }
+  }
+  // Resultado por miembro, siguiendo cadenas (a → b → c)
+  const out = new Map<string, string>();
+  for (const a of alias.keys()) {
+    let t = alias.get(a)!;
+    for (let i = 0; i < 5 && alias.has(t); i++) t = alias.get(t)!;
+    out.set(a, t);
+  }
+  return out;
+}
+
+/** Aplica los renombres: las cifras de miembros antiguos pasan al miembro actual. */
+export function applyAliases(facts: SegFact[], labels: Record<string, string>): SegFact[] {
+  const alias = memberAliases(facts, labels);
+  if (alias.size === 0) return facts;
+  return facts.map((f) => {
+    const t = alias.get(`${f[0]}|${f[1]}`);
+    return t ? ([f[0], t.slice(t.indexOf("|") + 1), f[2], f[3], f[4], f[5], f[6]] as SegFact) : f;
+  });
 }
 
 /** Miembros de las cifras (para pedir sus etiquetas). */

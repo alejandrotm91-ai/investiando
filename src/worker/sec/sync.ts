@@ -141,6 +141,19 @@ export async function recentEarnings8K(cik: number, ua?: string, days = 120): Pr
   return out;
 }
 
+/** 8-K presentados entre dos fechas (incluidas), con sus apartados ("7.01,9.01"). */
+export async function eightKsBetween(cik: number, from: string, to: string, ua?: string): Promise<(Filing & { items: string })[]> {
+  const rec = await submissionsRecent(cik, ua);
+  if (!rec?.form) return [];
+  const out: (Filing & { items: string })[] = [];
+  for (let i = 0; i < rec.form.length; i++) {
+    const d = rec.filingDate[i];
+    if (rec.form[i] !== "8-K" || d < from || d > to) continue;
+    out.push({ accn: rec.accessionNumber[i], form: rec.form[i], filed: d, period: rec.reportDate[i], doc: rec.primaryDocument[i], items: String(rec.items?.[i] ?? "") });
+  }
+  return out;
+}
+
 /**
  * Archivo XBRL de un informe: la instancia (*_htm.xml, las cifras) o las etiquetas (*_lab.xml).
  * Si el nombre no sigue la convención (informes presentados por agentes), se busca en el índice.

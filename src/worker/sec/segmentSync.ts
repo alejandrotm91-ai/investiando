@@ -6,6 +6,7 @@
 import { buildSegments, membersIn, parseLabels, parseSegmentFacts, type SegFact, type SegmentData } from "./segments";
 import { fetchFilingText, getSecFinancials, isBudgetError, normTicker, recentFilings } from "./sync";
 import { fetchBudgetLeft } from "./client";
+import { acceptedRecasts, detectReorgs, registerReorgs } from "./recast";
 
 const KEEP_FILINGS = 6;
 const YEARS_KEPT = 4.5;
@@ -46,11 +47,14 @@ export async function syncSegments(db: D1Database, ticker: string, ua?: string, 
       if (xml) facts.push(...parseSegmentFacts(xml, f.filed));
       done.add(f.accn); // si no tiene XBRL tampoco se reintenta
     }
-    // Nombres según el informe más reciente (si se acaba de leer o aún no hay)
+    // Nombres según el informe más reciente: si se acaba de leer, si aún no hay o si a algún miembro
+    // de ese informe le falta el nombre (una lectura fallida). `labels.__accn` evita repetirlo.
     const newest = filings[0];
-    if (newest && (todo.some((f) => f.accn === newest.accn) || Object.keys(labels).length === 0)) {
+    const missing = newest && [...membersIn(facts.filter((f) => f[6] === newest.filed))].some((m) => !labels[m]);
+    if (newest && (todo.some((f) => f.accn === newest.accn) || Object.keys(labels).length === 0 || (missing && labels.__accn !== newest.accn))) {
       const lab = await fetchFilingText(fin.cik, newest, "labels", ua).catch(() => null);
       if (lab) labels = { ...labels, ...parseLabels(lab, membersIn(facts)) };
+      labels.__accn = newest.accn;
     }
 
     // Poda: la cifra más reciente de cada miembro y periodo, y solo los últimos años
@@ -64,9 +68,13 @@ export async function syncSegments(db: D1Database, ticker: string, ua?: string, 
     }
     facts = [...latest.values()];
     const used = membersIn(facts);
-    labels = Object.fromEntries(Object.entries(labels).filter(([k]) => used.has(k)));
+    labels = Object.fromEntries(Object.entries(labels).filter(([k]) => used.has(k) || k === "__accn"));
 
-    const data = buildSegments(facts, fin.annual, fin.quarterly, labels, filings[0]?.filed ?? null);
+    // Capa 4: cifras rehechas de los 8-K de reorganización aceptados (no se guardan en `facts`)
+    const rc = await acceptedRecasts(db, t);
+    const data = buildSegments(rc.facts.length ? [...facts, ...rc.facts] : facts, fin.annual, fin.quarterly, labels, filings[0]?.filed ?? null, rc.refs);
+    // Reorganizaciones con periodos aún sin rehacer: se buscará su 8-K (recast.ts)
+    await registerReorgs(db, t, fin.cik, detectReorgs(facts, labels, data)).catch(() => {});
     const keepAccns = [...done].filter((a) => filings.some((f) => f.accn === a));
     // Si quedaron informes por leer (límite de la ejecución), updated_at = 0 para que el cron siga
     const pending = filings.some((f) => !done.has(f.accn));
