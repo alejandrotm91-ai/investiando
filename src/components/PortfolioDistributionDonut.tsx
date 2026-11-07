@@ -28,6 +28,8 @@ const BRAND_COLORS: Record<string, string> = {
   MSFT: "#c8b965", // Khaki / Gold
   AVGO: "#ff0055", // Broadcom Crimson Red
   META: "#0080ff", // Electric Blue
+  QQQM: "#2347b5", // Invesco: azul más oscuro que el de Meta (ΔE 17,6; con la paleta salía igual)
+  QQQ: "#2347b5",
   AMZN: "#ff8800", // Amazon Orange
   GOOGL: "#9c9985", // Google Slate / Olive Grey
   GOOG: "#9c9985",
