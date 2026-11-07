@@ -263,9 +263,9 @@ Reglas:
 }
 
 /** Cifras del XBRL del 8-K (8-K que rehacen el 10-K entero) en el mismo formato que la extracción. */
-export function fromXbrl(xml: string, info: ReorgInfo, annual: SecPeriod[], quarterly: SecPeriod[]): { extract: RecastExtract; facts: SegFact[] } | null {
+export function fromXbrl(xml: string, info: ReorgInfo, annual: SecPeriod[], quarterly: SecPeriod[], prefer?: "ops" | "plain"): { extract: RecastExtract; facts: SegFact[] } | null {
   const label = new Map(info.newMembers.map((m) => [m.id, m.label]));
-  const facts = parseSegmentFacts(xml, "").filter((f) => f[0] === info.axis && label.has(f[1]) && (f[2] === info.tag || f[2] === "OperatingIncomeLoss"));
+  const facts = parseSegmentFacts(xml, "", prefer).filter((f) => f[0] === info.axis && label.has(f[1]) && (f[2] === info.tag || f[2] === "OperatingIncomeLoss"));
   if (!facts.some((f) => info.addedMembers.includes(f[1]))) return null;
   const byPeriod = new Map<string, SegFact[]>();
   for (const f of facts) byPeriod.set(`${f[3]}|${f[4]}`, [...(byPeriod.get(`${f[3]}|${f[4]}`) ?? []), f]);
@@ -342,8 +342,8 @@ export function validateRecast(
       const c = sum / (ref.totalRevenue as number);
       checks.push({ name: `${label}: cobertura como en los periodos nuevos`, ok: Math.abs(c - refCover) <= 0.03, detail: `${c.toFixed(3)} vs ${refCover.toFixed(3)}` });
     }
-    // Coincidencia con lo que el 10-Q nuevo ya publica rehecho
-    const pub = newPeriods.find((q) => q.date === ref.date && q.kind === kind);
+    // Coincidencia con lo que publican directamente (sin T4 calculado) informes posteriores al 8-K
+    const pub = newPeriods.find((q) => q.date === ref.date && q.kind === kind && !q.derived && (q.src ?? "") > key);
     if (pub) {
       const bad = p.lines.filter((l) => {
         const v = pub.revenue[idOf.get(l.name) ?? ""];
@@ -411,10 +411,20 @@ export async function processRecast(db: D1Database, env: ClaudeEnv & { SEC_USER_
       if (fetchBudgetLeft() < 4) return "budget";
       const r = await secFetch(best.instance, ua);
       if (r.ok) {
-        const x = fromXbrl(await r.text(), info, fin.annual, fin.quarterly);
-        if (x) {
-          extract = x.extract;
-          extra = x.facts.map((f) => [f[0], f[1], f[2], f[3], f[4], f[5], key] as SegFact);
+        // Con las dos variantes de cada segmento (ventas externas / con las de otros segmentos) se
+        // queda la que coincide con los informes posteriores
+        const xml = await r.text();
+        const current = JSON.parse(seg.data);
+        let bestFails = Infinity;
+        for (const prefer of ["ops", "plain"] as const) {
+          const x = fromXbrl(xml, info, fin.annual, fin.quarterly, prefer);
+          if (!x) continue;
+          const fails = validateRecast(x.extract, info, current, fin.annual, fin.quarterly, key).checks.filter((c) => !c.ok).length;
+          if (fails < bestFails) {
+            bestFails = fails;
+            extract = x.extract;
+            extra = x.facts.map((f) => [f[0], f[1], f[2], f[3], f[4], f[5], key] as SegFact);
+          }
         }
       }
     }

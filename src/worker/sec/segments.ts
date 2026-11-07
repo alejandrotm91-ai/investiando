@@ -38,9 +38,13 @@ export type SegFact = [AxisKey, string, string, string, string, number, string];
 
 const attr = (s: string, name: string) => s.match(new RegExp(`\\b${name}="([^"]*)"`))?.[1];
 
-/** Cifras por segmento/producto/geografía de un informe XBRL. */
-export function parseSegmentFacts(xml: string, filed: string): SegFact[] {
-  const ctx = new Map<string, { axis: AxisKey; member: string; start: string; end: string; via?: string }>();
+/**
+ * Cifras por segmento/producto/geografía de un informe XBRL. Si un miembro aparece a la vez solo
+ * con su eje y con "segmentos operativos" (Caterpillar: ventas externas frente a ventas con las de
+ * otros segmentos), `prefer` elige la variante; sin él, la que aparece primero.
+ */
+export function parseSegmentFacts(xml: string, filed: string, prefer?: "ops" | "plain"): SegFact[] {
+  const ctx = new Map<string, { axis: AxisKey; member: string; start: string; end: string; via?: string; ops: boolean }>();
   const ctxRe = /<(?:[\w-]+:)?context\b([^>]*)>([\s\S]*?)<\/(?:[\w-]+:)?context>/g;
   for (const m of xml.matchAll(ctxRe)) {
     const id = attr(m[1], "id");
@@ -65,10 +69,10 @@ export function parseSegmentFacts(xml: string, filed: string): SegFact[] {
     const start = body.match(/<(?:[\w-]+:)?startDate>\s*([\d-]+)\s*</)?.[1];
     const end = body.match(/<(?:[\w-]+:)?endDate>\s*([\d-]+)\s*</)?.[1];
     if (!start || !end) continue;
-    ctx.set(id, { axis: AXES[main[0][0]], member: main[0][1], start, end, via });
+    ctx.set(id, { axis: AXES[main[0][0]], member: main[0][1], start, end, via, ops: rest.length === 1 });
   }
   const out: SegFact[] = [];
-  const seen = new Set<string>();
+  const seen = new Map<string, { i: number; ops: boolean }>();
   const crossed = new Map<string, { fact: SegFact; via: Set<string> }>();
   const factRe = /<us-gaap:(\w+)\b([^>]*?)>([^<]*)<\/us-gaap:\1>/g;
   for (const m of xml.matchAll(factRe)) {
@@ -84,8 +88,15 @@ export function parseSegmentFacts(xml: string, filed: string): SegFact[] {
       else crossed.set(key, { fact: [c.axis, c.member, tag, c.start, c.end, val, filed], via: new Set([c.via]) });
       continue;
     }
-    if (seen.has(key)) continue;
-    seen.add(key);
+    const prev = seen.get(key);
+    if (prev) {
+      if (prefer && prev.ops !== c.ops && c.ops === (prefer === "ops")) {
+        out[prev.i] = [c.axis, c.member, tag, c.start, c.end, val, filed];
+        prev.ops = c.ops;
+      }
+      continue;
+    }
+    seen.set(key, { i: out.length, ops: c.ops });
     out.push([c.axis, c.member, tag, c.start, c.end, val, filed]);
   }
   for (const [key, x] of crossed) if (!seen.has(key) && x.via.size === 1) out.push(x.fact);
@@ -167,6 +178,8 @@ export interface SegPeriod {
   total: number | null; // ingresos consolidados oficiales del periodo
   matched: boolean; // el desglose suma el total
   recast?: boolean; // cifras rehechas con la estructura actual, del 8-K de reorganización (capa 4)
+  src?: string; // fecha del informe más reciente del que salen las cifras
+  derived?: boolean; // alguna cifra calculada por diferencia de acumulados (T4 = año − 9 meses)
 }
 
 export interface SegAxis {
@@ -262,9 +275,11 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
   ];
 
   // Valor de un miembro en un periodo: directo; si no, acumulado − acumulado anterior (T4 = año − 9M)
+  let usedDerived = false;
   const periodValue = (axis: string, member: string, tag: string, p: PeriodRef): number | undefined => {
     const direct = val(axis, member, tag, p.start, p.date);
     if (direct !== undefined || p.kind === "FY") return direct;
+    usedDerived = true;
     const fs = fyStart.get(p.fiscalYear);
     const qs = qByYear.get(p.fiscalYear) ?? [];
     const i = qs.findIndex((q) => q.date === p.date);
@@ -299,18 +314,27 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
       const periods: SegPeriod[] = [];
       let matchedCount = 0;
       const newestOf: string[] = [];
+      const derivedOf: Set<string>[] = [];
       const perPeriod = refs.map((p) => {
         const found: [string, number, string][] = [];
+        const derived = new Set<string>();
         for (const m of members) {
           usedFiled = "";
+          usedDerived = false;
           const v = periodValue(axis, m, tag, p);
           if (v !== undefined) found.push([m, v, usedFiled]);
+          if (v !== undefined && usedDerived) derived.add(m);
         }
+        derivedOf.push(derived);
         // Reorganizaciones: manda el informe más reciente que publica el periodo. Los miembros que
         // ese informe ya no usa (segmentos antiguos) se descartan para ese periodo.
-        const newest = found.reduce((mx, f) => (f[2] > mx ? f[2] : mx), "");
+        // Si hay cifras publicadas directamente, las calculadas (T4 = año − 9 meses, que pueden mezclar
+        // informes de antes y después de una reorganización) no deciden cuál es el más reciente
+        const direct = found.filter((f) => !derived.has(f[0]));
+        const pool = direct.length ? direct : found;
+        const newest = pool.reduce((mx, f) => (f[2] > mx ? f[2] : mx), "");
         newestOf.push(newest);
-        return found.filter((f) => f[2] === newest).map(([m, v]) => [m, v] as [string, number]);
+        return pool.filter((f) => f[2] === newest).map(([m, v]) => [m, v] as [string, number]);
       });
       // Un miembro es el total de otros solo si coincide con su suma en al menos dos periodos
       // (una coincidencia puntual no cuenta: Azure ≈ 365 Cloud + Xbox en un trimestre de Microsoft)
@@ -343,6 +367,8 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
         if (chosen) matchedCount++;
         const sp: SegPeriod = { date: p.date, start: p.start, kind: p.kind, fiscalYear: p.fiscalYear, fiscalQuarter: p.fiscalQuarter, revenue, operatingIncome: oi, total: p.total, matched: !!chosen };
         if (recast && newestOf[pi] === `${recast.filed}R`) sp.recast = true; // recastKey() en recast.ts
+        sp.src = newestOf[pi];
+        if ([...use].some((m) => derivedOf[pi].has(m))) sp.derived = true;
         periods.push(sp);
       }
       if (periods.length === 0) continue;
