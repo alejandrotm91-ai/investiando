@@ -146,10 +146,11 @@ export function humanize(member: string): string {
   const local = member.split(":").pop()!.replace(/Member$/, "").replace(/Segment$/, "");
   if (COUNTRIES[local]) return COUNTRIES[local];
   return local
-    .replace(/ThreeSixFive/g, "365")
+    .replace(/ThreeSixFive/g, " 365 ")
     .replace(/([a-z])([A-Z])/g, "$1 $2")
     .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
     .replace(/\bAnd\b/g, "&")
+    .replace(/\s+/g, " ")
     .trim();
 }
 

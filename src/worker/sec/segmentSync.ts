@@ -53,8 +53,10 @@ export async function syncSegments(db: D1Database, ticker: string, ua?: string, 
     const missing = newest && [...membersIn(facts.filter((f) => f[6] === newest.filed))].some((m) => !labels[m]);
     if (newest && (todo.some((f) => f.accn === newest.accn) || Object.keys(labels).length === 0 || (missing && labels.__accn !== newest.accn))) {
       const lab = await fetchFilingText(fin.cik, newest, "labels", ua).catch(() => null);
-      if (lab) labels = { ...labels, ...parseLabels(lab, membersIn(facts)) };
-      labels.__accn = newest.accn;
+      if (lab) {
+        labels = { ...labels, ...parseLabels(lab, membersIn(facts)) };
+        labels.__accn = newest.accn;
+      }
     }
 
     // Poda: la cifra más reciente de cada miembro y periodo, y solo los últimos años

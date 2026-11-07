@@ -170,7 +170,8 @@ export async function fetchFilingText(cik: number, f: Filing, kind: "instance" |
     const names: string[] = (((await idx.json()) as any)?.directory?.item ?? []).map((x: { name: string }) => x.name);
     name = kind === "instance"
       ? names.find((n) => /_htm\.xml$/.test(n)) ?? names.find((n) => /\.xml$/.test(n) && !/(_cal|_def|_lab|_pre|FilingSummary)/.test(n)) ?? null
-      : names.find((n) => /_lab\.xml$/.test(n)) ?? null;
+      : // Sin archivo de etiquetas: algunos informes las llevan dentro del esquema (.xsd, Microsoft)
+        names.find((n) => /_lab\.xml$/.test(n)) ?? names.find((n) => /\.xsd$/.test(n)) ?? null;
     if (!name) return null;
     r = await secFetch(`${base}/${name}`, ua);
     if (!r.ok) return null;
