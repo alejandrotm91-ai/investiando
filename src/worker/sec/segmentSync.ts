@@ -1,15 +1,19 @@
 // Sincronización de la capa 2 (segmentos) con D1, tabla sec_segments.
 // Lee el XBRL de los últimos 6 informes 10-K/10-Q (la primera vez) y después solo los nuevos.
 // Con 6 informes hay unos 10 trimestres y 3-4 ejercicios: cada 10-Q trae su trimestre y el mismo
-// del año anterior, y el 10-K tres ejercicios.
+// del año anterior, y el 10-K tres ejercicios. Para unos 10 años de segmentos anuales se leen además
+// los 10-K de hace 3, 6 y 9 ejercicios (cada uno trae 3 ejercicios); su número de registro sale de
+// la capa 1, que guarda el 10-K original de cada ejercicio.
 
 import { buildSegments, membersIn, parseLabels, parseSegmentFacts, type SegFact, type SegmentData } from "./segments";
-import { fetchFilingText, getSecFinancials, isBudgetError, normTicker, recentFilings } from "./sync";
+import { fetchFilingText, getSecFinancials, isBudgetError, normTicker, recentFilings, type Filing } from "./sync";
 import { fetchBudgetLeft } from "./client";
 import { acceptedRecasts, detectReorgs, registerReorgs } from "./recast";
 
 const KEEP_FILINGS = 6;
-const YEARS_KEPT = 4.5;
+const YEARS_KEPT = 4.5; // cifras trimestrales y acumuladas
+const YEARS_KEPT_ANNUAL = 12.5; // ejercicios completos
+const HISTORY_10K = [3, 6, 9]; // posiciones en la lista de ejercicios de la capa 1
 
 interface SegRow {
   data: string | null;
@@ -41,11 +45,23 @@ export async function syncSegments(db: D1Database, ticker: string, ua?: string, 
 
   try {
     const filings = (await recentFilings(fin.cik, ua)).slice(0, KEEP_FILINGS);
-    const todo = filings.filter((f) => !done.has(f.accn)).slice(0, maxFilings);
+    // 10-K antiguos para la historia anual (sin nombre de documento: se busca en el índice)
+    const history: Filing[] = HISTORY_10K.map((i) => fin.annual[i])
+      .filter((a) => a?.accn && /^10-K/.test(a.form) && !filings.some((f) => f.accn === a.accn))
+      .map((a) => ({ accn: a.accn, form: a.form, filed: a.filed, period: a.date, doc: "" }));
+    const todo = [...filings, ...history].filter((f) => !done.has(f.accn)).slice(0, maxFilings);
     for (const f of todo) {
       const xml = await fetchFilingText(fin.cik, f, "instance", ua);
       if (xml) facts.push(...parseSegmentFacts(xml, f.filed));
       done.add(f.accn); // si no tiene XBRL tampoco se reintenta
+      // Nombres de los segmentos antiguos (los del informe más reciente no se tocan)
+      if (xml && history.includes(f)) {
+        const own = new Set(parseSegmentFacts(xml, f.filed).map((x) => x[1]).filter((m) => !labels[m]));
+        if (own.size) {
+          const lab = await fetchFilingText(fin.cik, f, "labels", ua).catch(() => null);
+          if (lab) labels = { ...parseLabels(lab, own), ...labels };
+        }
+      }
     }
     // Nombres según el informe más reciente: si se acaba de leer, si aún no hay o si a algún miembro
     // de ese informe le falta el nombre (una lectura fallida). `labels.__accn` evita repetirlo.
@@ -61,9 +77,11 @@ export async function syncSegments(db: D1Database, ticker: string, ua?: string, 
 
     // Poda: la cifra más reciente de cada miembro y periodo, y solo los últimos años
     const cutoff = new Date(Date.now() - YEARS_KEPT * 365 * 86400000).toISOString().slice(0, 10);
+    const cutoffAnnual = new Date(Date.now() - YEARS_KEPT_ANNUAL * 365 * 86400000).toISOString().slice(0, 10);
+    const isAnnual = (f: SegFact) => new Date(f[4]).getTime() - new Date(f[3]).getTime() > 300 * 86400000;
     const latest = new Map<string, SegFact>();
     for (const f of facts) {
-      if (f[4] < cutoff) continue;
+      if (f[4] < (isAnnual(f) ? cutoffAnnual : cutoff)) continue;
       const k = `${f[0]}|${f[1]}|${f[2]}|${f[3]}|${f[4]}`;
       const cur = latest.get(k);
       if (!cur || f[6] >= cur[6]) latest.set(k, f);
@@ -77,9 +95,9 @@ export async function syncSegments(db: D1Database, ticker: string, ua?: string, 
     const data = buildSegments(rc.facts.length ? [...facts, ...rc.facts] : facts, fin.annual, fin.quarterly, labels, filings[0]?.filed ?? null, rc.refs);
     // Reorganizaciones con periodos aún sin rehacer: se buscará su 8-K (recast.ts)
     await registerReorgs(db, t, fin.cik, detectReorgs(facts, labels, data)).catch(() => {});
-    const keepAccns = [...done].filter((a) => filings.some((f) => f.accn === a));
+    const keepAccns = [...done].filter((a) => filings.some((f) => f.accn === a) || history.some((f) => f.accn === a));
     // Si quedaron informes por leer (límite de la ejecución), updated_at = 0 para que el cron siga
-    const pending = filings.some((f) => !done.has(f.accn));
+    const pending = [...filings, ...history].some((f) => !done.has(f.accn));
     await db
       .prepare(
         `INSERT INTO sec_segments (ticker, data, facts, labels, accns, updated_at, error) VALUES (?, ?, ?, ?, ?, ?, NULL)
@@ -133,9 +151,9 @@ export async function runSegmentsCron(db: D1Database, ua?: string, budget = 60):
     .all<{ ticker: string }>();
   let left = budget;
   for (const { ticker } of results) {
-    // Conexiones: lista de informes + uno por informe + etiquetas
-    const room = fetchBudgetLeft() - 3;
-    if (left <= 0 || room < 2) break;
+    // Conexiones: lista de informes + hasta 3 por informe (índice, XBRL, etiquetas) + etiquetas
+    const room = Math.floor((fetchBudgetLeft() - 3) / 3);
+    if (left <= 0 || room < 1) break;
     try {
       const r = await syncSegments(db, ticker, ua, Math.min(KEEP_FILINGS, left, room));
       left -= Math.max(1, r.read);

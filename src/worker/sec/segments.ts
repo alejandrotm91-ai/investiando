@@ -23,12 +23,16 @@ const AXES: Record<string, AxisKey> = {
   "us-gaap:StatementBusinessSegmentsAxis": "segment",
   "srt:ProductOrServiceAxis": "product",
   "srt:StatementGeographicalAxis": "geography",
+  // Hasta 2018 estos ejes (y ConsolidationItemsAxis) llevaban el prefijo us-gaap
+  "us-gaap:ProductOrServiceAxis": "product",
+  "us-gaap:StatementGeographicalAxis": "geography",
 };
 const REVENUE_TAGS = [
   "Revenues",
   "RevenueFromContractWithCustomerExcludingAssessedTax",
   "RevenuesNetOfInterestExpense",
   "RevenueFromContractWithCustomerIncludingAssessedTax",
+  "SalesRevenueNet", // antes de la norma de ingresos de 2018 (ASC 606): 10-K de 2017 y anteriores
 ];
 const OI_TAG = "OperatingIncomeLoss";
 const TAGS = new Set([...REVENUE_TAGS, OI_TAG]);
@@ -65,7 +69,7 @@ export function parseSegmentFacts(xml: string, filed: string, prefer?: "ops" | "
     }
     if (main.length !== 1) continue;
     // Solo el eje, o el eje + "segmentos operativos" (Apple, UnitedHealth)
-    if (rest.length > 1 || (rest.length === 1 && !(rest[0][0] === "srt:ConsolidationItemsAxis" && /OperatingSegmentsMember$/.test(rest[0][1])))) continue;
+    if (rest.length > 1 || (rest.length === 1 && !(/:ConsolidationItemsAxis$/.test(rest[0][0]) && /:OperatingSegmentsMember$/.test(rest[0][1])))) continue;
     const start = body.match(/<(?:[\w-]+:)?startDate>\s*([\d-]+)\s*</)?.[1];
     const end = body.match(/<(?:[\w-]+:)?endDate>\s*([\d-]+)\s*</)?.[1];
     if (!start || !end) continue;
@@ -306,8 +310,7 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
       membersOf.get(f[2])!.add(f[1]);
     }
     const recast = recasts.find((r) => r.axis === axis);
-    let bestAxis: SegAxis | null = null;
-    let bestScore = -1;
+    const candidates: { tag: string; periods: SegPeriod[]; score: number }[] = [];
     for (const tag of REVENUE_TAGS) {
       const members = membersOf.get(tag);
       if (!members || members.size === 0) continue;
@@ -373,13 +376,17 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
       }
       if (periods.length === 0) continue;
       const score = matchedCount * 1000 + periods.length;
-      if (score > bestScore) {
-        bestScore = score;
-        bestAxis = { tag, members: [], periods };
-        if (recast && periods.some((x) => x.recast)) bestAxis.recast = recast;
-      }
+      candidates.push({ tag, periods, score });
     }
-    if (!bestAxis) continue;
+    // La etiqueta con más periodos que cuadran manda; los periodos que solo tienen otra etiqueta
+    // (años antiguos con "SalesRevenueNet", un año en que la empresa cambió de etiqueta) se añaden
+    candidates.sort((a, b) => b.score - a.score);
+    if (!candidates.length) continue;
+    const bestAxis: SegAxis = { tag: candidates[0].tag, members: [], periods: [...candidates[0].periods] };
+    for (const c of candidates.slice(1)) {
+      for (const p of c.periods) if (!bestAxis.periods.some((q) => q.date === p.date && q.kind === p.kind)) bestAxis.periods.push(p);
+    }
+    if (recast && bestAxis.periods.some((x) => x.recast)) bestAxis.recast = recast;
     // Productos y geografía solo si algún periodo cuadra con el total (si no, es un desglose parcial)
     if (axis !== "segment" && !bestAxis.periods.some((p) => p.matched)) continue;
     // Eje desfasado: su último periodo es de hace más de 15 meses respecto al último de la empresa

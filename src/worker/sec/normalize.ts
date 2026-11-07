@@ -187,13 +187,13 @@ function detectFiscalYears(cf: CompanyFacts): FiscalYear[] {
 }
 
 export interface NormalizeOptions {
-  annualYears?: number; // ejercicios a devolver (por defecto 6)
+  annualYears?: number; // ejercicios a devolver (por defecto 11: unos 10 años para los segmentos anuales)
   quarters?: number; // trimestres a devolver (por defecto 14)
 }
 
 export function normalizeCompanyFacts(cf: CompanyFacts, opts: NormalizeOptions = {}): { annual: SecPeriod[]; quarterly: SecPeriod[] } {
   const fys = detectFiscalYears(cf);
-  const annualYears = opts.annualYears ?? 6;
+  const annualYears = opts.annualYears ?? 11;
   const nQuarters = opts.quarters ?? 14;
 
   // Índices por etiqueta

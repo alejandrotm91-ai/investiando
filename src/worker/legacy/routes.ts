@@ -11,6 +11,8 @@ import { rememberQuotes, recallQuotes, rememberPayload, recallPayload } from "..
 import { env as cfEnv } from "cloudflare:workers";
 import { secForModels } from "../sec/sync";
 import { mergeSecWithYahoo, adjustForSplits } from "../sec/merge";
+
+const MODEL_YEARS = 6; // ejercicios de la SEC que reciben los modelos
 import { SUPERINVESTORS } from "../../superinvestors";
 import { SUPERINVESTOR_SCORES } from "../../utils/superinvestorScore";
 import { SECTOR_TOP_HOLDINGS } from "../../data/sp500SectorHoldings";
@@ -2537,7 +2539,9 @@ export function registerLegacyRoutes(app: LegacyApp) {
       const yahooAnnual = Array.isArray(annual) ? [...annual].sort(sortFn) : [];
       const yahooQuarterly = Array.isArray(quarterly) ? [...quarterly].sort(sortFn) : [];
       const splits = (chart as any)?.events?.splits ?? [];
-      const cleanAnnual = sec ? adjustForSplits(mergeSecWithYahoo(sec.annual, yahooAnnual), splits) : yahooAnnual;
+      // Los modelos usan 6 ejercicios, como antes (la SEC guarda 11 para los segmentos): con más años
+      // cambiarían cálculos como el CAGR del BPA, que va del primer al último ejercicio recibido
+      const cleanAnnual = sec ? adjustForSplits(mergeSecWithYahoo(sec.annual.slice(0, MODEL_YEARS), yahooAnnual), splits) : yahooAnnual;
       const cleanQuarterly = sec ? adjustForSplits(mergeSecWithYahoo(sec.quarterly, yahooQuarterly), splits) : yahooQuarterly;
       const secSource = sec
         ? { name: sec.name, cik: sec.cik, lastFiled: sec.lastFiled, lastForm: sec.lastForm, lastPeriod: sec.lastPeriod, syncedAt: sec.syncedAt }

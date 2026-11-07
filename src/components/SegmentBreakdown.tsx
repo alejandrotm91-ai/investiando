@@ -94,7 +94,7 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
     const periods = axisData.periods
       .filter((p) => p.kind === activeKind)
       .sort((a, b) => a.date.localeCompare(b.date))
-      .slice(activeKind === "Q" ? -8 : -4);
+      .slice(activeKind === "Q" ? -8 : -11);
     if (!periods.length) return null;
     const latest = periods[periods.length - 1];
     // Líneas con datos en lo que se muestra, en el orden del eje (por ingresos del último periodo)

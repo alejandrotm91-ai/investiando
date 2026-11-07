@@ -93,7 +93,7 @@ export async function resolveCik(db: D1Database, ticker: string, ua?: string): P
 
 // ---------------------------------------------------------------- sincronización
 
-async function fetchFacts(cik: number, ua?: string): Promise<CompanyFacts | null> {
+export async function fetchFacts(cik: number, ua?: string): Promise<CompanyFacts | null> {
   const r = await secFetch(`https://data.sec.gov/api/xbrl/companyfacts/CIK${cik10(cik)}.json`, ua);
   if (r.status === 404) return null;
   return (await r.json()) as CompanyFacts;
