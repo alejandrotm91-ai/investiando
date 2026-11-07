@@ -56,7 +56,10 @@ export function parseSegmentFacts(xml: string, filed: string, prefer?: "ops" | "
     if (!id || /typedMember/.test(body)) continue;
     const dims = [...body.matchAll(/<(?:[\w-]+:)?explicitMember[^>]*dimension="([^"]+)"[^>]*>\s*([^<\s]+)\s*</g)].map((x) => [x[1], x[2]]);
     const main = dims.filter(([d]) => AXES[d]);
-    const rest = dims.filter(([d]) => !AXES[d]);
+    // "Segmento declarado" (Caterpillar 2019-2022): junto al eje de segmentos no cambia la cifra y
+    // se ignora; con geografía es la suma de los segmentos, no las ventas de la región.
+    const subseg = ([d, m]: string[]) => /:SubsegmentsConsolidationItemsAxis$/.test(d) && /:ReportableSubsegmentsMember$/.test(m);
+    const rest = dims.filter((x) => !AXES[x[0]] && !(subseg(x) && main.length === 1 && AXES[main[0][0]] === "segment"));
     // Geografía cruzada con un producto (Netflix: países × "Streaming"): se guarda aparte y solo se
     // usa si no hay cifra geográfica pura y el producto es único (ver más abajo).
     let via: string | undefined;
@@ -155,6 +158,17 @@ const COUNTRIES: Record<string, string> = {
   NL: "Netherlands", CH: "Switzerland", HK: "Hong Kong", AU: "Australia", IT: "Italy", ES: "Spain", IL: "Israel",
   MY: "Malaysia", NonUs: "International",
 };
+
+/**
+ * Etiqueta de un miembro. En los países estándar la etiqueta del informe puede venir de otro
+ * contexto (Caterpillar: "U.S. Plans" por sus pensiones; AT&T: "Domestic equities"): entonces, nombre fijo.
+ */
+export function memberLabel(id: string, labels: Record<string, string>): string {
+  const own = labels[id];
+  if (own && (/^country:/.test(id) || id === "us-gaap:NonUsMember") && /\b(plans?|pensions?|equit(y|ies)|securities|bonds?|funds?)\b/i.test(own))
+    return humanize(id);
+  return own || humanize(id);
+}
 
 /** Nombre legible a partir del miembro XBRL si el informe no trae etiqueta. */
 export function humanize(member: string): string {
@@ -342,6 +356,8 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
       // Un miembro es el total de otros solo si coincide con su suma en al menos dos periodos
       // (una coincidencia puntual no cuenta: Azure ≈ 365 Cloud + Xbox en un trimestre de Microsoft)
       const maps = perPeriod.map((v) => new Map(v));
+      const freq = new Map<string, number>();
+      for (const v of perPeriod) for (const [m] of v) freq.set(m, (freq.get(m) ?? 0) + 1);
       const confirmParent = (parent: string, kids: string[]) => {
         let hits = 0;
         for (const mp of maps) {
@@ -358,7 +374,7 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
         const chosen = p.total !== null ? bestSubset(vals, p.total, confirmParent) : null;
         // Sin coincidencia: un solo miembro no es un desglose (p. ej. "ReportableSegment")
         if (!chosen && (vals.length < 2 || axis !== "segment")) continue; // productos/geografía: solo si cuadra
-        const use = new Set(chosen ?? withoutParents(vals, labels));
+        const use = new Set(chosen ?? withoutParents(vals, labels, freq, confirmParent));
         if (use.size < 2) continue; // una sola línea no es un desglose
         const revenue: Record<string, number> = {};
         const oi: Record<string, number> = {};
@@ -400,7 +416,7 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
     const latestP = [...bestAxis.periods].sort((a, b) => b.date.localeCompare(a.date))[0];
     bestAxis.members = [...ids]
       .sort((a, b) => (latestP.revenue[b] ?? -Infinity) - (latestP.revenue[a] ?? -Infinity))
-      .map((id) => ({ id, label: labels[id] || humanize(id) }));
+      .map((id) => ({ id, label: memberLabel(id, labels) }));
     bestAxis.periods.sort((a, b) => b.date.localeCompare(a.date) || (a.kind === "FY" ? 1 : -1));
     out.axes[axis] = bestAxis;
   }
@@ -412,17 +428,49 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
  * nombre encabeza el de otros dos o más y que valen al menos lo que el mayor de ellos
  * (UnitedHealth: "Optum" frente a "Optum Rx", "Optum Health" y "Optum Insight").
  */
-function withoutParents(vals: [string, number][], labels: Record<string, string>): string[] {
-  const name = (id: string) => (labels[id] || humanize(id)).toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
-  return vals
-    .filter(([id, v]) => {
-      const n = name(id);
-      // Líneas de total ("Total sales and revenues from reportable segments" de Caterpillar)
-      if (/^total\b/.test(n) && vals.length > 2) return false;
-      const kids = vals.filter(([o]) => o !== id && name(o).startsWith(n + " "));
-      return !(kids.length >= 2 && v >= Math.max(...kids.map(([, x]) => x)));
-    })
-    .map(([id]) => id);
+function withoutParents(
+  vals: [string, number][],
+  labels: Record<string, string>,
+  freq: Map<string, number>,
+  confirm: (parent: string, kids: string[]) => boolean
+): string[] {
+  const name = (id: string) => memberLabel(id, labels).toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
+  const near = (a: number, b: number) => Math.abs(a - b) <= Math.abs(b) * 0.002 + 1e5;
+  // Suma de otras dos o más líneas (Caterpillar 2016-2017: "Machinery, Energy & Transportation"
+  // = Construction + Resource + Energy & Transportation), confirmado en dos periodos y con un nombre
+  // de agregado: contiene el de una de las partes o dice "total"/"reportable" (si no, las
+  // coincidencias numéricas quitarían segmentos de verdad)
+  const isSum = (id: string, v: number) => {
+    const n = name(id);
+    const aggregate = /\b(total|reportable)\b/.test(n);
+    const o = vals.filter(([k, x]) => k !== id && x > 0 && x < v);
+    if (o.length < 2 || o.length > 12) return false;
+    for (let mask = 1; mask < 1 << o.length; mask++) {
+      if ((mask & (mask - 1)) === 0) continue; // al menos dos
+      let sum = 0;
+      for (let i = 0; i < o.length; i++) if (mask & (1 << i)) sum += o[i][1];
+      if (!near(sum, v)) continue;
+      const kids = o.filter((_, i) => mask & (1 << i)).map(([k]) => k);
+      if ((aggregate || kids.some((k) => name(k).length >= 4 && n.includes(name(k)))) && confirm(id, kids)) return true;
+    }
+    return false;
+  };
+  const kept = vals.filter(([id, v]) => {
+    const n = name(id);
+    // Líneas de total ("Total sales and revenues from reportable segments" de Caterpillar)
+    if (/^total\b/.test(n) && vals.length > 2) return false;
+    const kids = vals.filter(([o]) => o !== id && name(o).startsWith(n + " "));
+    if (kids.length >= 2 && v >= Math.max(...kids.map(([, x]) => x))) return false;
+    return !(vals.length > 2 && isSum(id, v));
+  });
+  // Dos miembros con el mismo nombre en un periodo: el que aparece en más periodos
+  const byName = new Map<string, string>();
+  for (const [id] of kept) {
+    const n = normLabel(memberLabel(id, labels));
+    const prev = byName.get(n);
+    if (!prev || (freq.get(id) ?? 0) > (freq.get(prev) ?? 0)) byName.set(n, id);
+  }
+  return kept.filter(([id]) => byName.get(normLabel(memberLabel(id, labels))) === id).map(([id]) => id);
 }
 
 /** Nombre normalizado para comparar etiquetas ("Datacenter" = "Data Center", "&" = "and"). */
@@ -464,7 +512,7 @@ export function memberAliases(facts: SegFact[], labels: Record<string, string>):
       }
       if (bad) continue;
       const ma = a.slice(a.indexOf("|") + 1), mb = b.slice(b.indexOf("|") + 1);
-      const la = normLabel(labels[ma] || humanize(ma)), lb = normLabel(labels[mb] || humanize(mb));
+      const la = normLabel(memberLabel(ma, labels)), lb = normLabel(memberLabel(mb, labels));
       const score = (la && la === lb ? 100 : 0) + same;
       if (score === 0 || (la !== lb && same === 0)) continue;
       if (score > (best.get(a) ?? 0)) {
