@@ -105,15 +105,15 @@ export function htmlToText(html: string): string {
 
 // ---------------------------------------------------------------- extracción con Claude
 
-const num = { type: ["number", "null"] };
+// La API admite como mucho 16 campos con tipo "valor o null": las cifras van como campos opcionales
+// (si no aparecen se omiten) y se rellenan con null al leer la respuesta (withNulls).
+const num = { type: "number" };
+const FIGURE_KEYS = ["revenue", "gross_profit", "operating_income", "net_income", "diluted_eps", "diluted_shares", "operating_cash_flow", "capital_expenditures"] as const;
 const FIGURES = {
   type: "object",
   additionalProperties: false,
-  required: ["revenue", "gross_profit", "operating_income", "net_income", "diluted_eps", "diluted_shares", "operating_cash_flow", "capital_expenditures"],
-  properties: {
-    revenue: num, gross_profit: num, operating_income: num, net_income: num, diluted_eps: num,
-    diluted_shares: num, operating_cash_flow: num, capital_expenditures: num,
-  },
+  required: [] as string[],
+  properties: Object.fromEntries(FIGURE_KEYS.map((k) => [k, num])),
 };
 const SCHEMA = {
   type: "object",
@@ -127,7 +127,7 @@ const SCHEMA = {
     currency: { type: ["string", "null"] },
     quarter: FIGURES,
     prior_year_quarter: FIGURES,
-    non_gaap_diluted_eps: num,
+    non_gaap_diluted_eps: { type: ["number", "null"] },
     guidance: { type: ["string", "null"] },
     notes: { type: ["string", "null"] },
   },
@@ -139,7 +139,7 @@ Reglas:
 - Solo cifras GAAP (las de la cuenta de resultados y el flujo de caja oficiales). Nunca cifras "adjusted", "non-GAAP", "core" u "operating" ajustadas; el BPA ajustado va solo en non_gaap_diluted_eps.
 - Convierte todo a unidades: si la tabla dice "in millions", 1.234 = 1234000000. El BPA y las acciones por acción quedan como están (BPA en dólares por acción; acciones en número de acciones, aplicando "in millions" si corresponde).
 - net_income: beneficio neto atribuible a los accionistas de la empresa (sin minoritarios). capital_expenditures en positivo.
-- Si una cifra no aparece para ese periodo, null. No calcules cifras que no estén en el texto.
+- Si una cifra de "quarter" o "prior_year_quarter" no aparece para ese periodo, omite ese campo. No calcules cifras que no estén en el texto.
 - period_end: fecha de cierre del trimestre anunciado (YYYY-MM-DD). fiscal_year y fiscal_quarter según el ejercicio fiscal de la empresa.
 - guidance: una frase en español con la previsión para el siguiente periodo si la hay; si no, null.
 - is_earnings_release = false si el documento no es un comunicado de resultados trimestrales.`;
@@ -159,6 +159,12 @@ export interface Extracted {
   non_gaap_diluted_eps: number | null;
   guidance: string | null;
   notes: string | null;
+}
+
+/** Las cifras omitidas pasan a null para que el resto del código vea siempre todos los campos. */
+function withNulls(x: any): Extracted {
+  const fill = (f: any): Figures => Object.fromEntries(FIGURE_KEYS.map((k) => [k, typeof f?.[k] === "number" ? f[k] : null])) as unknown as Figures;
+  return { ...x, quarter: fill(x?.quarter), prior_year_quarter: fill(x?.prior_year_quarter) };
 }
 
 async function extractWithClaude(env: { ANTHROPIC_API_KEY?: string; ANTHROPIC_WORKSPACE_ID?: string }, ticker: string, text: string): Promise<{ data: Extracted; usage: { input: number; output: number } }> {
@@ -184,7 +190,7 @@ async function extractWithClaude(env: { ANTHROPIC_API_KEY?: string; ANTHROPIC_WO
   if (msg.stop_reason === "refusal") throw new Error("El modelo rechazó la solicitud");
   if (msg.stop_reason === "max_tokens") throw new Error("Respuesta incompleta (max_tokens)");
   const txt = msg.content.filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
-  return { data: JSON.parse(txt) as Extracted, usage: { input: msg.usage.input_tokens, output: msg.usage.output_tokens } };
+  return { data: withNulls(JSON.parse(txt)), usage: { input: msg.usage.input_tokens, output: msg.usage.output_tokens } };
 }
 
 // ---------------------------------------------------------------- validación
