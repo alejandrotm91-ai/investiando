@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Loader2, DollarSign, Activity, FileText, Calendar, Building, Building2, LayoutGrid, Table, Coins, Wallet, Sparkles, TrendingUp, TrendingDown, Search } from "lucide-react";
+import { Loader2, ChevronLeft, ChevronRight, DollarSign, Activity, FileText, Calendar, Building, Building2, LayoutGrid, Table, Coins, Wallet, Sparkles, TrendingUp, TrendingDown, Search } from "lucide-react";
 
 interface CompanyFinancialsProps {
   language: "EN" | "ES";
@@ -65,7 +65,9 @@ export function CompanyFinancials({
   const setViewMode = onViewModeChange || setInternalViewMode;
   const [periodMode, setPeriodMode] = useState<"annual" | "quarterly">("quarterly");
   const [statementType, setStatementType] = useState<"income" | "balance" | "cashflow" | "dcf">("income");
-  const [financials, setFinancials] = useState<{ annual: any[]; quarterly: any[] } | null>(null);
+  const [financials, setFinancials] = useState<{ annual: any[]; annualAll?: any[]; quarterly: any[] } | null>(null);
+  // Tabla: ventana de columnas visibles (0 = las más recientes); las flechas muestran los años anteriores
+  const [colOffset, setColOffset] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -240,7 +242,7 @@ export function CompanyFinancials({
       const raw = prefetchedData[selectedTicker];
       const sortedAnnual = [...(raw.annual || [])].sort(sortFn);
       const sortedQuarterly = [...(raw.quarterly || [])].sort(sortFn);
-      setFinancials({ annual: sortedAnnual, quarterly: sortedQuarterly });
+      setFinancials({ annual: sortedAnnual, annualAll: (raw as any).annualAll ? [...(raw as any).annualAll].sort(sortFn) : undefined, quarterly: sortedQuarterly });
       
       if (sortedAnnual.length >= 2) {
         const revCurrent = sortedAnnual[0].totalRevenue;
@@ -275,7 +277,7 @@ export function CompanyFinancials({
         const sortedAnnual = [...(data.annual || [])].sort(sortFn);
         const sortedQuarterly = [...(data.quarterly || [])].sort(sortFn);
         
-        setFinancials({ annual: sortedAnnual, quarterly: sortedQuarterly });
+        setFinancials({ annual: sortedAnnual, annualAll: data.annualAll ? [...data.annualAll].sort(sortFn) : undefined, quarterly: sortedQuarterly });
 
         if (sortedAnnual.length >= 2) {
           const revCurrent = sortedAnnual[0].totalRevenue;
@@ -299,6 +301,13 @@ export function CompanyFinancials({
   }, [selectedTicker, prefetchedData]);
 
   const activeData = periodMode === "annual" ? financials?.annual : financials?.quarterly;
+  // Tabla: todos los ejercicios disponibles (hasta 11 de la SEC), de TABLE_COLS en TABLE_COLS con las flechas
+  const TABLE_COLS = 6;
+  const tableData = (periodMode === "annual" && financials?.annualAll?.length ? financials.annualAll : activeData) ?? [];
+  const maxOffset = Math.max(0, tableData.length - TABLE_COLS);
+  const offset = Math.min(colOffset, maxOffset);
+  const visibleCols = tableData.slice(offset, offset + TABLE_COLS);
+  useEffect(() => setColOffset(0), [selectedTicker, periodMode]);
 
   const incomeStatementFields: { key: string; label: string; isRate?: boolean }[] = [
     { key: "totalRevenue", label: language === "EN" ? "Total Revenue" : "Ingresos Totales" },
@@ -677,6 +686,33 @@ export function CompanyFinancials({
               >
                 <Table size={13} />
                 {language === "EN" ? "Table" : "Tabla"}
+              </button>
+            </div>
+          )}
+
+          {/* Años anteriores: ventana de columnas de la tabla (las más antiguas, a la derecha) */}
+          {viewMode === "table" && statementType !== "dcf" && tableData.length > TABLE_COLS && (
+            <div className="flex items-center bg-theme-sidebar p-1 rounded-xl border border-theme-border/70 text-[11px] font-bold">
+              <button
+                onClick={() => setColOffset(Math.max(0, offset - 1))}
+                disabled={offset === 0}
+                title={language === "EN" ? "More recent" : "Más recientes"}
+                aria-label={language === "EN" ? "More recent periods" : "Periodos más recientes"}
+                className="p-1.5 rounded-lg text-theme-text-muted hover:text-theme-text-bright hover:bg-theme-card cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <span className="px-2 font-mono text-theme-text whitespace-nowrap">
+                {formatDate(visibleCols[0]?.date)} – {formatDate(visibleCols[visibleCols.length - 1]?.date)}
+              </span>
+              <button
+                onClick={() => setColOffset(Math.min(maxOffset, offset + 1))}
+                disabled={offset >= maxOffset}
+                title={language === "EN" ? "Earlier years" : "Años anteriores"}
+                aria-label={language === "EN" ? "Earlier periods" : "Periodos anteriores"}
+                className="p-1.5 rounded-lg text-theme-text-muted hover:text-theme-text-bright hover:bg-theme-card cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+              >
+                <ChevronRight size={14} />
               </button>
             </div>
           )}
@@ -1150,7 +1186,7 @@ export function CompanyFinancials({
                       <th className="py-3 px-2 text-right text-sky-600 dark:text-sky-400 font-bold">
                         CAGR
                       </th>
-                      {activeData.map((col, idx) => (
+                      {visibleCols.map((col, idx) => (
                         <th key={idx} className="py-3 px-2 text-right">
                           {formatDate(col.date)}
                         </th>
@@ -1159,7 +1195,8 @@ export function CompanyFinancials({
                   </thead>
                   <tbody className="divide-y divide-theme-border/50">
                     {activeFields.map((field, i) => {
-                      const validCols = activeData
+                      // AGR y CAGR sobre las columnas visibles
+                      const validCols = visibleCols
                         .map((col, idx) => ({ val: getFieldValue(col, field.key), idx }))
                         .filter(item => typeof item.val === "number" && !isNaN(item.val as number));
 
@@ -1208,9 +1245,10 @@ export function CompanyFinancials({
                               {rowCagr !== null ? `${rowCagr > 0 ? "+" : ""}${rowCagr.toFixed(1)}%` : "—"}
                             </span>
                           </td>
-                          {activeData.map((col, idx) => {
+                          {visibleCols.map((col, idx) => {
                             const val = getFieldValue(col, field.key);
-                            const priorVal = getFieldValue(activeData[idx + 1], field.key);
+                            // Variación frente al periodo anterior, aunque esté fuera de la ventana
+                            const priorVal = getFieldValue(tableData[offset + idx + 1], field.key);
                             let pctChange = null;
                             if (val !== undefined && val !== null && priorVal !== undefined && priorVal !== null && priorVal !== 0 && (!field.isRate || field.key === 'basicEPS' || field.key === 'dilutedEPS')) {
                                pctChange = ((val - priorVal) / Math.abs(priorVal)) * 100;

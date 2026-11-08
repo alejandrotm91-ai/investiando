@@ -2543,6 +2543,8 @@ export function registerLegacyRoutes(app: LegacyApp) {
       // cambiarían cálculos como el CAGR del BPA, que va del primer al último ejercicio recibido
       const cleanAnnual = sec ? adjustForSplits(mergeSecWithYahoo(sec.annual.slice(0, MODEL_YEARS), yahooAnnual), splits) : yahooAnnual;
       const cleanQuarterly = sec ? adjustForSplits(mergeSecWithYahoo(sec.quarterly, yahooQuarterly), splits) : yahooQuarterly;
+      // Todos los ejercicios de la SEC (hasta 11), solo para mostrarlos en Estados Financieros
+      const annualAll = sec && sec.annual.length > MODEL_YEARS ? adjustForSplits(mergeSecWithYahoo(sec.annual, yahooAnnual), splits) : undefined;
       const secSource = sec
         ? { name: sec.name, cik: sec.cik, lastFiled: sec.lastFiled, lastForm: sec.lastForm, lastPeriod: sec.lastPeriod, syncedAt: sec.syncedAt }
         : null;
@@ -2644,6 +2646,7 @@ export function registerLegacyRoutes(app: LegacyApp) {
 
       const result = {
         annual: cleanAnnual,
+        annualAll,
         quarterly: cleanQuarterly,
         avgPe,
         peHistory,
@@ -3290,6 +3293,7 @@ Respond strictly with valid JSON conforming to this schema:
 
       res.json({
         annual: firstData.annual,
+        annualAll: (firstData as any).annualAll,
         quarterly: firstData.quarterly,
         avgPe: firstData.avgPe,
         peHistory: firstData.peHistory,
