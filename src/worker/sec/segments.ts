@@ -33,8 +33,11 @@ const REVENUE_TAGS = [
   "RevenuesNetOfInterestExpense",
   "RevenueFromContractWithCustomerIncludingAssessedTax",
   "SalesRevenueNet", // antes de la norma de ingresos de 2018 (ASC 606): 10-K de 2017 y anteriores
+  "SalesRevenueGoodsNet", // ventas de productos antes de 2018 (Pfizer)
 ];
 const OI_TAG = "OperatingIncomeLoss";
+const GENERIC_SUFFIX = /^(equipment|inc|incorporated|corp|corporation|co|company|llc|ltd|plc|systems?|group|business|division|unit)$/;
+const AGGREGATE_MEMBER = /:ReportableSegmentAggregationBeforeOtherOperatingSegmentMember$/;
 const TAGS = new Set([...REVENUE_TAGS, OI_TAG]);
 
 /** Cifra de un miembro en un periodo: [eje, miembro, etiqueta, inicio, fin, valor, presentado] */
@@ -48,13 +51,27 @@ const attr = (s: string, name: string) => s.match(new RegExp(`\\b${name}="([^"]*
  * otros segmentos), `prefer` elige la variante; sin él, la que aparece primero.
  */
 export function parseSegmentFacts(xml: string, filed: string, prefer?: "ops" | "plain"): SegFact[] {
-  const ctx = new Map<string, { axis: AxisKey; member: string; start: string; end: string; via?: string; ops: boolean }>();
+  const ctx = new Map<string, { axis: AxisKey; member: string; start: string; end: string; via?: string; half?: string; ops: boolean }>();
   const ctxRe = /<(?:[\w-]+:)?context\b([^>]*)>([\s\S]*?)<\/(?:[\w-]+:)?context>/g;
+  const raw: { id: string; body: string; dims: string[][] }[] = [];
+  const productMembers = new Set<string>();
+  // Contextos con cifras de ingresos (para ver qué productos aparecen en ellas)
+  const revCtx = new Set<string>();
+  for (const m of xml.matchAll(/<us-gaap:(\w+)\b([^>]*?)>[^<]*<\/us-gaap:\1>/g)) {
+    if (TAGS.has(m[1]) && m[1] !== OI_TAG) revCtx.add(attr(m[2], "contextRef") ?? "");
+  }
   for (const m of xml.matchAll(ctxRe)) {
     const id = attr(m[1], "id");
     const body = m[2];
     if (!id || /typedMember/.test(body)) continue;
     const dims = [...body.matchAll(/<(?:[\w-]+:)?explicitMember[^>]*dimension="([^"]+)"[^>]*>\s*([^<\s]+)\s*</g)].map((x) => [x[1], x[2]]);
+    if (revCtx.has(id)) for (const [d, mem] of dims) if (AXES[d] === "product") productMembers.add(mem);
+    raw.push({ id, body, dims });
+  }
+  // Un solo producto en las cifras de ingresos (Chevron: "OilAndGas" en todas) no informa de nada: se ignora
+  const soleProduct = productMembers.size === 1 ? [...productMembers][0] : null;
+  for (const { id, body, dims: all } of raw) {
+    const dims = soleProduct ? all.filter(([d, mem]) => !(AXES[d] === "product" && mem === soleProduct)) : all;
     const main = dims.filter(([d]) => AXES[d]);
     // "Segmento declarado" (Caterpillar 2019-2022): junto al eje de segmentos no cambia la cifra y
     // se ignora; con geografía es la suma de los segmentos, no las ventas de la región.
@@ -62,25 +79,37 @@ export function parseSegmentFacts(xml: string, filed: string, prefer?: "ops" | "
     const rest = dims.filter((x) => !AXES[x[0]] && !(subseg(x) && main.length === 1 && AXES[main[0][0]] === "segment"));
     // Geografía cruzada con un producto (Netflix: países × "Streaming"): se guarda aparte y solo se
     // usa si no hay cifra geográfica pura y el producto es único (ver más abajo).
+    // Segmento × (EE. UU. | fuera de EE. UU.) (Chevron desde 2023): las dos mitades se suman si el
+    // informe no da el segmento solo.
     let via: string | undefined;
+    let half: string | undefined;
     if (main.length === 2 && rest.length === 0) {
       const geo = main.find(([d]) => AXES[d] === "geography");
       const prod = main.find(([d]) => AXES[d] === "product");
-      if (!geo || !prod) continue;
-      via = prod[1];
-      main.splice(0, 2, geo);
+      const seg = main.find(([d]) => AXES[d] === "segment");
+      if (geo && seg && /^(country:US|us-gaap:NonUsMember)$/.test(geo[1])) {
+        half = geo[1];
+        main.splice(0, 2, seg);
+      } else {
+        if (!geo || !prod) continue;
+        via = prod[1];
+        main.splice(0, 2, geo);
+      }
     }
     if (main.length !== 1) continue;
+    // Miembro estándar "suma de los segmentos declarados" (Chevron desde 2023): es un total, no un segmento
+    if (AGGREGATE_MEMBER.test(main[0][1])) continue;
     // Solo el eje, o el eje + "segmentos operativos" (Apple, UnitedHealth)
     if (rest.length > 1 || (rest.length === 1 && !(/:ConsolidationItemsAxis$/.test(rest[0][0]) && /:OperatingSegmentsMember$/.test(rest[0][1])))) continue;
     const start = body.match(/<(?:[\w-]+:)?startDate>\s*([\d-]+)\s*</)?.[1];
     const end = body.match(/<(?:[\w-]+:)?endDate>\s*([\d-]+)\s*</)?.[1];
     if (!start || !end) continue;
-    ctx.set(id, { axis: AXES[main[0][0]], member: main[0][1], start, end, via, ops: rest.length === 1 });
+    ctx.set(id, { axis: AXES[main[0][0]], member: main[0][1], start, end, via, half, ops: rest.length === 1 });
   }
   const out: SegFact[] = [];
   const seen = new Map<string, { i: number; ops: boolean }>();
   const crossed = new Map<string, { fact: SegFact; via: Set<string> }>();
+  const halves = new Map<string, { fact: SegFact; parts: Map<string, number> }>();
   const factRe = /<us-gaap:(\w+)\b([^>]*?)>([^<]*)<\/us-gaap:\1>/g;
   for (const m of xml.matchAll(factRe)) {
     const [, tag, attrs, raw] = m;
@@ -89,6 +118,12 @@ export function parseSegmentFacts(xml: string, filed: string, prefer?: "ops" | "
     const val = Number(raw.trim());
     if (!c || !Number.isFinite(val)) continue;
     const key = `${c.axis}|${c.member}|${tag}|${c.start}|${c.end}`;
+    if (c.half) {
+      const cur = halves.get(key) ?? { fact: [c.axis, c.member, tag, c.start, c.end, 0, filed] as SegFact, parts: new Map<string, number>() };
+      cur.parts.set(c.half, val);
+      halves.set(key, cur);
+      continue;
+    }
     if (c.via) {
       const cur = crossed.get(key);
       if (cur) cur.via.add(c.via);
@@ -107,6 +142,12 @@ export function parseSegmentFacts(xml: string, filed: string, prefer?: "ops" | "
     out.push([c.axis, c.member, tag, c.start, c.end, val, filed]);
   }
   for (const [key, x] of crossed) if (!seen.has(key) && x.via.size === 1) out.push(x.fact);
+  for (const [key, x] of halves) {
+    if (seen.has(key) || x.parts.size !== 2) continue;
+    const f = [...x.fact] as SegFact;
+    f[5] = [...x.parts.values()].reduce((a, b) => a + b, 0);
+    out.push(f);
+  }
   return out;
 }
 
@@ -267,6 +308,7 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
   // Cifra más reciente por (eje, miembro, etiqueta, inicio, fin), con los renombres unificados
   const latest = new Map<string, SegFact>();
   for (const f of applyAliases(facts, labels)) {
+    if (AGGREGATE_MEMBER.test(f[1])) continue; // guardado antes de que el lector lo descartara
     const k = `${f[0]}|${f[1]}|${f[2]}|${f[3]}|${f[4]}`;
     const cur = latest.get(k);
     if (!cur || f[6] >= cur[6]) latest.set(k, f);
@@ -368,13 +410,31 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
         }
         return false;
       };
+      const choices = refs.map((p, pi) => (perPeriod[pi].length && p.total !== null ? bestSubset(perPeriod[pi], p.total, confirmParent) : null));
+      // Productos/geografía que no cuadran: valen las mismas líneas que en al menos dos periodos que sí
+      // cuadran, si cubren entre el 90 % y el 100 % de los ingresos (Netflix hasta 2022: regiones solo de
+      // streaming, el DVD aparte). La diferencia se muestra aparte.
+      const structures = new Map<string, number>();
+      for (const c of choices) if (c && c.length >= 2) structures.set([...c].sort().join("|"), (structures.get([...c].sort().join("|")) ?? 0) + 1);
+      const confirmed = [...structures].filter(([, n]) => n >= 2).map(([k]) => k.split("|")).sort((a, b) => b.length - a.length);
+      const partialOf = (vals: [string, number][], total: number | null) => {
+        if (!total || total <= 0) return null;
+        const mp = new Map(vals);
+        for (const st of confirmed) {
+          if (!st.every((m) => mp.has(m))) continue;
+          const sum = st.reduce((a, m) => a + mp.get(m)!, 0);
+          if (sum >= total * 0.9 && sum <= total * 1.003) return st;
+        }
+        return null;
+      };
       for (const [pi, p] of refs.entries()) {
         const vals = perPeriod[pi];
         if (vals.length === 0) continue;
-        const chosen = p.total !== null ? bestSubset(vals, p.total, confirmParent) : null;
+        const chosen = choices[pi];
+        const partial = !chosen && axis !== "segment" ? partialOf(vals, p.total) : null;
         // Sin coincidencia: un solo miembro no es un desglose (p. ej. "ReportableSegment")
-        if (!chosen && (vals.length < 2 || axis !== "segment")) continue; // productos/geografía: solo si cuadra
-        const use = new Set(chosen ?? withoutParents(vals, labels, freq, confirmParent));
+        if (!chosen && !partial && (vals.length < 2 || axis !== "segment")) continue; // productos/geografía: solo si cuadra
+        const use = new Set(chosen ?? partial ?? withoutParents(vals, labels, freq, confirmParent));
         if (use.size < 2) continue; // una sola línea no es un desglose
         const revenue: Record<string, number> = {};
         const oi: Record<string, number> = {};
@@ -513,8 +573,12 @@ export function memberAliases(facts: SegFact[], labels: Record<string, string>):
       if (bad) continue;
       const ma = a.slice(a.indexOf("|") + 1), mb = b.slice(b.indexOf("|") + 1);
       const la = normLabel(memberLabel(ma, labels)), lb = normLabel(memberLabel(mb, labels));
-      const score = (la && la === lb ? 100 : 0) + same;
-      if (score === 0 || (la !== lb && same === 0)) continue;
+      // Mismo nombre, o el mismo más una palabra genérica (Chevron: "Upstream Equipment" → "Upstream";
+      // "Collins Aerospace Systems"). Otros añadidos cambian el alcance ("Client" → "Client and Gaming").
+      const [short, long] = la.length <= lb.length ? [la, lb] : [lb, la];
+      const prefix = short.length >= 5 && short !== long && long.startsWith(short) && GENERIC_SUFFIX.test(long.slice(short.length));
+      const score = (la && la === lb ? 100 : prefix ? 50 : 0) + same;
+      if (score === 0 || (la !== lb && !prefix && same === 0)) continue;
       if (score > (best.get(a) ?? 0)) {
         best.set(a, score);
         alias.set(a, b);

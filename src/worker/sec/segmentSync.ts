@@ -9,6 +9,11 @@ import { buildSegments, membersIn, parseLabels, parseSegmentFacts, type SegFact,
 import { fetchFilingText, getSecFinancials, isBudgetError, normTicker, recentFilings, type Filing } from "./sync";
 import { fetchBudgetLeft } from "./client";
 import { acceptedRecasts, detectReorgs, registerReorgs } from "./recast";
+import { SEC_UNIVERSE } from "./universe";
+
+// CIK anteriores (ExxonMobil y BlackRock pasaron a una sociedad holding nueva: sus informes antiguos
+// siguen en el CIK de antes)
+const PREV_CIKS = new Map(SEC_UNIVERSE.filter((u) => u.prev).map((u) => [u.ticker, u.prev!]));
 
 const KEEP_FILINGS = 6;
 const YEARS_KEPT = 4.5; // cifras trimestrales y acumuladas
@@ -44,21 +49,33 @@ export async function syncSegments(db: D1Database, ticker: string, ua?: string, 
   const done = new Set(parse<string[]>(row?.accns ?? null, []));
 
   try {
-    const filings = (await recentFilings(fin.cik, ua)).slice(0, KEEP_FILINGS);
+    const prevCiks = PREV_CIKS.get(t) ?? [];
+    let filings = (await recentFilings(fin.cik, ua)).slice(0, KEEP_FILINGS);
+    if (filings.length < KEEP_FILINGS)
+      for (const c of prevCiks) filings = [...filings, ...(await recentFilings(c, ua))];
+    filings = filings.sort((a, b) => b.filed.localeCompare(a.filed)).slice(0, KEEP_FILINGS);
+    // Cada informe en el CIK con que se presentó: se prueba el actual y después los anteriores
+    const fetchText = async (f: Filing, kind: "instance" | "labels") => {
+      for (const c of [fin.cik, ...prevCiks]) {
+        const x = await fetchFilingText(c, f, kind, ua);
+        if (x) return x;
+      }
+      return null;
+    };
     // 10-K antiguos para la historia anual (sin nombre de documento: se busca en el índice)
     const history: Filing[] = HISTORY_10K.map((i) => fin.annual[i])
       .filter((a) => a?.accn && /^10-K/.test(a.form) && !filings.some((f) => f.accn === a.accn))
       .map((a) => ({ accn: a.accn, form: a.form, filed: a.filed, period: a.date, doc: "" }));
     const todo = [...filings, ...history].filter((f) => !done.has(f.accn)).slice(0, maxFilings);
     for (const f of todo) {
-      const xml = await fetchFilingText(fin.cik, f, "instance", ua);
+      const xml = await fetchText(f, "instance");
       if (xml) facts.push(...parseSegmentFacts(xml, f.filed));
       done.add(f.accn); // si no tiene XBRL tampoco se reintenta
       // Nombres de los segmentos antiguos (los del informe más reciente no se tocan)
       if (xml && history.includes(f)) {
         const own = new Set(parseSegmentFacts(xml, f.filed).map((x) => x[1]).filter((m) => !labels[m]));
         if (own.size) {
-          const lab = await fetchFilingText(fin.cik, f, "labels", ua).catch(() => null);
+          const lab = await fetchText(f, "labels").catch(() => null);
           if (lab) labels = { ...parseLabels(lab, own), ...labels };
         }
       }
@@ -68,7 +85,7 @@ export async function syncSegments(db: D1Database, ticker: string, ua?: string, 
     const newest = filings[0];
     const missing = newest && [...membersIn(facts.filter((f) => f[6] === newest.filed))].some((m) => !labels[m]);
     if (newest && (todo.some((f) => f.accn === newest.accn) || Object.keys(labels).length === 0 || (missing && labels.__accn !== newest.accn))) {
-      const lab = await fetchFilingText(fin.cik, newest, "labels", ua).catch(() => null);
+      const lab = await fetchText(newest, "labels").catch(() => null);
       if (lab) {
         labels = { ...labels, ...parseLabels(lab, membersIn(facts)) };
         labels.__accn = newest.accn;
