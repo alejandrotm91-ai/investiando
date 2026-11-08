@@ -1471,7 +1471,7 @@ export default function App() {
                           <div 
                             className={`${
                               theme === "light"
-                                ? "bg-[#eae6db]/90 border-[#ded9cb] shadow-sm"
+                                ? "bg-white border-[#ded9cb] shadow-sm"
                                 : "bg-[#0b0d13]/90 border-slate-800/80 shadow-xl"
                             } backdrop-blur-md p-1.5 rounded-2xl flex items-center justify-between sm:justify-center gap-1 sm:gap-2 border w-full max-w-xl overflow-x-auto scrollbar-none`}
                           >
@@ -1490,7 +1490,7 @@ export default function App() {
                                   className={`flex-1 sm:flex-initial px-3 sm:px-5 py-2 sm:py-2.5 rounded-xl flex items-center justify-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs font-bold uppercase tracking-wider transition-all duration-300 cursor-pointer shrink-0 border ${
                                     isActive
                                       ? theme === "light"
-                                        ? "bg-white text-[#1b1917] border-[#ded9cb] shadow-sm"
+                                        ? "bg-[#eae6db] text-[#1b1917] border-[#d6cfbd] shadow-sm"
                                         : "bg-[#1e2230] text-white border-slate-700/50 shadow-md"
                                       : theme === "light"
                                         ? "bg-transparent text-[#787366] border-transparent hover:bg-black/5 hover:text-[#1b1917]"
@@ -1576,7 +1576,7 @@ export default function App() {
                       <div 
                         className={`${
                           theme === "light"
-                            ? "bg-[#eae6db]/90 border-[#ded9cb] shadow-sm"
+                            ? "bg-white border-[#ded9cb] shadow-sm"
                             : "bg-[#0b0d13]/90 border-slate-800/80 shadow-xl"
                         } backdrop-blur-md p-1.5 rounded-2xl flex items-center justify-between sm:justify-center gap-1 sm:gap-2 border w-full max-w-md overflow-x-auto scrollbar-none`}
                       >
@@ -1594,7 +1594,7 @@ export default function App() {
                               className={`flex-1 sm:flex-initial px-3 sm:px-5 py-2 sm:py-2.5 rounded-xl flex items-center justify-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs font-bold uppercase tracking-wider transition-all duration-300 cursor-pointer shrink-0 border ${
                                 isActive
                                   ? theme === "light"
-                                    ? "bg-white text-[#1b1917] border-[#ded9cb] shadow-sm"
+                                    ? "bg-[#eae6db] text-[#1b1917] border-[#d6cfbd] shadow-sm"
                                     : "bg-[#1e2230] text-white border-slate-700/50 shadow-md"
                                   : theme === "light"
                                     ? "bg-transparent text-[#787366] border-transparent hover:bg-black/5 hover:text-[#1b1917]"

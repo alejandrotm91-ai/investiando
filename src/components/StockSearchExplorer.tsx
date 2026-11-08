@@ -1168,7 +1168,7 @@ export default function StockSearchExplorer({
             <div
               className={`${
                 theme === "light"
-                  ? "bg-[#eae6db]/90 border-[#ded9cb] shadow-sm"
+                  ? "bg-white border-[#ded9cb] shadow-sm"
                   : "bg-[#0b0d13]/90 border-slate-800/80 shadow-xl"
               } backdrop-blur-md p-1.5 rounded-2xl flex items-center gap-1 border w-fit max-w-full overflow-x-auto scrollbar-none`}
             >
@@ -1186,7 +1186,7 @@ export default function StockSearchExplorer({
                     className={`px-3 xl:px-4 py-2 sm:py-2.5 rounded-xl flex items-center justify-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs font-bold uppercase tracking-wider whitespace-nowrap transition-all duration-300 cursor-pointer shrink-0 border ${
                       isActive
                         ? theme === "light"
-                          ? "bg-white text-[#1b1917] border-[#ded9cb] shadow-sm"
+                          ? "bg-[#eae6db] text-[#1b1917] border-[#d6cfbd] shadow-sm"
                           : "bg-[#1e2230] text-white border-slate-700/50 shadow-md"
                         : theme === "light"
                           ? "bg-transparent text-[#787366] border-transparent hover:bg-black/5 hover:text-[#1b1917]"
