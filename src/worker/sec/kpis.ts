@@ -11,10 +11,10 @@
 //   rango plausible se descarta.
 // - Al leer: por trimestre y KPI manda el comunicado más reciente; "confirmado" si dos coinciden.
 
-import { fetchBudgetLeft } from "./client";
+import { cik10, fetchBudgetLeft, secFetch } from "./client";
 import { askClaudeJson, SEC_MODEL, type ClaudeEnv } from "./claude";
 import { fetchPressRelease } from "./earnings";
-import { getSecFinancials, isBudgetError, normTicker, recentEarnings8K } from "./sync";
+import { getSecFinancials, isBudgetError, normTicker } from "./sync";
 
 export interface KpiDef {
   key: string;
@@ -134,10 +134,36 @@ Reglas:
 
 // ---------------------------------------------------------------- cola y proceso
 
+/**
+ * 8-K de resultados (Item 2.02) presentados entre dos fechas. La lista "recent" de la SEC tiene los
+ * últimos ~1.000 informes (Netflix: solo desde 2023, por sus muchos formularios 4); los anteriores
+ * están en páginas aparte (`filings.files`), que se leen si la ventana llega hasta ellas.
+ */
+async function earnings8KBetween(cik: number, from: string, until: string, ua?: string) {
+  const r = await secFetch(`https://data.sec.gov/submissions/CIK${cik10(cik)}.json`, ua);
+  if (!r.ok) return [];
+  const j: any = await r.json();
+  const pages: any[] = [j.filings?.recent];
+  for (const f of j.filings?.files ?? []) {
+    if (f.filingTo < from || f.filingFrom > until) continue;
+    const p = await secFetch(`https://data.sec.gov/submissions/${f.name}`, ua);
+    if (p.ok) pages.push(await p.json());
+  }
+  const out = new Map<string, string>();
+  for (const rec of pages) {
+    for (let i = 0; i < (rec?.form?.length ?? 0); i++) {
+      const d = rec.filingDate[i];
+      if (rec.form[i] !== "8-K" || d < from || d > until || !String(rec.items?.[i] ?? "").split(",").includes("2.02")) continue;
+      out.set(rec.accessionNumber[i], d);
+    }
+  }
+  return [...out].map(([accn, filed]) => ({ accn, filed }));
+}
+
 /** Encola los 8-K de resultados de la empresa en su ventana de fechas. */
 async function queueReleases(db: D1Database, ticker: string, cik: number, def: CompanyKpis, ua?: string) {
-  const days = def.from ? Math.ceil((Date.now() - new Date(def.from).getTime()) / DAY) + 1 : 365 * 3;
-  const list = (await recentEarnings8K(cik, ua, days)).filter((f) => (!def.from || f.filed >= def.from) && (!def.until || f.filed <= def.until));
+  const from = def.from ?? new Date(Date.now() - 3 * 365 * DAY).toISOString().slice(0, 10);
+  const list = await earnings8KBetween(cik, from, def.until ?? "9999-12-31", ua);
   for (const f of list)
     await db
       .prepare("INSERT OR IGNORE INTO sec_kpis (accn, ticker, cik, filed, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', ?, ?)")
