@@ -661,7 +661,7 @@ function schemaFor(defs: KpiDef[]) {
           additionalProperties: false,
           required: ["period_end", "values"],
           properties: {
-            period_end: { type: "string", description: "Cierre del trimestre, AAAA-MM-DD (último día del mes)" },
+            period_end: { type: "string", description: "Cierre del trimestre, AAAA-MM-DD, tal como lo da el comunicado" },
             revenue: { type: "number", description: "Ingresos totales del trimestre, en millones de USD" },
             net_income: { type: "number", description: "Beneficio neto atribuible a los accionistas del trimestre (GAAP), en millones de USD" },
             values: {
@@ -680,7 +680,7 @@ const SYSTEM = `Extraes métricas operativas (KPIs) de comunicados de resultados
 Reglas:
 - Devuelve un elemento por cada trimestre que aparezca en las tablas del comunicado (actual, mismo trimestre del año anterior y, si hay una tabla de varios trimestres, todos ellos).
 - Solo cifras de un trimestre (tres meses). Nunca acumulados del año, cifras anuales ni previsiones.
-- period_end: último día del último mes del trimestre (p. ej. Q4'23 → 2023-12-31; "three months ended September 30, 2026" → 2026-09-30).
+- period_end: fecha de cierre del trimestre tal como la da el comunicado ("quarter ended August 2, 2026" → 2026-08-02; "three months ended September 30, 2026" → 2026-09-30); si solo nombra el trimestre (Q4'23), último día de su último mes (2023-12-31).
 - Respeta la unidad indicada en cada campo: si la tabla está en miles o en miles de millones, conviértelo.
 - revenue: ingresos totales GAAP del trimestre en millones de USD (para comprobar las unidades).
 - net_income: beneficio neto GAAP atribuible a los accionistas del trimestre, en millones de USD, si aparece.
@@ -732,7 +732,11 @@ async function queueReleases(db: D1Database, ticker: string, cik: number, def: C
     .run();
 }
 
-/** Fecha del trimestre de la capa 1 más cercana (±10 días): las empresas cierran a fin de mes o en sábado. */
+/**
+ * Fecha del trimestre de la capa 1 más cercana. Hasta 35 días de margen: los ejercicios que cierran a
+ * principios de mes (Broadcom: 2 de agosto) pueden llegar como fin de mes si el comunicado solo da
+ * el trimestre; los trimestres están a ~91 días, así que no hay ambigüedad.
+ */
 function matchQuarter(date: string, quarterly: { date: string }[]): string | null {
   const t = new Date(date + "T00:00:00Z").getTime();
   let best: string | null = null, gap = Infinity;
@@ -740,7 +744,7 @@ function matchQuarter(date: string, quarterly: { date: string }[]): string | nul
     const g = Math.abs(new Date(q.date + "T00:00:00Z").getTime() - t);
     if (g < gap) (gap = g), (best = q.date);
   }
-  return gap <= 10 * DAY ? best : null;
+  return gap <= 35 * DAY ? best : null;
 }
 
 export interface KpiCheck { name: string; ok: boolean; detail: string }
