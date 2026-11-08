@@ -73,8 +73,9 @@ export default function ThreeStatementModel({
 }: ThreeStatementModelProps) {
   const [selectedTicker, setSelectedTicker] = useState<string>(initialTicker);
   const [searchInput, setSearchInput] = useState<string>("");
-  const [activeSubTab, setActiveSubTab] = useState<"statements" | "dcf" | "solvency" | "drivers">("statements");
-  const [statementView, setStatementView] = useState<"all" | "income" | "balance" | "cashflow">("all");
+  const [activeSubTab, setActiveSubTab] = useState<"dcf" | "statements">("dcf");
+  // Siempre los tres estados juntos (se quitó el filtro por estado)
+  const statementView = "all" as "all" | "income" | "balance" | "cashflow";
   const [periodicity, setPeriodicity] = useState<"annual" | "quarterly">("annual");
   const [scenario, setScenario] = useState<"base" | "bull" | "bear" | "custom">("base");
   const [loading, setLoading] = useState<boolean>(false);
@@ -534,133 +535,29 @@ No constituye asesoría de inversión.`;
         </div>
       </div>
 
-      {/* ========================================================
-          CURRENT YEAR PROGRESS BANNER (AÑO EN CURSO: QUARTERS REPORTADOS)
-          ======================================================== */}
-      {currentYearStatus.quartersReportedCount > 0 && (
-        <div className="bg-[#0b0e17] border border-emerald-900/40 rounded-3xl p-5 sm:p-6 shadow-xl relative overflow-hidden">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20 flex items-center gap-1.5">
-                  <Clock size={13} />
-                  <span>{language === "EN" ? "CURRENT YEAR IN PROGRESS" : "AÑO FISCAL EN CURSO"}</span>
-                </span>
-                <span className="text-white font-extrabold text-sm font-mono">
-                  {currentYearStatus.currentFiscalYearLabel}
-                </span>
-                <span className="text-xs text-slate-400 font-mono">
-                  ({currentYearStatus.quartersReportedCount} / 4 {language === "EN" ? "quarters reported" : "quarters reportados"}
-                  {currentYearStatus.quartersRemainingCount > 0 ? ` • ${currentYearStatus.quartersRemainingCount} ${language === "EN" ? "remaining" : "pendientes"}` : " • Completo"})
-                </span>
-                {/* Quarter Badges */}
-                <div className="flex items-center gap-1">
-                  {currentYearStatus.quartersReportedLabels.map(ql => (
-                    <span key={ql} className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/60">
-                      ✓ {ql}
-                    </span>
-                  ))}
-                  {Array.from({ length: currentYearStatus.quartersRemainingCount }).map((_, i) => (
-                    <span key={i} className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-900/60 text-slate-500 border border-slate-800">
-                      Q+{i + 1} Est
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              {/* Progress Bar */}
-              <div className="w-full max-w-md bg-slate-900 h-2 rounded-full overflow-hidden border border-slate-800 mt-2">
-                <div 
-                  className="bg-gradient-to-r from-emerald-500 to-emerald-400 h-full rounded-full transition-all duration-500"
-                  style={{ width: `${Math.min(100, (currentYearStatus.quartersReportedCount / 4) * 100)}%` }}
-                />
-              </div>
-
-              <p className="text-xs text-slate-400 max-w-2xl leading-relaxed">
-                {language === "EN"
-                  ? `The model calibrates the baseline using Trailing Twelve Months (TTM: last 4 reported quarters) so projections capture recent ${currentYearStatus.quartersReportedCount}Q acceleration rather than lagging behind closed annual reports.`
-                  : `El modelo calibra la base utilizando el TTM (suma de los últimos 4 trimestres reportados) para que las proyecciones capturen la aceleración real de los ${currentYearStatus.quartersReportedCount} trimestres del año en curso en vez de desfasarse con el último reporte anual cerrado.`}
-              </p>
-            </div>
-
-            {/* Current Year KPIs */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono shrink-0">
-              <div className="bg-slate-900/70 p-3 rounded-2xl border border-slate-800">
-                <span className="text-[10px] text-slate-400 uppercase block">{language === "EN" ? "YTD Revenue" : "Ingresos YTD"}</span>
-                <span className="text-white font-bold text-sm">{formatCurrency(currentYearStatus.ytdRevenue)}</span>
-                <span className="text-[9px] text-slate-500 block">({currentYearStatus.quartersReportedCount}Q acumulado)</span>
-              </div>
-              <div className="bg-slate-900/70 p-3 rounded-2xl border border-slate-800">
-                <span className="text-[10px] text-slate-400 uppercase block">{language === "EN" ? "YTD Free Cash Flow" : "FCF YTD"}</span>
-                <span className="text-emerald-400 font-bold text-sm">{formatCurrency(currentYearStatus.ytdFcf)}</span>
-                <span className="text-[9px] text-slate-500 block">({currentYearStatus.quartersReportedCount}Q acumulado)</span>
-              </div>
-              <div className="bg-slate-900/70 p-3 rounded-2xl border border-slate-800">
-                <span className="text-[10px] text-slate-400 uppercase block">{language === "EN" ? "TTM Revenue (12M)" : "Ingresos TTM (12M)"}</span>
-                <span className="text-sky-300 font-bold text-sm">{formatCurrency(currentYearStatus.ttmRevenue)}</span>
-                <span className="text-[9px] text-emerald-400 block font-semibold">Ritmo actual</span>
-              </div>
-              <div className="bg-slate-900/70 p-3 rounded-2xl border border-slate-800">
-                <span className="text-[10px] text-slate-400 uppercase block">{language === "EN" ? "TTM FCF (12M)" : "FCF TTM (12M)"}</span>
-                <span className="text-emerald-300 font-bold text-sm">{formatCurrency(currentYearStatus.ttmFcf)}</span>
-                <span className="text-[9px] text-slate-500 block">Base DCF</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Main Tab Navigation inside 3-Statement Hub */}
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-3">
-        {/* En móvil las pestañas se reparten en varias líneas (antes desbordaban el ancho) */}
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => setActiveSubTab("statements")}
-            className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer transition-all border ${
-              activeSubTab === "statements"
-                ? "bg-white text-slate-950 border-white shadow-lg font-black"
-                : "text-slate-400 border-transparent hover:text-white hover:bg-slate-800/50"
-            }`}
-          >
-            <Layers size={14} />
-            <span>{periodicity === "annual" ? (language === "EN" ? "3-Statements Grid (Annual)" : "Matriz 3 Estados (Anual)") : (language === "EN" ? "3-Statements Grid (Quarterly)" : "Matriz 3 Estados (Trimestral)")}</span>
-          </button>
-
-          <button
-            onClick={() => setActiveSubTab("dcf")}
-            className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer transition-all border ${
-              activeSubTab === "dcf"
-                ? "bg-emerald-500 text-slate-950 border-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.35)] font-black"
-                : "text-slate-400 border-transparent hover:text-white hover:bg-slate-800/50"
-            }`}
-          >
-            <Calculator size={14} />
-            <span>{language === "EN" ? "DCF & Intrinsic Value" : "Valoración DCF & Equity Bridge"}</span>
-          </button>
-
-          <button
-            onClick={() => setActiveSubTab("solvency")}
-            className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer transition-all border ${
-              activeSubTab === "solvency"
-                ? "bg-white text-slate-950 border-white shadow-lg font-black"
-                : "text-slate-400 border-transparent hover:text-white hover:bg-slate-800/50"
-            }`}
-          >
-            <ShieldCheck size={14} />
-            <span>{language === "EN" ? "Solvency & Health" : "Solvencia & Ratios"}</span>
-          </button>
-
-          <button
-            onClick={() => setActiveSubTab("drivers")}
-            className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer transition-all border ${
-              activeSubTab === "drivers"
-                ? "bg-white text-slate-950 border-white shadow-lg font-black"
-                : "text-slate-400 border-transparent hover:text-white hover:bg-slate-800/50"
-            }`}
-          >
-            <Sliders size={14} />
-            <span>{language === "EN" ? "Driver Assumptions" : "Supuestos & Drivers"}</span>
-          </button>
+        <div data-toggle className="flex items-center gap-1 bg-[#0b0d13]/90 p-1.5 rounded-2xl border border-slate-800/80">
+          {([
+            { id: "dcf", label: "DCF", icon: Calculator },
+            { id: "statements", label: language === "EN" ? "3 Statements" : "3 Estados", icon: Layers },
+          ] as const).map((tab) => {
+            const active = activeSubTab === tab.id;
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                aria-pressed={active}
+                onClick={() => setActiveSubTab(tab.id)}
+                className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer transition-all border ${
+                  active ? "bg-[#1e2230] text-white border-slate-700/50 shadow-md" : "text-slate-400 border-transparent hover:text-white hover:bg-white/5"
+                }`}
+              >
+                <Icon size={14} />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
         </div>
 
         {/* KPI Mini Pill Strip */}
@@ -696,29 +593,87 @@ No constituye asesoría de inversión.`;
           ======================================================== */}
       {!loading && activeSubTab === "statements" && (
         <div className="space-y-6">
+      {/* ========================================================
+              CURRENT YEAR PROGRESS BANNER (AÑO EN CURSO: QUARTERS REPORTADOS)
+              ======================================================== */}
+          {currentYearStatus.quartersReportedCount > 0 && (
+            <div className="bg-[#0b0e17] border border-emerald-900/40 rounded-3xl p-5 sm:p-6 shadow-xl relative overflow-hidden">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20 flex items-center gap-1.5">
+                      <Clock size={13} />
+                      <span>{language === "EN" ? "CURRENT YEAR IN PROGRESS" : "AÑO FISCAL EN CURSO"}</span>
+                    </span>
+                    <span className="text-white font-extrabold text-sm font-mono">
+                      {currentYearStatus.currentFiscalYearLabel}
+                    </span>
+                    <span className="text-xs text-slate-400 font-mono">
+                      ({currentYearStatus.quartersReportedCount} / 4 {language === "EN" ? "quarters reported" : "quarters reportados"}
+                      {currentYearStatus.quartersRemainingCount > 0 ? ` • ${currentYearStatus.quartersRemainingCount} ${language === "EN" ? "remaining" : "pendientes"}` : " • Completo"})
+                    </span>
+                    {/* Quarter Badges */}
+                    <div className="flex items-center gap-1">
+                      {currentYearStatus.quartersReportedLabels.map(ql => (
+                        <span key={ql} className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/60">
+                          ✓ {ql}
+                        </span>
+                      ))}
+                      {Array.from({ length: currentYearStatus.quartersRemainingCount }).map((_, i) => (
+                        <span key={i} className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-900/60 text-slate-500 border border-slate-800">
+                          Q+{i + 1} Est
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Progress Bar */}
+                  <div className="w-full max-w-md bg-slate-900 h-2 rounded-full overflow-hidden border border-slate-800 mt-2">
+                    <div 
+                      className="bg-gradient-to-r from-emerald-500 to-emerald-400 h-full rounded-full transition-all duration-500"
+                      style={{ width: `${Math.min(100, (currentYearStatus.quartersReportedCount / 4) * 100)}%` }}
+                    />
+                  </div>
+
+                  <p className="text-xs text-slate-400 max-w-2xl leading-relaxed">
+                    {language === "EN"
+                      ? `The model calibrates the baseline using Trailing Twelve Months (TTM: last 4 reported quarters) so projections capture recent ${currentYearStatus.quartersReportedCount}Q acceleration rather than lagging behind closed annual reports.`
+                      : `El modelo calibra la base utilizando el TTM (suma de los últimos 4 trimestres reportados) para que las proyecciones capturen la aceleración real de los ${currentYearStatus.quartersReportedCount} trimestres del año en curso en vez de desfasarse con el último reporte anual cerrado.`}
+                  </p>
+                </div>
+
+                {/* Current Year KPIs */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono shrink-0">
+                  <div className="bg-slate-900/70 p-3 rounded-2xl border border-slate-800">
+                    <span className="text-[10px] text-slate-400 uppercase block">{language === "EN" ? "YTD Revenue" : "Ingresos YTD"}</span>
+                    <span className="text-white font-bold text-sm">{formatCurrency(currentYearStatus.ytdRevenue)}</span>
+                    <span className="text-[9px] text-slate-500 block">({currentYearStatus.quartersReportedCount}Q acumulado)</span>
+                  </div>
+                  <div className="bg-slate-900/70 p-3 rounded-2xl border border-slate-800">
+                    <span className="text-[10px] text-slate-400 uppercase block">{language === "EN" ? "YTD Free Cash Flow" : "FCF YTD"}</span>
+                    <span className="text-emerald-400 font-bold text-sm">{formatCurrency(currentYearStatus.ytdFcf)}</span>
+                    <span className="text-[9px] text-slate-500 block">({currentYearStatus.quartersReportedCount}Q acumulado)</span>
+                  </div>
+                  <div className="bg-slate-900/70 p-3 rounded-2xl border border-slate-800">
+                    <span className="text-[10px] text-slate-400 uppercase block">{language === "EN" ? "TTM Revenue (12M)" : "Ingresos TTM (12M)"}</span>
+                    <span className="text-sky-300 font-bold text-sm">{formatCurrency(currentYearStatus.ttmRevenue)}</span>
+                    <span className="text-[9px] text-emerald-400 block font-semibold">Ritmo actual</span>
+                  </div>
+                  <div className="bg-slate-900/70 p-3 rounded-2xl border border-slate-800">
+                    <span className="text-[10px] text-slate-400 uppercase block">{language === "EN" ? "TTM FCF (12M)" : "FCF TTM (12M)"}</span>
+                    <span className="text-emerald-300 font-bold text-sm">{formatCurrency(currentYearStatus.ttmFcf)}</span>
+                    <span className="text-[9px] text-slate-500 block">Base DCF</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Statement View Selector & Legend */}
           <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-900/40 p-3 rounded-2xl border border-slate-800/80">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[11px] font-mono text-slate-400 uppercase font-bold pl-2">
-                {language === "EN" ? "Filter Statement:" : "Filtrar Estado:"}
-              </span>
-              {(["all", "income", "balance", "cashflow"] as const).map(mode => (
-                <button
-                  key={mode}
-                  onClick={() => setStatementView(mode)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    statementView === mode
-                      ? "bg-slate-800 text-white border border-slate-700 shadow-sm"
-                      : "text-slate-400 hover:text-white"
-                  }`}
-                >
-                  {mode === "all" ? (language === "EN" ? "All 3 Statements" : "Los 3 Estados") :
-                   mode === "income" ? (language === "EN" ? "Income Statement" : "Estado de Resultados") :
-                   mode === "balance" ? (language === "EN" ? "Balance Sheet" : "Balance General") :
-                   (language === "EN" ? "Cash Flow" : "Flujo de Caja")}
-                </button>
-              ))}
-            </div>
+            <span className="text-[11px] font-mono text-slate-400 uppercase font-bold pl-2">
+              {language === "EN" ? "Income Statement · Balance Sheet · Cash Flow" : "Resultados · Balance · Flujo de caja"}
+            </span>
 
             <div className="flex items-center gap-4 text-[11px] font-mono flex-wrap">
               <div className="flex items-center gap-1.5">
@@ -1187,177 +1142,188 @@ No constituye asesoría de inversión.`;
       )}
 
       {/* ========================================================
-          SUB-TAB 2: DCF & INTRINSIC VALUE (RULE[AGENTS_md] COMPLIANT)
+          DCF: resultado y supuestos editables en la misma vista
           ======================================================== */}
-      {!loading && activeSubTab === "dcf" && (
+      {!loading && activeSubTab === "dcf" && (() => {
+        // Supuestos que se están usando (los del escenario elegido); al mover uno se pasa a Personalizado
+        const shown: ModelDrivers = scenario === "custom" ? customDrivers : {
+          revGrowth: assumptions.revenueGrowthRate,
+          opMargin: assumptions.operatingMarginTarget,
+          taxRate: assumptions.taxRateTarget,
+          capexPct: assumptions.capexPercentRevenue,
+          wacc: assumptions.discountRateWacc,
+          gTerminal: assumptions.terminalGrowthRate,
+        };
+        const base = calibration ? baseDrivers(calibration) : null;
+        const setDriver = (k: keyof ModelDrivers, v: number) => {
+          setCustomDrivers({ ...shown, [k]: v });
+          setScenario("custom");
+        };
+        const driverDefs: { k: keyof ModelDrivers; label: string; min: number; max: number; step: number; accent: string; text: string }[] = [
+          { k: "revGrowth", label: language === "EN" ? "Revenue growth (years 1–5)" : "Crecimiento de ventas (años 1–5)", min: -10, max: 40, step: 0.5, accent: "accent-emerald-500", text: "text-emerald-400" },
+          { k: "opMargin", label: language === "EN" ? "EBIT margin (year 5)" : "Margen EBIT (año 5)", min: -20, max: 80, step: 0.5, accent: "accent-emerald-500", text: "text-emerald-400" },
+          { k: "capexPct", label: language === "EN" ? "Capex % of revenue (year 5)" : "Capex % de ventas (año 5)", min: 0, max: 45, step: 0.5, accent: "accent-emerald-500", text: "text-emerald-400" },
+          { k: "taxRate", label: language === "EN" ? "Effective tax rate" : "Tipo impositivo efectivo", min: 0, max: 35, step: 0.5, accent: "accent-slate-400", text: "text-slate-300" },
+          { k: "wacc", label: language === "EN" ? "Discount rate (WACC)" : "Tasa de descuento (WACC)", min: 5, max: 16, step: 0.1, accent: "accent-amber-400", text: "text-amber-400" },
+          { k: "gTerminal", label: language === "EN" ? "Terminal growth (g)" : "Crecimiento perpetuo (g)", min: 1.5, max: 4.5, step: 0.1, accent: "accent-sky-400", text: "text-sky-400" },
+        ];
+        const up = dcfValuation.upsideDownsidePct >= 0;
+        const warnings = dcfValuation.flags.filter((f) => f.level !== "ok");
+        const bridge: { label: string; value: string; strong?: boolean; sub?: string }[] = [
+          { label: language === "EN" ? "PV of free cash flows (years 1–10)" : "VP de los flujos libres (años 1–10)", value: formatCurrency(dcfValuation.sumPvFcf) },
+          {
+            label: language === "EN" ? "+ PV of terminal value" : "+ VP del valor terminal",
+            value: formatCurrency(dcfValuation.pvTerminalValue),
+            sub: `${Number.isFinite(dcfValuation.pctTerminalValue) ? dcfValuation.pctTerminalValue.toFixed(0) : "—"}% ${language === "EN" ? "of EV" : "del EV"} · g ${dcfValuation.terminalGrowthUsed.toFixed(1)}%`,
+          },
+          { label: language === "EN" ? "= Enterprise value" : "= Valor de empresa (EV)", value: formatCurrency(dcfValuation.enterpriseValue), strong: true },
+          {
+            label: dcfValuation.netDebt < 0 ? (language === "EN" ? "+ Net cash" : "+ Caja neta") : (language === "EN" ? "− Net debt" : "− Deuda neta"),
+            value: formatCurrency(Math.abs(dcfValuation.netDebt)),
+          },
+          ...(dcfValuation.minorityInterest ? [{ label: language === "EN" ? "− Minority interest" : "− Minoritarios", value: formatCurrency(dcfValuation.minorityInterest) }] : []),
+          { label: language === "EN" ? "= Equity value" : "= Valor del patrimonio", value: formatCurrency(dcfValuation.equityValue), strong: true },
+          { label: language === "EN" ? "÷ Diluted shares" : "÷ Acciones diluidas", value: `${(assumptions.dilutedShares / 1e9).toFixed(2)}B` },
+        ];
+        return (
         <div className="space-y-6">
-          {/* Top DCF Summary Card */}
-          <div className="bg-[#0b0d14] border border-slate-800 p-6 sm:p-8 rounded-3xl shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+          {/* Resultado */}
+          <div className="bg-[#0b0d14] border border-slate-800 p-6 sm:p-8 rounded-3xl shadow-xl flex flex-col lg:flex-row lg:items-center justify-between gap-6">
             <div className="space-y-2">
-              <div className="flex items-center gap-2 text-xs font-mono text-emerald-400 font-bold uppercase">
+              <div className="flex items-center gap-2 text-xs font-mono text-emerald-400 font-bold uppercase flex-wrap">
                 <Calculator size={15} />
-                <span>{language === "EN" ? "DCF VALUATION SUMMARY" : "RESUMEN DE VALORACIÓN DCF"}</span>
+                <span>{language === "EN" ? "DCF fair value per share" : "Valor razonable DCF por acción"}</span>
                 <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-normal">
-                  {annualHistory.anchor?.isTTM ? (language === "EN" ? "Annual model · TTM anchor" : "Modelo anual · base TTM") : (language === "EN" ? "Annual model" : "Modelo anual")}
+                  {annualHistory.anchor?.isTTM ? (language === "EN" ? "TTM base" : "Base TTM") : (language === "EN" ? "Last fiscal year base" : "Base último ejercicio")}
                 </span>
               </div>
-              <div className="flex items-baseline gap-4">
-                <div className="text-3xl sm:text-4xl font-display font-black text-white">
-                  ${dcfValuation.fairValuePerShare.toFixed(2)}
-                </div>
-                <div className="text-sm font-mono text-slate-400">
-                  {language === "EN" ? "Fair Value per Share" : "Valor Intrínseco por Acción"}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-400">
-                  {language === "EN" ? "Current Market Price:" : "Precio de Mercado Actual:"}
-                </span>
-                <span className="text-xs font-bold text-white font-mono">${dcfValuation.currentPrice.toFixed(2)}</span>
-                <span className={`text-xs font-bold px-2 py-0.5 rounded-full font-mono ${
-                  dcfValuation.upsideDownsidePct >= 0 
-                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" 
-                    : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
-                }`}>
-                  {dcfValuation.upsideDownsidePct >= 0 ? "UPSIDE" : "DOWNSIDE"} {dcfValuation.upsideDownsidePct >= 0 ? "+" : ""}{dcfValuation.upsideDownsidePct.toFixed(1)}%
+              <div className="flex items-baseline gap-3 flex-wrap">
+                <span className="text-4xl sm:text-5xl font-display font-black text-white">${dcfValuation.fairValuePerShare.toFixed(2)}</span>
+                <span
+                  className="text-sm font-bold px-2.5 py-1 rounded-full font-mono border"
+                  style={
+                    theme === "light"
+                      ? up ? { background: "#e6f4ec", color: "#047857", borderColor: "#86c9a6" } : { background: "#fde8ec", color: "#be123c", borderColor: "#f5b5c2" }
+                      : up ? { background: "rgba(16,185,129,0.2)", color: "#6ee7b7", borderColor: "rgba(16,185,129,0.3)" } : { background: "rgba(244,63,94,0.2)", color: "#fda4af", borderColor: "rgba(244,63,94,0.3)" }
+                  }
+                >
+                  {up ? "+" : ""}{dcfValuation.upsideDownsidePct.toFixed(1)}% {up ? (language === "EN" ? "upside" : "potencial") : (language === "EN" ? "downside" : "sobrevalorada")}
                 </span>
               </div>
-            </div>
-
-            {/* Action to Copy Calculation Memory */}
-            <button
-              onClick={handleCopyMemo}
-              className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700/80 rounded-2xl text-xs font-mono font-bold flex items-center gap-2 transition-all cursor-pointer shadow-md"
-            >
-              {copiedMemo ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
-              <span>{copiedMemo ? (language === "EN" ? "Copied to Clipboard!" : "¡Copiado al Portapapeles!") : (language === "EN" ? "Copy DCF Memory Report" : "Copiar Memoria de Cálculo DCF")}</span>
-            </button>
-          </div>
-
-          {/* 4 Steps of DCF Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Step 1: FCF Projection */}
-            <div className="bg-[#0f111a]/70 border border-slate-800/80 p-5 rounded-2xl space-y-3">
-              <div className="text-[11px] font-mono text-emerald-400 font-bold uppercase">
-                {language === "EN" ? "Step 1: 10-Yr FCFF Forecast" : "Paso 1: FCFF a 10 Años"}
-              </div>
-              <div className="text-xl font-bold font-mono text-white">
-                {formatCurrency(dcfValuation.sumPvFcf)}
-              </div>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                {language === "EN" 
-                  ? `Unlevered FCF (EBIT·(1−t) + D&A − Capex − ΔNWC). Years 1–5 at ${assumptions.revenueGrowthRate}% revenue growth; years 6–10 fading ${dcfValuation.phase2Growth.start.toFixed(1)}% → ${dcfValuation.phase2Growth.end.toFixed(1)}%.`
-                  : `Flujo de caja libre no apalancado (EBIT·(1−t) + D&A − Capex − ΔNWC). Años 1–5 con ventas al ${assumptions.revenueGrowthRate}%; años 6–10 desacelerando ${dcfValuation.phase2Growth.start.toFixed(1)}% → ${dcfValuation.phase2Growth.end.toFixed(1)}%.`}
-              </p>
-            </div>
-
-            {/* Step 2: WACC */}
-            <div className="bg-[#0f111a]/70 border border-slate-800/80 p-5 rounded-2xl space-y-3">
-              <div className="text-[11px] font-mono text-amber-400 font-bold uppercase">
-                {language === "EN" ? "Step 2: WACC Discount Rate" : "Paso 2: Tasa de Descuento (WACC)"}
-              </div>
-              <div className="text-xl font-bold font-mono text-amber-300">
-                {assumptions.discountRateWacc}%
-              </div>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Ke: {dcfValuation.costOfEquity.toFixed(1)}% (Rf {assumptions.riskFreeRate}% + β {assumptions.beta.toFixed(2)} × {assumptions.equityRiskPremium}%) | Kd neto: {dcfValuation.costOfDebtNet.toFixed(1)}% | E/D: {dcfValuation.weightEquity.toFixed(0)}/{dcfValuation.weightDebt.toFixed(0)}
-                {calibration?.waccNote && <span className="block text-amber-400/90 mt-1">{calibration.waccNote}</span>}
-                {scenario !== "base" && calibration && <span className="block text-slate-500 mt-1">{language === "EN" ? `Base WACC: ${calibration.wacc}%` : `WACC base: ${calibration.wacc}%`}</span>}
-              </p>
-            </div>
-
-            {/* Step 3: Terminal Value */}
-            <div className="bg-[#0f111a]/70 border border-slate-800/80 p-5 rounded-2xl space-y-3">
-              <div className="text-[11px] font-mono text-sky-400 font-bold uppercase">
-                {language === "EN" ? "Step 3: Terminal Value" : "Paso 3: Valor Terminal (PV)"}
-              </div>
-              <div className="text-xl font-bold font-mono text-sky-300">
-                {formatCurrency(dcfValuation.pvTerminalValue)}
-              </div>
-              <div className="flex items-center gap-1.5 text-xs text-slate-400">
-                <span>{language === "EN" ? "Weight in EV:" : "% VT sobre EV:"}</span>
-                <span className={`font-bold ${dcfValuation.pctTerminalValue >= 40 && dcfValuation.pctTerminalValue <= 80 ? "text-emerald-400" : "text-amber-400"}`}>
-                  {Number.isFinite(dcfValuation.pctTerminalValue) ? `${dcfValuation.pctTerminalValue.toFixed(1)}%` : "—"}
-                </span>
-                <span className="text-[10px] text-slate-500">(g {dcfValuation.terminalGrowthUsed.toFixed(1)}%{dcfValuation.terminalExitMultiple ? ` · ${dcfValuation.terminalExitMultiple.toFixed(1)}× EBITDA` : ""})</span>
+              <div className="text-xs text-slate-400 font-mono">
+                {language === "EN" ? "Current price" : "Precio actual"}: <span className="text-white font-bold">${dcfValuation.currentPrice.toFixed(2)}</span>
+                <span className="mx-2 text-slate-600">·</span>WACC <span className="text-amber-300 font-bold">{assumptions.discountRateWacc}%</span>
+                <span className="mx-2 text-slate-600">·</span>g <span className="text-sky-300 font-bold">{dcfValuation.terminalGrowthUsed.toFixed(1)}%</span>
               </div>
             </div>
-
-            {/* Step 4: Equity Bridge */}
-            <div className="bg-[#0f111a]/70 border border-slate-800/80 p-5 rounded-2xl space-y-3">
-              <div className="text-[11px] font-mono text-purple-400 font-bold uppercase">
-                {language === "EN" ? "Step 4: Equity Bridge" : "Paso 4: Equity Bridge"}
+            <div className="flex flex-col items-start lg:items-end gap-3">
+              <div data-toggle className="flex items-center gap-1 bg-[#090a10]/95 p-1 rounded-xl border border-slate-800">
+                {(["base", "bull", "bear", "custom"] as const).map((sc) => (
+                  <button
+                    key={sc}
+                    aria-pressed={scenario === sc}
+                    onClick={() => setScenario(sc)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer border ${
+                      scenario === sc ? "bg-white text-slate-950 border-white shadow-md" : "text-slate-400 border-transparent hover:text-white hover:bg-slate-800/60"
+                    }`}
+                  >
+                    {{ base: "Base", bull: language === "EN" ? "Bull" : "Alcista", bear: language === "EN" ? "Bear" : "Bajista", custom: language === "EN" ? "Custom" : "Personalizado" }[sc]}
+                  </button>
+                ))}
               </div>
-              <div className="text-xl font-bold font-mono text-purple-300">
-                {formatCurrency(dcfValuation.equityValue)}
-              </div>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                EV: {formatCurrency(dcfValuation.enterpriseValue)} − Net Debt: {formatCurrency(dcfValuation.netDebt)} {dcfValuation.netDebt < 0 ? "(net cash +)" : ""}{dcfValuation.minorityInterest ? ` − ${language === "EN" ? "Minority" : "Minoritarios"}: ${formatCurrency(dcfValuation.minorityInterest)}` : ""} ÷ {(assumptions.dilutedShares / 1e9).toFixed(2)}B {language === "EN" ? "diluted shares" : "acciones diluidas"}
-              </p>
+              <button
+                onClick={handleCopyMemo}
+                className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700/80 rounded-xl text-[11px] font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+              >
+                {copiedMemo ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+                <span>{copiedMemo ? (language === "EN" ? "Copied!" : "¡Copiado!") : (language === "EN" ? "Copy calculation" : "Copiar cálculo")}</span>
+              </button>
             </div>
           </div>
 
-          {/* Comprobaciones de coherencia (AGENTS.md §9) */}
-          {dcfValuation.flags.length > 0 && (
-            <div className="bg-[#0b0d14] border border-slate-800/80 rounded-3xl p-5 shadow-xl space-y-2.5">
-              <h3 className="text-xs font-mono font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                <ShieldCheck size={15} className="text-emerald-400" />
-                <span>{language === "EN" ? "Model sanity checks" : "Comprobaciones del modelo"}</span>
+          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] gap-6">
+            {/* Supuestos editables */}
+            <div className="bg-[#0b0d14] border border-slate-800/80 rounded-3xl p-6 shadow-xl space-y-5">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div>
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                    <Sliders size={16} className="text-emerald-400" />
+                    <span>{language === "EN" ? "Driver assumptions" : "Supuestos del modelo"}</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {language === "EN" ? "Move any driver to see the fair value change." : "Mueve cualquier supuesto y verás cómo cambia el valor razonable."}
+                  </p>
+                </div>
+                {calibration && (
+                  <button
+                    onClick={() => {
+                      setCustomDrivers(baseDrivers(calibration));
+                      setScenario("base");
+                    }}
+                    className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700/80 rounded-xl text-[11px] font-mono font-bold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <RefreshCw size={13} />
+                    <span>{language === "EN" ? "Reset to base" : "Volver al base"}</span>
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5">
+                {driverDefs.map((d) => (
+                  <label key={d.k} className="block space-y-2">
+                    <span className="flex justify-between gap-3 text-xs font-mono">
+                      <span className="text-slate-300 font-bold">{d.label}</span>
+                      <span className={`${d.text} font-black`}>{shown[d.k]}%</span>
+                    </span>
+                    <input
+                      type="range"
+                      min={d.min}
+                      max={d.max}
+                      step={d.step}
+                      value={shown[d.k]}
+                      onChange={(e) => setDriver(d.k, parseFloat(e.target.value))}
+                      className={`w-full ${d.accent} cursor-pointer`}
+                    />
+                    {base && <span className="block text-[10px] font-mono text-slate-500">{language === "EN" ? "Base" : "Base"}: {base[d.k]}%</span>}
+                  </label>
+                ))}
+              </div>
+              {calibration?.waccNote && <p className="text-[11px] text-amber-400/90">{calibration.waccNote}</p>}
+            </div>
+
+            {/* Cómo se llega al valor */}
+            <div className="bg-[#0b0d14] border border-slate-800/80 rounded-3xl p-6 shadow-xl space-y-4">
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                <Scale size={16} className="text-emerald-400" />
+                <span>{language === "EN" ? "How the value is built" : "Cómo se llega al valor"}</span>
               </h3>
-              <ul className="space-y-1.5">
-                {dcfValuation.flags.map((f, i) => (
-                  <li key={i} className="flex items-start gap-2 text-xs">
-                    {f.level === "ok" ? <Check size={13} className="text-emerald-400 mt-0.5 shrink-0" />
-                      : f.level === "warn" ? <AlertTriangle size={13} className="text-amber-400 mt-0.5 shrink-0" />
-                      : <AlertTriangle size={13} className="text-rose-400 mt-0.5 shrink-0" />}
-                    <span className={f.level === "bad" ? "text-rose-300" : f.level === "warn" ? "text-amber-200" : "text-slate-300"}>{f.text}</span>
-                  </li>
+              <div className="divide-y divide-slate-800/70 text-xs font-mono">
+                {bridge.map((r) => (
+                  <div key={r.label} className={`flex items-baseline justify-between gap-3 py-2.5 ${r.strong ? "text-white font-bold" : "text-slate-300"}`}>
+                    <span>
+                      {r.label}
+                      {r.sub && <span className="block text-[10px] font-normal text-slate-500">{r.sub}</span>}
+                    </span>
+                    <span>{r.value}</span>
+                  </div>
                 ))}
-                {calibration?.growthNotes.map((n, i) => (
-                  <li key={`g${i}`} className="flex items-start gap-2 text-xs">
-                    <Info size={13} className="text-sky-400 mt-0.5 shrink-0" />
-                    <span className="text-slate-400">{language === "EN" ? "Growth normalization: " : "Normalización del crecimiento: "}{n}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* Detailed Year-by-Year FCF Discount Table */}
-          <div className="bg-[#0b0d14] border border-slate-800/80 rounded-3xl p-6 shadow-xl space-y-4">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-              <TrendingUp size={16} className="text-emerald-400" />
-              <span>{language === "EN" ? "10-Year DCF Cash Flow Discount Schedule" : "Cronograma de Descuento de Flujos DCF (10 Años)"}</span>
-            </h3>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs font-mono text-left">
-                <thead>
-                  <tr className="border-b border-slate-800 text-slate-400 text-[11px]">
-                    <th className="py-2.5 px-3">{language === "EN" ? "Year" : "Año"}</th>
-                    <th className="py-2.5 px-3 text-right">{language === "EN" ? "Projected FCFF" : "FCFF Proyectado"}</th>
-                    <th className="py-2.5 px-3 text-right">{language === "EN" ? "Growth" : "Crecimiento"}</th>
-                    <th className="py-2.5 px-3 text-right">{language === "EN" ? "Discount Factor" : "Factor de Descuento"}</th>
-                    <th className="py-2.5 px-3 text-right text-emerald-400">{language === "EN" ? "Present Value (PV)" : "Valor Presente (PV)"}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/50">
-                  {dcfValuation.pvFcfList.map(item => (
-                    <tr key={item.year} className="hover:bg-slate-800/20">
-                      <td className="py-2 px-3 text-white font-bold">{language === "EN" ? `Year ${item.year}` : `Año ${item.year}`}</td>
-                      <td className="py-2 px-3 text-right text-slate-200">{formatCurrency(item.fcf)}</td>
-                      <td className="py-2 px-3 text-right text-slate-400">{formatPercent(item.growth)}</td>
-                      <td className="py-2 px-3 text-right text-slate-400">{item.discountFactor.toFixed(3)}</td>
-                      <td className="py-2 px-3 text-right text-emerald-400 font-bold">{formatCurrency(item.pv)}</td>
-                    </tr>
+                <div className="flex items-baseline justify-between gap-3 pt-3 text-sm font-black text-emerald-300">
+                  <span>{language === "EN" ? "= Fair value per share" : "= Valor por acción"}</span>
+                  <span>${dcfValuation.fairValuePerShare.toFixed(2)}</span>
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                WACC {assumptions.discountRateWacc}%: Ke {dcfValuation.costOfEquity.toFixed(1)}% (Rf {assumptions.riskFreeRate}% + β {assumptions.beta.toFixed(2)} × {assumptions.equityRiskPremium}%) · Kd {dcfValuation.costOfDebtNet.toFixed(1)}% · E/D {dcfValuation.weightEquity.toFixed(0)}/{dcfValuation.weightDebt.toFixed(0)}
+              </p>
+              {warnings.length > 0 && (
+                <ul className="space-y-1.5 pt-1">
+                  {warnings.map((f, i) => (
+                    <li key={i} className="flex items-start gap-2 text-xs">
+                      <AlertTriangle size={13} className={`${f.level === "bad" ? "text-rose-400" : "text-amber-400"} mt-0.5 shrink-0`} />
+                      <span className={f.level === "bad" ? "text-rose-300" : "text-amber-200"}>{f.text}</span>
+                    </li>
                   ))}
-                  <tr className="bg-slate-900/60 font-bold border-t-2 border-slate-800">
-                    <td className="py-2.5 px-3 text-white">{language === "EN" ? "Σ Sum PV of FCFs" : "Σ Suma PV de FCFs"}</td>
-                    <td colSpan={3} />
-                    <td className="py-2.5 px-3 text-right text-emerald-300 font-black text-sm">{formatCurrency(dcfValuation.sumPvFcf)}</td>
-                  </tr>
-                </tbody>
-              </table>
+                </ul>
+              )}
             </div>
           </div>
 
@@ -1431,291 +1397,49 @@ No constituye asesoría de inversión.`;
               </table>
             </div>
           </div>
-        </div>
-      )}
 
-      {/* ========================================================
-          SUB-TAB 3: SOLVENCY & FINANCIAL HEALTH
-          ======================================================== */}
-      {!loading && activeSubTab === "solvency" && (() => {
-        const an = annualHistory.anchor;
-        const ebitda = an ? an.operatingIncome + an.depreciationAmortization : 0;
-        const nd = dcfValuation.netDebt;
-        const ndEbitda = ebitda > 0 ? nd / ebitda : NaN;
-        const cr = an?.currentRatio ?? NaN;
-        const cov = an?.interestCoverage ?? NaN;
-        const badge = (label: string, tone: "good" | "mid" | "bad") => (
-          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${tone === "good" ? "bg-emerald-500/20 text-emerald-300" : tone === "mid" ? "bg-amber-500/20 text-amber-300" : "bg-rose-500/20 text-rose-300"}`}>{label}</span>
-        );
-        const ndTone = nd <= 0 ? "good" : ndEbitda < 2.5 ? "good" : ndEbitda < 4 ? "mid" : "bad";
-        const crTone = cr >= 1.5 ? "good" : cr >= 1 ? "mid" : "bad";
-        const covTone = !Number.isFinite(cov) || cov >= 8 ? "good" : cov >= 3 ? "mid" : "bad";
-        return (
-        <div className="space-y-6">
-          <p className="text-xs text-slate-400 font-mono">
-            {language === "EN" ? "Based on" : "Basado en"} {an?.isTTM ? (language === "EN" ? "the last twelve months (TTM)" : "los últimos doce meses (TTM)") : an?.yearLabel || "—"}.
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            <div className="bg-[#0f111a]/70 border border-slate-800/80 p-6 rounded-3xl space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-mono font-bold text-slate-400 uppercase">{language === "EN" ? "Net Debt / EBITDA" : "Deuda Neta / EBITDA"}</span>
-                {badge(nd <= 0 ? (language === "EN" ? "NET CASH" : "CAJA NETA") : ndTone === "good" ? (language === "EN" ? "HEALTHY" : "SANO") : ndTone === "mid" ? (language === "EN" ? "ELEVATED" : "ELEVADO") : (language === "EN" ? "HIGH" : "ALTO"), ndTone)}
-              </div>
-              <div className="text-3xl font-display font-black text-white">
-                {nd <= 0 ? formatCurrency(-nd) : Number.isFinite(ndEbitda) ? `${ndEbitda.toFixed(2)}x` : "—"}
-              </div>
-              <p className="text-xs text-slate-400">
-                {nd <= 0
-                  ? (language === "EN" ? "Cash exceeds total debt: net cash position." : "La caja supera a la deuda total: posición de caja neta.")
-                  : (language === "EN" ? "Years of EBITDA needed to repay net debt (< 2.5x is comfortable)." : "Años de EBITDA necesarios para pagar la deuda neta (< 2,5x es holgado).")}
-              </p>
-            </div>
+          {/* Flujos año a año (plegado) */}
+          <details className="group bg-[#0b0d14] border border-slate-800/80 rounded-3xl p-6 shadow-xl">
+            <summary className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2 cursor-pointer list-none">
+              <ChevronRight size={16} className="text-emerald-400 transition-transform group-open:rotate-90" />
+              <span>{language === "EN" ? "Year-by-year cash flows (10 years)" : "Flujos año a año (10 años)"}</span>
+            </summary>
+            <div className="mt-4">
 
-            <div className="bg-[#0f111a]/70 border border-slate-800/80 p-6 rounded-3xl space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-mono font-bold text-slate-400 uppercase">{language === "EN" ? "Current Ratio (Liquidity)" : "Ratio Corriente (Liquidez)"}</span>
-                {badge(crTone === "good" ? (language === "EN" ? "SOLID" : "SÓLIDO") : crTone === "mid" ? (language === "EN" ? "TIGHT" : "AJUSTADO") : (language === "EN" ? "WEAK" : "DÉBIL"), crTone)}
-              </div>
-              <div className="text-3xl font-display font-black text-white">{Number.isFinite(cr) && cr > 0 ? `${cr.toFixed(2)}x` : "—"}</div>
-              <p className="text-xs text-slate-400">
-                {language === "EN" ? "Current assets / current liabilities (> 1.5x is comfortable; some cash-rich businesses run below 1x by design)." : "Activo corriente / pasivo corriente (> 1,5x es holgado; algunos negocios con cobro anticipado operan por debajo de 1x)."}
-              </p>
-            </div>
-
-            <div className="bg-[#0f111a]/70 border border-slate-800/80 p-6 rounded-3xl space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-mono font-bold text-slate-400 uppercase">{language === "EN" ? "Interest Coverage (EBIT / Interest)" : "Cobertura de Intereses"}</span>
-                {badge(covTone === "good" ? (language === "EN" ? "HIGH" : "ALTA") : covTone === "mid" ? (language === "EN" ? "ADEQUATE" : "SUFICIENTE") : (language === "EN" ? "LOW" : "BAJA"), covTone)}
-              </div>
-              <div className="text-3xl font-display font-black text-white">{Number.isFinite(cov) ? `${cov.toFixed(1)}x` : (language === "EN" ? "No interest" : "Sin intereses")}</div>
-              <p className="text-xs text-slate-400">
-                {language === "EN" ? "Operating earnings / interest expense (> 8x indicates low default risk)." : "Beneficio operativo / gasto financiero (> 8x indica bajo riesgo de impago)."}
-              </p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs font-mono text-left">
+                <thead>
+                  <tr className="border-b border-slate-800 text-slate-400 text-[11px]">
+                    <th className="py-2.5 px-3">{language === "EN" ? "Year" : "Año"}</th>
+                    <th className="py-2.5 px-3 text-right">{language === "EN" ? "Projected FCFF" : "FCFF Proyectado"}</th>
+                    <th className="py-2.5 px-3 text-right">{language === "EN" ? "Growth" : "Crecimiento"}</th>
+                    <th className="py-2.5 px-3 text-right">{language === "EN" ? "Discount Factor" : "Factor de Descuento"}</th>
+                    <th className="py-2.5 px-3 text-right text-emerald-400">{language === "EN" ? "Present Value (PV)" : "Valor Presente (PV)"}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/50">
+                  {dcfValuation.pvFcfList.map(item => (
+                    <tr key={item.year} className="hover:bg-slate-800/20">
+                      <td className="py-2 px-3 text-white font-bold">{language === "EN" ? `Year ${item.year}` : `Año ${item.year}`}</td>
+                      <td className="py-2 px-3 text-right text-slate-200">{formatCurrency(item.fcf)}</td>
+                      <td className="py-2 px-3 text-right text-slate-400">{formatPercent(item.growth)}</td>
+                      <td className="py-2 px-3 text-right text-slate-400">{item.discountFactor.toFixed(3)}</td>
+                      <td className="py-2 px-3 text-right text-emerald-400 font-bold">{formatCurrency(item.pv)}</td>
+                    </tr>
+                  ))}
+                  <tr className="bg-slate-900/60 font-bold border-t-2 border-slate-800">
+                    <td className="py-2.5 px-3 text-white">{language === "EN" ? "Σ Sum PV of FCFs" : "Σ Suma PV de FCFs"}</td>
+                    <td colSpan={3} />
+                    <td className="py-2.5 px-3 text-right text-emerald-300 font-black text-sm">{formatCurrency(dcfValuation.sumPvFcf)}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
+          </details>
         </div>
         );
       })()}
-
-      {/* ========================================================
-          SUB-TAB 4: DRIVERS & EDITABLE ASSUMPTIONS
-          ======================================================== */}
-      {!loading && activeSubTab === "drivers" && (
-        <div className="bg-[#0b0d14] border border-slate-800/80 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6">
-          <div className="space-y-1">
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <Sliders size={18} className="text-emerald-400" />
-              <span>{language === "EN" ? "Editable Model Drivers & Sensitivity" : "Supuestos & Drivers Editables del Modelo"}</span>
-            </h3>
-            <p className="text-xs text-slate-400">
-              {language === "EN" 
-                ? "Adjust key growth, margin, and discount parameters to dynamically recalculate the 3-statement model and DCF valuation."
-                : "Ajusta los parámetros de crecimiento, margen y descuento para recalcular en tiempo real el modelo de 3 estados y la valoración DCF."}
-            </p>
-          </div>
-
-          {/* Historical CAGRs from Financials Card */}
-          {cagrDisplay && (
-            <div className="bg-slate-900/80 border border-sky-900/50 rounded-2xl p-5 space-y-3.5 shadow-lg">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <TrendingUp size={16} className="text-sky-400" />
-                  <span className="text-xs font-mono font-bold text-sky-300 uppercase tracking-wider">
-                    {language === "EN" ? "HISTORICAL CAGRS FROM FINANCIALS (BASE CASE)" : "CAGRS HISTÓRICOS DE FINANCIALS (ESCENARIO BASE)"}
-                  </span>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-sky-500/20 text-sky-200 border border-sky-500/30 font-bold">
-                    {selectedTicker}
-                  </span>
-                </div>
-                <button
-                  onClick={() => {
-                    if (calibration) {
-                      setCustomDrivers(baseDrivers(calibration));
-                      setScenario("base");
-                    }
-                  }}
-                  className="px-3.5 py-1.5 bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer flex items-center gap-1.5 self-start sm:self-auto shadow-sm"
-                >
-                  <RefreshCw size={13} />
-                  <span>{language === "EN" ? "Reset to Base Case" : "Restablecer escenario base"}</span>
-                </button>
-              </div>
-
-              <p className="text-xs text-slate-400 leading-relaxed">
-                {language === "EN"
-                  ? "Historical CAGRs are shown for reference only. Projections are driven by revenue: growth is the average of the multi-year CAGR, last fiscal year and last quarter YoY, normalized per AGENTS.md (30% haircut above 40%, 25% cap). Margin, capex, D&A and working capital move as % of revenue from the latest figures to the year-5 targets."
-                  : "Los CAGR históricos son solo de referencia. La proyección depende de las ventas: el crecimiento es la media del CAGR plurianual, el último ejercicio y el último trimestre interanual, normalizada según AGENTS.md (recorte del 30% por encima del 40%, tope del 25%). Margen, capex, D&A y circulante evolucionan como % de ventas desde el último dato hasta el objetivo del año 5."}
-              </p>
-
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-1 text-xs font-mono">
-                <div className="bg-[#0b0d14] p-3 rounded-xl border border-slate-800">
-                  <span className="text-[10px] text-slate-400 uppercase block">{language === "EN" ? "Revenue CAGR" : "CAGR Ingresos"}</span>
-                  <span className="text-sky-300 font-bold text-sm">{formatPercent(cagrDisplay.revenueCAGR / 100)}</span>
-                </div>
-                <div className="bg-[#0b0d14] p-3 rounded-xl border border-slate-800">
-                  <span className="text-[10px] text-slate-400 uppercase block">{language === "EN" ? "Gross Profit CAGR" : "CAGR Utilidad Bruta"}</span>
-                  <span className="text-sky-300 font-bold text-sm">{formatPercent(cagrDisplay.grossProfitCAGR / 100)}</span>
-                </div>
-                <div className="bg-[#0b0d14] p-3 rounded-xl border border-slate-800">
-                  <span className="text-[10px] text-slate-400 uppercase block">{language === "EN" ? "Op. Income CAGR" : "CAGR Res. Operativo"}</span>
-                  <span className="text-sky-300 font-bold text-sm">{formatPercent(cagrDisplay.operatingIncomeCAGR / 100)}</span>
-                </div>
-                <div className="bg-[#0b0d14] p-3 rounded-xl border border-slate-800">
-                  <span className="text-[10px] text-slate-400 uppercase block">{language === "EN" ? "Net Income CAGR" : "CAGR Utilidad Neta"}</span>
-                  <span className="text-sky-300 font-bold text-sm">{formatPercent(cagrDisplay.netIncomeCAGR / 100)}</span>
-                </div>
-                <div className="bg-[#0b0d14] p-3 rounded-xl border border-slate-800">
-                  <span className="text-[10px] text-slate-400 uppercase block">{language === "EN" ? "FCF CAGR" : "CAGR Free Cash Flow"}</span>
-                  <span className="text-emerald-400 font-bold text-sm">{formatPercent(cagrDisplay.fcfCAGR / 100)}</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {calibration && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
-              {[
-                [language === "EN" ? "Base growth" : "Crecimiento base", `${calibration.growthNormalized}%`, calibration.growthRaw !== null ? `${language === "EN" ? "raw" : "bruto"} ${calibration.growthRaw}%` : ""],
-                [language === "EN" ? "EBIT margin (latest)" : "Margen EBIT (último)", `${calibration.opMargin}%`, `${language === "EN" ? "gross" : "bruto"} ${calibration.grossMargin}%`],
-                [language === "EN" ? "Capex % rev." : "Capex % ventas", `${calibration.capexPct}% → ${calibration.capexTarget}%`, `${language === "EN" ? "avg" : "media"} ${calibration.capexHistAvg}%`],
-                [language === "EN" ? "D&A % rev." : "D&A % ventas", `${calibration.daPct}% → ${assumptions.deprecPercentRevenue}%`, ""],
-                [language === "EN" ? "Working capital" : "Circulante operativo", `${calibration.nwcPct}%`, language === "EN" ? "of revenue" : "de las ventas"],
-                [language === "EN" ? "Effective tax" : "Tipo efectivo", `${calibration.taxRate}%`, calibration.taxSource],
-                [language === "EN" ? "Payout (div + buybacks)" : "Reparto (div. + recompras)", `${calibration.payoutRatio}%`, language === "EN" ? "of net income" : "del beneficio"],
-                ["WACC (CAPM)", `${calibration.wacc}%`, `β ${calibration.beta?.toFixed(2) ?? "—"} → ${calibration.betaAdjusted.toFixed(2)}`],
-              ].map(([label, value, sub]) => (
-                <div key={label} className="bg-[#0b0d14] p-3 rounded-xl border border-slate-800">
-                  <span className="text-[10px] text-slate-400 uppercase block">{label}</span>
-                  <span className="text-white font-bold text-sm">{value}</span>
-                  {sub && <span className="text-[10px] text-slate-500 block">{sub}</span>}
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-4 border-t border-slate-800">
-            {/* Driver: Revenue Growth */}
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs font-mono">
-                <span className="text-slate-300 font-bold">{language === "EN" ? "Revenue Growth (Years 1–5):" : "Crecimiento de ventas (años 1–5):"}</span>
-                <span className="text-emerald-400 font-black">{customDrivers.revGrowth}%</span>
-              </div>
-              <input 
-                type="range"
-                min="-10"
-                max="40"
-                step="0.5"
-                value={customDrivers.revGrowth}
-                onChange={e => {
-                  setCustomDrivers(prev => ({ ...prev, revGrowth: parseFloat(e.target.value) }));
-                  setScenario("custom");
-                }}
-                className="w-full accent-emerald-500 cursor-pointer"
-              />
-            </div>
-
-            {/* Driver: Operating Margin */}
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs font-mono">
-                <span className="text-slate-300 font-bold">{language === "EN" ? "EBIT Margin (Year 5):" : "Margen EBIT (año 5):"}</span>
-                <span className="text-emerald-400 font-black">{customDrivers.opMargin}%</span>
-              </div>
-              <input 
-                type="range"
-                min="-20"
-                max="80"
-                step="0.5"
-                value={customDrivers.opMargin}
-                onChange={e => {
-                  setCustomDrivers(prev => ({ ...prev, opMargin: parseFloat(e.target.value) }));
-                  setScenario("custom");
-                }}
-                className="w-full accent-emerald-500 cursor-pointer"
-              />
-            </div>
-
-            {/* Driver: Capex % of Revenue */}
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs font-mono">
-                <span className="text-slate-300 font-bold">{language === "EN" ? "Capex % of Revenue (Year 5):" : "Capex % sobre ventas (año 5):"}</span>
-                <span className="text-emerald-400 font-black">{customDrivers.capexPct}%</span>
-              </div>
-              <input 
-                type="range"
-                min="0"
-                max="45"
-                step="0.5"
-                value={customDrivers.capexPct}
-                onChange={e => {
-                  setCustomDrivers(prev => ({ ...prev, capexPct: parseFloat(e.target.value) }));
-                  setScenario("custom");
-                }}
-                className="w-full accent-emerald-500 cursor-pointer"
-              />
-            </div>
-
-            {/* Driver: WACC Discount Rate */}
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs font-mono">
-                <span className="text-slate-300 font-bold">{language === "EN" ? "WACC Discount Rate:" : "Tasa de Descuento WACC:"}</span>
-                <span className="text-amber-400 font-black">{customDrivers.wacc}%</span>
-              </div>
-              <input 
-                type="range"
-                min="5"
-                max="16"
-                step="0.1"
-                value={customDrivers.wacc}
-                onChange={e => {
-                  setCustomDrivers(prev => ({ ...prev, wacc: parseFloat(e.target.value) }));
-                  setScenario("custom");
-                }}
-                className="w-full accent-amber-400 cursor-pointer"
-              />
-            </div>
-
-            {/* Driver: Terminal Growth Rate */}
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs font-mono">
-                <span className="text-slate-300 font-bold">{language === "EN" ? "Terminal Growth (g_term):" : "Crecimiento Perpetuo (g):"}</span>
-                <span className="text-sky-400 font-black">{customDrivers.gTerminal}%</span>
-              </div>
-              <input 
-                type="range"
-                min="1.5"
-                max="4.5"
-                step="0.1"
-                value={customDrivers.gTerminal}
-                onChange={e => {
-                  setCustomDrivers(prev => ({ ...prev, gTerminal: parseFloat(e.target.value) }));
-                  setScenario("custom");
-                }}
-                className="w-full accent-sky-400 cursor-pointer"
-              />
-            </div>
-
-            {/* Driver: Effective Tax Rate */}
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs font-mono">
-                <span className="text-slate-300 font-bold">{language === "EN" ? "Effective Tax Rate:" : "Tasa de Impuestos:"}</span>
-                <span className="text-slate-300 font-black">{customDrivers.taxRate}%</span>
-              </div>
-              <input 
-                type="range"
-                min="0"
-                max="35"
-                step="0.5"
-                value={customDrivers.taxRate}
-                onChange={e => {
-                  setCustomDrivers(prev => ({ ...prev, taxRate: parseFloat(e.target.value) }));
-                  setScenario("custom");
-                }}
-                className="w-full accent-slate-400 cursor-pointer"
-              />
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
