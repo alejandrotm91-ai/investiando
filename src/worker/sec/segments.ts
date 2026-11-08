@@ -36,6 +36,18 @@ const REVENUE_TAGS = [
   "SalesRevenueGoodsNet", // ventas de productos antes de 2018 (Pfizer)
 ];
 const OI_TAG = "OperatingIncomeLoss";
+// Países y regiones etiquetados por error en el eje de segmentos (Nvidia, 10-K de 2017)
+const REGION_MEMBER = /^country:|:(Other)?(Americas|AsiaPacific|Asia|Europe|EMEA|LatinAmerica|NorthAmerica|NonUs|International|RestOfWorld)\w*Member$/i;
+/** Si un informe pone dos o más países en el eje de segmentos, sus países y regiones pasan a geografía. */
+export function regionsOffSegmentAxis(facts: SegFact[]): SegFact[] {
+  const countries = new Map<string, Set<string>>(); // informe → países en el eje de segmentos
+  for (const f of facts) if (f[0] === "segment" && /^country:/.test(f[1])) (countries.get(f[6]) ?? countries.set(f[6], new Set()).get(f[6])!).add(f[1]);
+  if (![...countries.values()].some((c) => c.size >= 2)) return facts;
+  return facts.map((f) =>
+    f[0] === "segment" && (countries.get(f[6])?.size ?? 0) >= 2 && REGION_MEMBER.test(f[1]) ? (["geography", ...f.slice(1)] as SegFact) : f
+  );
+}
+
 const GENERIC_SUFFIX = /^(equipment|inc|incorporated|corp|corporation|co|company|llc|ltd|plc|systems?|group|business|division|unit)$/;
 const AGGREGATE_MEMBER = /:ReportableSegmentAggregationBeforeOtherOperatingSegmentMember$/;
 const TAGS = new Set([...REVENUE_TAGS, OI_TAG]);
@@ -148,7 +160,7 @@ export function parseSegmentFacts(xml: string, filed: string, prefer?: "ops" | "
     f[5] = [...x.parts.values()].reduce((a, b) => a + b, 0);
     out.push(f);
   }
-  return out;
+  return regionsOffSegmentAxis(out);
 }
 
 /** Etiquetas de los miembros (archivo *_lab.xml del informe): "aapl:IPhoneMember" → "iPhone". */
@@ -307,7 +319,7 @@ interface PeriodRef { date: string; start: string; kind: "Q" | "FY"; fiscalYear:
 export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: SecPeriod[], labels: Record<string, string>, asOf: string | null, recasts: RecastRef[] = []): SegmentData {
   // Cifra más reciente por (eje, miembro, etiqueta, inicio, fin), con los renombres unificados
   const latest = new Map<string, SegFact>();
-  for (const f of applyAliases(facts, labels)) {
+  for (const f of applyAliases(regionsOffSegmentAxis(facts), labels)) {
     if (AGGREGATE_MEMBER.test(f[1])) continue; // guardado antes de que el lector lo descartara
     const k = `${f[0]}|${f[1]}|${f[2]}|${f[3]}|${f[4]}`;
     const cur = latest.get(k);

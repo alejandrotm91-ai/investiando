@@ -129,20 +129,18 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
             : q.fiscalYear === p.fiscalYear && q.fiscalQuarter === (p.fiscalQuarter ?? 0) - 1
           : q.fiscalYear === p.fiscalYear - 1
       );
-    const visibleSum = (p: SegPeriod) => {
-      let sum = 0;
-      for (const s of visible) {
-        const v = valueOf(p, s.id, "revenue");
-        if (v === undefined) return null; // una línea sin dato en el periodo: la suma no es comparable
-        sum += v;
-      }
-      return sum;
-    };
+    // Líneas visibles con dato en el periodo (tras una reorganización no son las mismas cada año)
+    const presentIn = (p: SegPeriod) => visible.filter((s) => valueOf(p, s.id, "revenue") !== undefined).map((s) => s.id);
+    const sumOf = (p: SegPeriod, ids: string[]) => (ids.length ? ids.reduce((a, id) => a + (valueOf(p, id, "revenue") ?? 0), 0) : null);
+    const visibleSum = (p: SegPeriod) => sumOf(p, presentIn(p));
     const rows = periods.map((p) => {
       const row: Record<string, any> = { name: `${label(p)}${p.recast ? " †" : ""}`, date: p.date, total: p.total, matched: p.matched, recast: !!p.recast };
       for (const s of series) row[s.id] = isVisible(s.id) ? valueOf(p, s.id, "revenue") : undefined;
+      // Crecimiento solo si el periodo anterior tiene las mismas líneas (si no, compararía estructuras distintas)
       const prev = previousOf(p);
-      const cur = visibleSum(p), before = prev ? visibleSum(prev) : null;
+      const ids = presentIn(p);
+      const same = !!prev && ids.length > 0 && ids.every((id) => valueOf(prev, id, "revenue") !== undefined);
+      const cur = sumOf(p, ids), before = same && prev ? sumOf(prev, ids) : null;
       row.visibleSum = cur;
       row.growth = cur !== null && before !== null && before > 0 && cur >= 0 ? cur / before - 1 : null;
       // Altura de la parte positiva de la pila: ahí va la etiqueta de crecimiento
