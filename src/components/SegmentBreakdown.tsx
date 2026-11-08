@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, LabelList } from "recharts";
 import { Loader2, PieChart as PieIcon, Info, ExternalLink, RotateCcw } from "lucide-react";
+import SegmentMargins, { type CostKey } from "./SegmentMargins";
 
 // Capa 2 de la SEC: ingresos por segmento, producto y geografía (XBRL de los 10-Q/10-K).
 // Datos: GET /api/sec/segments/:ticker (src/worker/sec/segments.ts). Los periodos con "†" vienen
@@ -20,6 +21,7 @@ interface SegPeriod {
   matched: boolean;
   recast?: boolean; // rehecho con la estructura actual a partir del 8-K de reorganización (capa 4)
   asReported?: boolean; // cifras del informe original: la empresa rehízo después el total (escisión)
+  costs?: Partial<Record<CostKey, Record<string, number>>>; // gastos por segmento (desde 2024, ASU 2023-07)
 }
 interface SegAxis {
   tag: string;
@@ -428,6 +430,11 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
           </span>
         ))}
       </div>
+
+      {/* Márgenes y costes por segmento (solo eje de segmentos) */}
+      {axis === "segment" && (
+        <SegmentMargins periods={view.periods} series={view.visible.filter((s) => s.id !== OTHER)} label={view.label} theme={theme} isES={isES} />
+      )}
 
       {view.anyRecast && axisData?.recast && (
         <p className="text-[11px] text-theme-text-muted flex items-start gap-1.5">

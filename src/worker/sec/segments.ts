@@ -50,7 +50,25 @@ export function regionsOffSegmentAxis(facts: SegFact[]): SegFact[] {
 
 const GENERIC_SUFFIX = /^(equipment|inc|incorporated|corp|corporation|co|company|llc|ltd|plc|systems?|group|business|division|unit)$/;
 const AGGREGATE_MEMBER = /:ReportableSegmentAggregationBeforeOtherOperatingSegmentMember$/;
-const TAGS = new Set([...REVENUE_TAGS, OI_TAG]);
+/**
+ * Gastos por segmento (obligatorios en el XBRL desde los 10-K de 2024, norma ASU 2023-07): coste de
+ * ventas, gastos comerciales y generales, I+D, amortizaciones e inversión (capex). Por cada concepto,
+ * la primera etiqueta con dato.
+ */
+export type CostKey = "cogs" | "sga" | "rnd" | "sm" | "ga" | "da" | "capex";
+export const COST_TAGS: Record<CostKey, string[]> = {
+  cogs: ["CostOfGoodsAndServicesSold", "CostOfRevenue", "CostOfGoodsSold", "CostOfServices"],
+  sga: ["SellingGeneralAndAdministrativeExpense"],
+  rnd: ["ResearchAndDevelopmentExpense", "ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost"],
+  sm: ["SellingAndMarketingExpense"],
+  ga: ["GeneralAndAdministrativeExpense"],
+  da: ["DepreciationDepletionAndAmortization", "DepreciationAndAmortization", "DepreciationAmortizationAndAccretionNet", "Depreciation"],
+  capex: ["SegmentExpenditureAdditionToLongLivedAssets", "PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets"],
+};
+// Beneficio del segmento antes de impuestos (Caterpillar): solo si no hay beneficio operativo
+const PROFIT_ALT = ["IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments", "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest"];
+const REVENUE_SET = new Set(REVENUE_TAGS);
+const TAGS = new Set([...REVENUE_TAGS, OI_TAG, ...PROFIT_ALT, ...Object.values(COST_TAGS).flat()]);
 
 /**
  * Cifra de un miembro en un periodo: [eje, miembro, etiqueta, inicio, fin, valor, presentado].
@@ -76,7 +94,7 @@ export function parseSegmentFacts(xml: string, filed: string, prefer?: "ops" | "
   // Contextos con cifras de ingresos (para ver qué productos aparecen en ellas)
   const revCtx = new Set<string>();
   for (const m of xml.matchAll(/<us-gaap:(\w+)\b([^>]*?)>[^<]*<\/us-gaap:\1>/g)) {
-    if (TAGS.has(m[1]) && m[1] !== OI_TAG) revCtx.add(attr(m[2], "contextRef") ?? "");
+    if (REVENUE_SET.has(m[1])) revCtx.add(attr(m[2], "contextRef") ?? "");
   }
   for (const m of xml.matchAll(ctxRe)) {
     const id = attr(m[1], "id");
@@ -148,7 +166,7 @@ export function parseSegmentFacts(xml: string, filed: string, prefer?: "ops" | "
     if (!TAGS.has(tag)) continue;
     const c = ctx.get(attr(attrs, "contextRef") ?? "");
     const val = Number(raw.trim());
-    if (!c || !Number.isFinite(val) || (c.axis === TOTAL && tag === OI_TAG)) continue;
+    if (!c || !Number.isFinite(val) || (c.axis === TOTAL && !REVENUE_SET.has(tag))) continue;
     const key = `${c.axis}|${c.member}|${tag}|${c.start}|${c.end}`;
     if (c.half) {
       const cur = halves.get(key) ?? { fact: [c.axis, c.member, tag, c.start, c.end, 0, filed] as SegFact, parts: new Map<string, number>() };
@@ -266,6 +284,7 @@ export interface SegPeriod {
   fiscalQuarter: number | null;
   revenue: Record<string, number>; // miembro → ingresos
   operatingIncome: Record<string, number>; // miembro → beneficio operativo (si lo hay)
+  costs?: Partial<Record<CostKey, Record<string, number>>>; // gastos por segmento (solo eje de segmentos)
   total: number | null; // ingresos consolidados oficiales del periodo
   matched: boolean; // el desglose suma el total
   asReported?: boolean; // cuadra con el total publicado en el mismo informe, no con el rehecho después
@@ -512,13 +531,31 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
         const oi: Record<string, number> = {};
         for (const [m, v] of vals) if (use.has(m)) revenue[m] = v;
         for (const m of use) {
-          const o = periodValue(axis, m, OI_TAG, p);
+          let o = periodValue(axis, m, OI_TAG, p);
+          if (o === undefined && axis === "segment") for (const t of PROFIT_ALT) if ((o = periodValue(axis, m, t, p)) !== undefined) break;
           if (o !== undefined) oi[m] = o;
         }
         if (chosen) matchedCount++;
         const total = asRep[pi] ?? p.total;
         const sp: SegPeriod = { date: p.date, start: p.start, kind: p.kind, fiscalYear: p.fiscalYear, fiscalQuarter: p.fiscalQuarter, revenue, operatingIncome: oi, total, matched: !!chosen };
         if (asRep[pi] !== undefined) sp.asReported = true;
+        if (axis === "segment") {
+          const costs: Partial<Record<CostKey, Record<string, number>>> = {};
+          for (const [key, tags] of Object.entries(COST_TAGS) as [CostKey, string[]][]) {
+            const byMember: Record<string, number> = {};
+            for (const m of use) {
+              for (const t of tags) {
+                const v = periodValue(axis, m, t, p);
+                if (v !== undefined) {
+                  byMember[m] = v;
+                  break;
+                }
+              }
+            }
+            if (Object.keys(byMember).length) costs[key] = byMember;
+          }
+          if (Object.keys(costs).length) sp.costs = costs;
+        }
         if (recast && newestOf[pi] === `${recast.filed}R`) sp.recast = true; // recastKey() en recast.ts
         sp.src = newestOf[pi];
         if ([...use].some((m) => derivedOf[pi].has(m))) sp.derived = true;

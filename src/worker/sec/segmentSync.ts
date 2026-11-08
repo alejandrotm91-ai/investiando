@@ -16,6 +16,8 @@ import { SEC_UNIVERSE } from "./universe";
 const PREV_CIKS = new Map(SEC_UNIVERSE.filter((u) => u.prev).map((u) => [u.ticker, u.prev!]));
 
 const KEEP_FILINGS = 6;
+// Versión del lector de cada informe: 2 = total sin dimensiones por informe + gastos por segmento
+const READ_VERSION = "2";
 const YEARS_KEPT = 4.5; // cifras trimestrales y acumuladas
 const YEARS_KEPT_ANNUAL = 12.5; // ejercicios completos
 const HISTORY_10K = [3, 6, 9]; // posiciones en la lista de ejercicios de la capa 1
@@ -46,10 +48,15 @@ export async function syncSegments(db: D1Database, ticker: string, ua?: string, 
   const row = await db.prepare("SELECT * FROM sec_segments WHERE ticker = ?").bind(t).first<SegRow>();
   let facts = parse<SegFact[]>(row?.facts ?? null, []);
   let labels = parse<Record<string, string>>(row?.labels ?? null, {});
-  // Los guardados antes de leer el total de cada informe se vuelven a leer una vez: `labels.__totals`
-  // vale "0" mientras dura la relectura (puede repartirse entre ejecuciones) y "1" al terminarla
-  const done = new Set(labels.__totals ? parse<string[]>(row?.accns ?? null, []) : []);
-  if (!labels.__totals) labels.__totals = "0";
+  // Si el lector ha cambiado (READ_VERSION), los informes se vuelven a leer una vez. `labels.__ver`
+  // guarda la versión y `labels.__totals` vale "0" mientras dura la relectura (puede repartirse
+  // entre ejecuciones) y "1" al terminarla
+  const fresh = labels.__ver === READ_VERSION;
+  const done = new Set(fresh ? parse<string[]>(row?.accns ?? null, []) : []);
+  if (!fresh) {
+    labels.__ver = READ_VERSION;
+    labels.__totals = "0";
+  }
 
   try {
     const prevCiks = PREV_CIKS.get(t) ?? [];
@@ -109,7 +116,7 @@ export async function syncSegments(db: D1Database, ticker: string, ua?: string, 
     }
     facts = [...latest.values()];
     const used = membersIn(facts);
-    labels = Object.fromEntries(Object.entries(labels).filter(([k]) => used.has(k) || k === "__accn" || k === "__totals"));
+    labels = Object.fromEntries(Object.entries(labels).filter(([k]) => used.has(k) || k === "__accn" || k === "__totals" || k === "__ver"));
 
     // Capa 4: cifras rehechas de los 8-K de reorganización aceptados (no se guardan en `facts`)
     const rc = await acceptedRecasts(db, t);
