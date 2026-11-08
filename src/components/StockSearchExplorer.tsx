@@ -1173,7 +1173,7 @@ export default function StockSearchExplorer({
               } backdrop-blur-md p-1.5 rounded-2xl flex items-center gap-1 border w-fit max-w-full overflow-x-auto scrollbar-none`}
             >
               {([
-                { id: "overview", label: language === "EN" ? "Fundamental Overview" : "Resumen Fundamental", icon: Layers },
+                { id: "overview", label: language === "EN" ? "Fundamental" : "Fundamental", icon: Layers },
                 { id: "financials", label: language === "EN" ? "Financials" : "Finanzas", icon: FileText },
                 { id: "valuation", label: language === "EN" ? "Valuation" : "Valoración", icon: Gauge },
               ] as const).map((tab) => {
