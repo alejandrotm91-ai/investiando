@@ -21,7 +21,7 @@ interface SegPeriod {
   matched: boolean;
   recast?: boolean; // rehecho con la estructura actual a partir del 8-K de reorganización (capa 4)
   asReported?: boolean; // cifras del informe original: la empresa rehízo después el total (escisión)
-  costs?: Partial<Record<CostKey, Record<string, number>>>; // gastos por segmento (desde 2024, ASU 2023-07)
+  costs?: Partial<Record<CostKey | "base", Record<string, number>>>; // gastos por segmento (desde 2024, ASU 2023-07)
 }
 interface SegAxis {
   tag: string;

@@ -295,7 +295,9 @@ export interface SegPeriod {
   fiscalQuarter: number | null;
   revenue: Record<string, number>; // miembro → ingresos
   operatingIncome: Record<string, number>; // miembro → beneficio operativo (si lo hay)
-  costs?: Partial<Record<CostKey, Record<string, number>>>; // gastos por segmento (solo eje de segmentos)
+  // Gastos por segmento (solo eje de segmentos). `base`: ingresos del segmento en el mismo informe que
+  // los gastos, si difieren de los mostrados (histórico rehecho de un 8-K con solo ventas externas)
+  costs?: Partial<Record<CostKey | "base", Record<string, number>>>;
   total: number | null; // ingresos consolidados oficiales del periodo
   matched: boolean; // el desglose suma el total
   asReported?: boolean; // cuadra con el total publicado en el mismo informe, no con el rehecho después
@@ -396,10 +398,20 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
     const cur = latest.get(k);
     if (!cur || f[6] >= cur[6]) latest.set(k, f);
   }
+  // Sin las cifras rehechas de los 8-K (capa 4, fecha + "R"): base de los márgenes, que salen del 10-Q/10-K
+  const hasRecastFacts = facts.some((f) => f[6].endsWith("R"));
+  const latestOrig = new Map<string, SegFact>();
+  if (hasRecastFacts)
+    for (const f of applyAliases(regionsOffSegmentAxis(facts.filter((x) => x[0] !== TOTAL && !x[6].endsWith("R"))), labels)) {
+      const k = `${f[0]}|${f[1]}|${f[2]}|${f[3]}|${f[4]}`;
+      const cur = latestOrig.get(k);
+      if (!cur || f[6] >= cur[6]) latestOrig.set(k, f);
+    }
+  let fromOrig = false;
   // `usedFiled`: fecha del informe más reciente entre las cifras usadas en el último cálculo
   let usedFiled = "";
   const val = (axis: string, member: string, tag: string, start: string, end: string) => {
-    const f = latest.get(`${axis}|${member}|${tag}|${start}|${end}`);
+    const f = (fromOrig ? latestOrig : latest).get(`${axis}|${member}|${tag}|${start}|${end}`);
     if (f && f[6] > usedFiled) usedFiled = f[6];
     return f?.[5];
   };
@@ -441,8 +453,8 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
   };
 
   /** Gastos de los segmentos `members` en el periodo (por concepto, la primera etiqueta con dato). */
-  const costsFor = (members: string[], p: PeriodRef) => {
-    const costs: Partial<Record<CostKey, Record<string, number>>> = {};
+  const costsFor = (members: string[], p: PeriodRef, tag?: string, revenue?: Record<string, number>) => {
+    const costs: Partial<Record<CostKey | "base", Record<string, number>>> = {};
     for (const [key, tags] of Object.entries(COST_TAGS) as [CostKey, (string | string[])[]][]) {
       const byMember: Record<string, number> = {};
       for (const m of members) {
@@ -455,7 +467,20 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
       }
       if (Object.keys(byMember).length) costs[key] = byMember;
     }
-    return Object.keys(costs).length ? costs : null;
+    if (!Object.keys(costs).length) return null;
+    // Ingresos del 10-Q/10-K si los mostrados vienen de un 8-K rehecho (Caterpillar: ventas externas
+    // frente a ventas totales del segmento, que es contra lo que mide sus costes y beneficio)
+    if (hasRecastFacts && tag && revenue) {
+      fromOrig = true;
+      const base: Record<string, number> = {};
+      for (const m of members) {
+        const v = periodValue("segment", m, tag, p);
+        if (v !== undefined && revenue[m] !== undefined && Math.abs(v - revenue[m]) > Math.abs(revenue[m]) * 0.005) base[m] = v;
+      }
+      fromOrig = false;
+      if (Object.keys(base).length) costs.base = base;
+    }
+    return costs;
   };
   /** Beneficio del segmento: operativo; si no hay, antes de impuestos (Caterpillar). */
   const profitFor = (axis: AxisKey, m: string, p: PeriodRef) => {
@@ -578,7 +603,7 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
         const sp: SegPeriod = { date: p.date, start: p.start, kind: p.kind, fiscalYear: p.fiscalYear, fiscalQuarter: p.fiscalQuarter, revenue, operatingIncome: oi, total, matched: !!chosen };
         if (asRep[pi] !== undefined) sp.asReported = true;
         if (axis === "segment") {
-          const costs = costsFor([...use], p);
+          const costs = costsFor([...use], p, tag, revenue);
           if (costs) sp.costs = costs;
         }
         if (recast && newestOf[pi] === `${recast.filed}R`) sp.recast = true; // recastKey() en recast.ts

@@ -12,8 +12,11 @@ export interface MarginPeriod {
   kind: "Q" | "FY";
   revenue: Record<string, number>;
   operatingIncome: Record<string, number>;
-  costs?: Partial<Record<CostKey, Record<string, number>>>;
+  costs?: Partial<Record<CostKey | "base", Record<string, number>>>;
 }
+
+/** Ingresos contra los que se miden costes y márgenes: los del mismo informe que los gastos. */
+const revOf = (p: MarginPeriod, m: string) => p.costs?.base?.[m] ?? p.revenue[m];
 interface Series { id: string; label: string; color: string }
 
 interface Props {
@@ -59,7 +62,7 @@ function knownCosts(p: MarginPeriod, m: string) {
  * deben cubrir al menos el 80 % de los gastos del segmento (Disney pone casi todo en etiquetas propias).
  */
 function grossMargin(p: MarginPeriod, m: string): number | null {
-  const r = p.revenue[m];
+  const r = revOf(p, m);
   const cogs = p.costs?.cogs?.[m];
   if (!r || r <= 0 || cogs === undefined) return null;
   const oi = p.operatingIncome[m];
@@ -81,7 +84,7 @@ export default function SegmentMargins({ periods, series, label, theme, isES }: 
   const withCosts = periods.filter((p) => p.costs && Object.keys(p.costs).length);
   const hasGross = periods.some((p) => series.some((s) => grossMargin(p, s.id) !== null));
   const hasCash = periods.some((p) => series.some((s) => cashOf(p, s.id) !== null));
-  const hasOI = periods.some((p) => series.some((s) => p.operatingIncome[s.id] !== undefined && p.revenue[s.id] > 0));
+  const hasOI = periods.some((p) => series.some((s) => p.operatingIncome[s.id] !== undefined && revOf(p, s.id) > 0));
 
   const metrics: { id: Metric; es: string; en: string; on: boolean }[] = [
     { id: "operating", es: "Margen operativo", en: "Operating margin", on: hasOI },
@@ -98,7 +101,7 @@ export default function SegmentMargins({ periods, series, label, theme, isES }: 
       periods.map((p) => {
         const row: Record<string, any> = { name: label(p) };
         for (const s of series) {
-          const r = p.revenue[s.id];
+          const r = revOf(p, s.id);
           if (!r || r <= 0) continue;
           if (active === "operating" && p.operatingIncome[s.id] !== undefined) row[s.id] = p.operatingIncome[s.id] / r;
           if (active === "gross") row[s.id] = grossMargin(p, s.id) ?? undefined;
@@ -121,9 +124,9 @@ export default function SegmentMargins({ periods, series, label, theme, isES }: 
   const structure = useMemo(() => {
     if (!last) return [];
     return series
-      .filter((s) => (last.revenue[s.id] ?? 0) > 0)
+      .filter((s) => (revOf(last, s.id) ?? 0) > 0)
       .map((s) => {
-        const r = last.revenue[s.id];
+        const r = revOf(last, s.id);
         const parts = knownCosts(last, s.id);
         const known = Object.values(parts).reduce((a, b) => a + b, 0);
         const oi = last.operatingIncome[s.id];
