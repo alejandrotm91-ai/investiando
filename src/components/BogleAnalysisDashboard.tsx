@@ -565,6 +565,13 @@ No constituye asesoría de inversión.`;
             : `Yahoo no respondió: se usan los últimos datos guardados (${new Date(stockMetrics.dataAsOf).toLocaleString("es-ES")}).`}
         </div>
       )}
+      {stockMetrics?.profileNotes?.length ? (
+        <div className="mb-3 px-3 py-2 rounded-xl border border-sky-500/30 bg-sky-500/10 text-[11px] text-sky-200 space-y-1">
+          {stockMetrics.profileNotes.map((n, i) => (
+            <div key={i}>{language === "EN" ? n.en : n.es}</div>
+          ))}
+        </div>
+      ) : null}
               
               {/* Scenario Toggle */}
               <div className="flex items-center justify-end">
@@ -838,7 +845,8 @@ No constituye asesoría de inversión.`;
                         className="font-bold text-purple-300 bg-purple-500/15 px-2 py-0.5 rounded border border-purple-500/25 cursor-help"
                         title={
                           calc.peHistory && calc.peHistory.length > 0
-                            ? `${language === "EN" ? "Median historical P/E" : "PER mediano histórico"}: ${calc.avgPe.toFixed(1)}×\n` +
+                            ? `${language === "EN" ? "Median historical P/E" : "PER mediano histórico"}: ${calc.avgPe.toFixed(1)}×${stockMetrics?.peMedianSource === "monthly10y" ? (language === "EN" ? " (10 years of monthly P/E: price / 12-month EPS)" : " (10 años de PER mensual: precio / BPA de 12 meses)") : stockMetrics?.peMedianSource === "normalized10y" ? (language === "EN" ? " (10 years of monthly price / average EPS of the last 5 fiscal years)" : " (10 años de precio mensual / BPA medio de los últimos 5 ejercicios)") : ""}\n` +
+                              (language === "EN" ? "Fiscal year-ends, for reference:\n" : "Cierres de ejercicio, como referencia:\n") +
                               calc.peHistory.map(h => `${h.isCurrentYear ? (language === "EN" ? "Current P/E" : "P/E Actual") : `Año ${h.year}`}: ${h.pe.toFixed(1)}×${h.isCurrentYear ? "" : ` (Cierre: $${h.price} / EPS: $${h.eps})`}`).join("\n")
                             : (language === "EN" ? "No P/E history: current P/E used" : "Sin histórico de PER: se usa el actual")
                         }
@@ -858,7 +866,7 @@ No constituye asesoría de inversión.`;
                         {language === "EN" ? "P/E history" : "Histórico de PER"} ({calc.peHistory.length} {language === "EN" ? "periods" : "datos"}):
                       </span>
                       <span className="text-slate-400 text-[11px] hidden md:inline">
-                        ({language === "EN" ? "4 annual P/Es (Year Close / Diluted EPS) + Current P/E" : "4 P/E anuales (Cierre / BPA diluido) + P/E Actual"}):
+                        ({stockMetrics?.peMedianSource === "monthly10y" || stockMetrics?.peMedianSource === "normalized10y" ? (language === "EN" ? "Year close / diluted EPS, for reference; the median uses 10 years of monthly P/E" : "Cierre / BPA diluido, como referencia; la mediana usa 10 años de PER mensual") : (language === "EN" ? "4 annual P/Es (Year Close / Diluted EPS) + Current P/E" : "4 P/E anuales (Cierre / BPA diluido) + P/E Actual")}):
                       </span>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
@@ -873,7 +881,7 @@ No constituye asesoría de inversión.`;
                         </div>
                       ))}
                       <div className="px-2 py-0.5 rounded text-[11px] bg-purple-500/30 border border-purple-400/60 text-purple-100 font-extrabold ml-1">
-                        <span className="mr-1">{language === "EN" ? "Median:" : "Mediana:"}</span>
+                        <span className="mr-1">{stockMetrics?.peMedianSource === "normalized10y" ? (language === "EN" ? "10Y median (normalized EPS):" : "Mediana 10 años (BPA normalizado):") : stockMetrics?.peMedianSource === "monthly10y" ? (language === "EN" ? "10Y median:" : "Mediana 10 años:") : (language === "EN" ? "Median:" : "Mediana:")}</span>
                         <span>{calc.avgPe.toFixed(1)}×</span>
                       </div>
                     </div>

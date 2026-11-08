@@ -2639,6 +2639,78 @@ export function registerLegacyRoutes(app: LegacyApp) {
         }
       });
 
+      // Mediana del P/E a 5 y 10 años (motor 3 de Bogle): cierre mensual / BPA diluido de los últimos
+      // 12 meses de la SEC, cada BPA desde la fecha de su informe (como en /api/valuation). Mucho más
+      // estable que la de 4 cierres de ejercicio de peHistory.
+      let peMedian10Y: number | null = null;
+      let peMedian5Y: number | null = null;
+      // Cíclicas: mediana de precio / BPA medio de los últimos 5 ejercicios publicados (como el CAPE)
+      let peNormMedian10Y: number | null = null;
+      {
+        const DAY = 86400000;
+        const epsOf = (q: any) => (typeof q?.dilutedEPS === "number" && Number.isFinite(q.dilutedEPS) ? q.dilutedEPS : typeof q?.basicEPS === "number" && Number.isFinite(q.basicEPS) ? q.basicEPS : null);
+        const publicFrom = (q: any, lag: number) => {
+          const end = new Date(q.date).getTime();
+          const filed = q.filed ? new Date(q.filed).getTime() : NaN;
+          return Number.isFinite(filed) && filed >= end && filed <= end + 120 * DAY ? filed : end + lag * DAY;
+        };
+        const qs = [...(quarterlyAll ?? cleanQuarterly ?? [])].filter((q: any) => q?.date).sort((a: any, b: any) => a.date.localeCompare(b.date));
+        const ttm: { from: number; eps: number }[] = [];
+        for (let i = 3; i < qs.length; i++) {
+          const w = qs.slice(i - 3, i + 1);
+          const span = (new Date(w[3].date).getTime() - new Date(w[0].date).getTime()) / DAY;
+          const vals = w.map(epsOf);
+          if (span < 250 || span > 300 || vals.some((v) => v === null)) continue;
+          ttm.push({ from: publicFrom(w[3], 45), eps: (vals as number[]).reduce((a, b) => a + b, 0) });
+        }
+        // Sin trimestres suficientes, los ejercicios anuales
+        const anchors = ttm.length
+          ? ttm
+          : [...cleanAnnual].filter((a: any) => a?.date && epsOf(a) !== null).sort((a: any, b: any) => a.date.localeCompare(b.date)).map((a: any) => ({ from: publicFrom(a, 60), eps: epsOf(a) as number }));
+        const pts: { t: number; pe: number }[] = [];
+        for (const q of quotes) {
+          if (!q?.close || !q?.date) continue;
+          const t = new Date(q.date).getTime() + 30 * DAY; // cierre de fin de mes
+          let cur: { eps: number } | null = null;
+          for (const a of anchors) if (a.from <= t) cur = a;
+          if (cur && cur.eps > 0) {
+            const pe = q.close / cur.eps;
+            if (pe > 0 && pe <= 80) pts.push({ t, pe });
+          }
+        }
+        const med = (since: number) => {
+          const v = pts.filter((p) => p.t >= since).map((p) => p.pe).sort((a, b) => a - b);
+          if (v.length < 12) return null;
+          const m = Math.floor(v.length / 2);
+          return Number((v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2).toFixed(1));
+        };
+        peMedian10Y = med(Date.now() - 10.1 * 365.25 * DAY);
+        peMedian5Y = med(Date.now() - 5 * 365.25 * DAY);
+
+        const yearly = [...(annualAll ?? cleanAnnual ?? [])]
+          .filter((a: any) => a?.date && epsOf(a) !== null)
+          .sort((a: any, b: any) => a.date.localeCompare(b.date))
+          .map((a: any) => ({ from: publicFrom(a, 60), eps: epsOf(a) as number }));
+        const norm: number[] = [];
+        for (const q of quotes) {
+          if (!q?.close || !q?.date) continue;
+          const t = new Date(q.date).getTime() + 30 * DAY;
+          if (t < Date.now() - 10.1 * 365.25 * DAY) continue;
+          const known = yearly.filter((y) => y.from <= t).slice(-5);
+          if (known.length < 3) continue;
+          const avg = known.reduce((s2, y) => s2 + y.eps, 0) / known.length;
+          if (avg > 0) {
+            const pe = q.close / avg;
+            if (pe > 0 && pe <= 80) norm.push(pe);
+          }
+        }
+        if (norm.length >= 12) {
+          norm.sort((a, b) => a - b);
+          const m = Math.floor(norm.length / 2);
+          peNormMedian10Y = Number((norm.length % 2 ? norm[m] : (norm[m - 1] + norm[m]) / 2).toFixed(1));
+        }
+      }
+
       // AVG P/E: Average of annual P/E values
       let avgPe: number | null = null;
       if (peHistory.length > 0) {
@@ -2653,6 +2725,9 @@ export function registerLegacyRoutes(app: LegacyApp) {
         quarterlyAll,
         avgPe,
         peHistory,
+        peMedian10Y,
+        peMedian5Y,
+        peNormMedian10Y,
         currentPrice: currentPrice || null,
         dataSource: sec ? "sec" : "yahoo",
         secSource,

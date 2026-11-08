@@ -163,6 +163,13 @@ export default function SingleStockBogleAnalysis({
             : `Yahoo no respondió: se usan los últimos datos guardados (${new Date(inputs.dataAsOf).toLocaleString("es-ES")}).`}
         </div>
       )}
+      {inputs?.profileNotes?.length ? (
+        <div className="mb-3 px-3 py-2 rounded-xl border border-sky-500/30 bg-sky-500/10 text-[11px] text-sky-200 space-y-1">
+          {inputs.profileNotes.map((n, i) => (
+            <div key={i}>{language === "EN" ? n.en : n.es}</div>
+          ))}
+        </div>
+      ) : null}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Core Metrics Summary */}
         <div className="col-span-1 space-y-4">
@@ -264,7 +271,8 @@ export default function SingleStockBogleAnalysis({
                         className="font-bold text-purple-200 bg-purple-500/20 px-2 py-0.5 rounded border border-purple-400/30 cursor-help"
                         title={
                           calc.peHistory && calc.peHistory.length > 0
-                            ? `${language === "EN" ? "Median historical P/E" : "PER mediano histórico"}: ${calc.avgPe.toFixed(1)}×\n` +
+                            ? `${language === "EN" ? "Median historical P/E" : "PER mediano histórico"}: ${calc.avgPe.toFixed(1)}×${inputs?.peMedianSource === "monthly10y" ? (language === "EN" ? " (10 years of monthly P/E: price / 12-month EPS)" : " (10 años de PER mensual: precio / BPA de 12 meses)") : inputs?.peMedianSource === "normalized10y" ? (language === "EN" ? " (10 years of monthly price / average EPS of the last 5 fiscal years)" : " (10 años de precio mensual / BPA medio de los últimos 5 ejercicios)") : ""}\n` +
+                              (language === "EN" ? "Fiscal year-ends, for reference:\n" : "Cierres de ejercicio, como referencia:\n") +
                               calc.peHistory.map(h => `${h.isCurrentYear ? (language === "EN" ? "Current P/E" : "P/E Actual") : `Año ${h.year}`}: ${h.pe.toFixed(1)}×${h.isCurrentYear ? "" : ` (Cierre: $${h.price} / EPS: $${h.eps})`}`).join("\n")
                             : `${language === "EN" ? "No P/E history: current P/E used" : "Sin histórico de PER: se usa el actual"}`
                         }
@@ -302,7 +310,7 @@ export default function SingleStockBogleAnalysis({
                       {language === "EN" ? "P/E history" : "Histórico de PER"} ({calc.peHistory.length} {language === "EN" ? "periods" : "datos"}):
                     </span>
                     <span className="text-slate-400 text-[10px] hidden md:inline">
-                      ({language === "EN" ? "Year close / diluted EPS; median excludes current and values > 80×" : "Cierre / BPA diluido; la mediana excluye el actual y valores > 80×"}):
+                      ({inputs?.peMedianSource === "monthly10y" || inputs?.peMedianSource === "normalized10y" ? (language === "EN" ? "Year close / diluted EPS, for reference; the median uses 10 years of monthly P/E" : "Cierre / BPA diluido, como referencia; la mediana usa 10 años de PER mensual") : (language === "EN" ? "Year close / diluted EPS; median excludes current and values > 80×" : "Cierre / BPA diluido; la mediana excluye el actual y valores > 80×")}):
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5 flex-wrap">
@@ -317,7 +325,7 @@ export default function SingleStockBogleAnalysis({
                       </div>
                     ))}
                     <div className="px-2 py-0.5 rounded text-[10px] bg-purple-500/30 border border-purple-400/60 text-purple-100 font-extrabold ml-1">
-                      <span className="mr-1">{language === "EN" ? "Median:" : "Mediana:"}</span>
+                      <span className="mr-1">{inputs?.peMedianSource === "normalized10y" ? (language === "EN" ? "10Y median (normalized EPS):" : "Mediana 10 años (BPA normalizado):") : inputs?.peMedianSource === "monthly10y" ? (language === "EN" ? "10Y median:" : "Mediana 10 años:") : (language === "EN" ? "Median:" : "Mediana:")}</span>
                       <span>{calc.avgPe.toFixed(1)}×</span>
                     </div>
                   </div>

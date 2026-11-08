@@ -551,10 +551,14 @@ Retorno total ≈ Motor 1 (crecimiento del BPA) + Motor 2 (dividendo) + Motor 3 
 
 | Elemento | Regla |
 |---|---|
-| Motor 1 | Mediana de: CAGR del BPA diluido histórico, consenso a 1 año (BPA forward / BPA TTM − 1, descartado si > 40 % porque compara BPA ajustado con contable) y ancla fundamental (crecimiento de ventas + recompras). Misma normalización que §2.3 |
+| Motor 1 (general) | Mediana de: CAGR histórico robusto del BPA diluido (hasta 10 ejercicios de la SEC, entre la mediana de los 3 primeros y la de los 3 últimos, para que un año atípico —COVID, un cargo puntual— no lo distorsione; con < 5 ejercicios, entre el primero y el último positivos), consenso a 1 año (BPA forward / BPA TTM − 1, descartado si > 40 % porque compara BPA ajustado con contable) y ancla fundamental (crecimiento de ventas + recompras). Misma normalización que §2.3 |
+| Motor 1 (cíclicas) | Energía, materiales, maquinaria, automóvil, aerolíneas, construcción residencial, acero, transporte (`companyProfile`): crecimiento = CAGR de ventas a 10 años + recompras, acotado a 0-8 % |
+| BPA de partida | General: BPA de 12 meses; si se aparta > 30 % del último ejercicio (partidas extraordinarias), la mediana de los dos y del previsto. Cíclicas: media de los últimos 5 ejercicios (BPA normalizado). Se muestra un aviso en ambos casos |
+| REIT | Mismo método general con aviso: el BPA contable incluye amortizaciones y plusvalías por venta de inmuebles; su medida sería el FFO |
 | Motor 2 | Solo dividendo. Las recompras ya suben el BPA por acción: sumarlas también sería contarlas dos veces |
-| Motor 3 | (PER salida / PER actual)^(1/H) − 1, con PER actual = precio / BPA TTM |
-| PER de salida | Base: punto medio entre PER actual y mediana histórica (sin el actual y sin valores > 80×), máximo 30×. Alcista: el mayor, máximo 40×. Bajista: −20 % sobre el menor, mínimo 8× |
+| Motor 3 | (PER salida / PER actual)^(1/H) − 1, con PER actual = precio / BPA de partida |
+| PER histórico | Mediana a 10 años del PER mensual: cierre mensual / BPA diluido de los últimos 4 trimestres de la SEC, cada uno desde la fecha de su informe, sin valores > 80× (`peMedian10Y` de `/api/portfolio/financials`). Cíclicas: mediana de cierre mensual / BPA medio de los 5 últimos ejercicios publicados (`peNormMedian10Y`, como el CAPE), para comparar lo mismo que su PER actual normalizado. Sin datos, mediana de los cierres de ejercicio |
+| PER de salida | Base: punto medio entre PER actual y mediana histórica (cíclicas: la mediana), máximo 30×. Alcista: el mayor, máximo 40×. Bajista: −20 % sobre el menor, mínimo 8× |
 | Retorno total | TIR de: −precio hoy, dividendos que crecen con el BPA, y venta a BPA_H × PER de salida |
 | Valor justo | Los mismos flujos descontados a la tasa exigida ⇒ valor justo ≥ precio ⇔ TIR ≥ tasa exigida |
 | Tasa exigida | Por defecto, coste del capital por CAPM con beta ajustada, mínimo 8 % |
