@@ -29,6 +29,7 @@ import { getMarketStatus } from "../utils/market";
 import { PortfolioData, Holding } from "../types";
 import { SECTOR_TOP_HOLDINGS, SectorHoldingsConfig, SectorTopHolding } from "../data/sp500SectorHoldings";
 import SectorHeatmap from "./SectorHeatmap";
+import StockHeatmap from "./StockHeatmap";
 
 interface IndexCardProps {
   key?: any;
@@ -323,8 +324,8 @@ export default function MarketDashboard({
   }
 
   const [sectorTimeframe, setSectorTimeframe] = useState<"1D" | "1W" | "1M" | "YTD" | "1Y">("1D");
-  // Vista de sectores: mapa de calor (por defecto) o barras ordenadas
-  const [sectorView, setSectorView] = useState<"heatmap" | "bars">("heatmap");
+  // Mapa de calor por sectores (por defecto) o por acciones (top 10 de cada sector, al estilo Finviz)
+  const [sectorView, setSectorView] = useState<"sectors" | "stocks">("sectors");
   const [expandedSectorTicker, setExpandedSectorTicker] = useState<string | null>(null);
   const [sectorHoldingsData, setSectorHoldingsData] = useState<Record<string, SectorHoldingsConfig>>(SECTOR_TOP_HOLDINGS);
   const [top10SortBy, setTop10SortBy] = useState<"weight" | "perf" | "upside">("weight");
@@ -687,8 +688,8 @@ export default function MarketDashboard({
               <div className="flex items-center gap-2 self-start md:self-auto flex-wrap md:flex-nowrap shrink-0">
                 <div className="flex items-center bg-slate-950/90 p-1 rounded-xl border border-slate-800 shadow-inner">
                   {([
-                    { id: "heatmap", label: language === "ES" ? "Mapa" : "Heatmap" },
-                    { id: "bars", label: language === "ES" ? "Barras" : "Bars" },
+                    { id: "sectors", label: language === "ES" ? "Sectores" : "Sectors" },
+                    { id: "stocks", label: language === "ES" ? "Acciones" : "Stocks" },
                   ] as const).map((v) => (
                     <button
                       key={v.id}
@@ -1096,108 +1097,23 @@ export default function MarketDashboard({
                 );
               };
 
-              // Reusable Sector Row Renderer
-              const renderSectorRow = (sec: SectorItem, isPositive: boolean) => {
-                const val = getSectorPct(sec);
-                // Scaled to max 65% of track with safe margin to guarantee it never overlaps percentage
-                const barWidth = Math.max(Math.min((Math.abs(val) / maxAbsPct) * 65, 65), 3);
-                const rsiConfig = getRsiConfig(sec.rsi14);
-                const isExpanded = expandedSectorTicker === sec.ticker;
-
+              // VIEW: ACCIONES (mapa de calor del top 10 de cada sector)
+              if (sectorView === "stocks") {
                 return (
-                  <React.Fragment key={sec.key}>
-                    <div
-                      onClick={() => setExpandedSectorTicker(isExpanded ? null : sec.ticker)}
-                      className={`group flex items-center justify-between gap-2.5 sm:gap-3 text-xs py-2 px-2.5 rounded-xl transition-all cursor-pointer ${
-                        isExpanded
-                          ? "bg-slate-900 border border-amber-500/50 shadow-lg ring-1 ring-amber-500/20"
-                          : "bg-slate-950/30 hover:bg-slate-800/40 border border-slate-800/40 hover:border-slate-700/60"
-                      }`}
-                    >
-                      {/* Left Info: Ticker badge + Sector Name + ETF Price */}
-                      <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1 sm:flex-none sm:w-56 sm:flex-shrink-0">
-                        <span
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setExpandedSectorTicker(isExpanded ? null : sec.ticker);
-                          }}
-                          className={`font-mono text-[10px] font-bold px-1.5 py-0.5 rounded-md flex-shrink-0 transition-transform group-hover:scale-105 cursor-pointer ${
-                            isPositive
-                              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                              : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
-                          }`}
-                          title={language === "ES" ? `Click para ver Top 10 tickers de ${sec.ticker}` : `Click to view Top 10 tickers of ${sec.ticker}`}
-                        >
-                          {sec.ticker}
-                        </span>
-                        <div className="min-w-0 flex-1 truncate">
-                          <span className="text-slate-200 font-semibold block truncate text-xs group-hover:text-white transition-colors">
-                            {language === "ES" ? sec.nameES : sec.nameEN}
-                          </span>
-                        </div>
-                        {sec.price && (
-                          <span className="hidden sm:inline-block font-mono text-[10px] text-slate-500 text-right">
-                            ${sec.price.toFixed(2)}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Desktop Progress Bar (adjusted max-width and margin to prevent overlap) */}
-                      <div className="hidden sm:flex flex-1 max-w-[160px] md:max-w-[210px] lg:max-w-[260px] mx-3 sm:mx-4 h-2 bg-slate-950 rounded-full overflow-hidden relative border border-slate-800/40">
-                        <div
-                          className={`h-full rounded-full transition-all duration-500 shadow-sm ${
-                            isPositive
-                              ? "bg-gradient-to-r from-emerald-500/40 to-emerald-400 ml-auto"
-                              : "bg-gradient-to-r from-rose-400 to-rose-500/40 mr-auto"
-                          }`}
-                          style={{ width: `${barWidth}%` }}
-                        />
-                      </div>
-
-                      {/* Metrics right: % Return + RSI Gauge + Sentiment + Top 10 indicator */}
-                      <div className="w-auto sm:w-60 flex items-center justify-end gap-1.5 sm:gap-2.5 flex-shrink-0 pl-1">
-                        <span className={`font-mono font-bold min-w-[48px] sm:min-w-[56px] text-right text-xs ${isPositive ? "text-emerald-400" : "text-rose-400"}`}>
-                          {isPositive ? "+" : ""}{val.toFixed(2)}%
-                        </span>
-
-                        {/* RSI Badge */}
-                        <div className="flex items-center gap-1">
-                          <span className="text-[9px] text-slate-500 font-mono">RSI</span>
-                          <span className={`font-mono font-bold text-[10px] px-1.5 py-0.5 rounded border leading-none ${rsiConfig.badge}`}>
-                            {sec.rsi14.toFixed(1)}
-                          </span>
-                        </div>
-
-                        <span className={`text-[10px] font-bold uppercase tracking-wider font-mono w-16 text-right hidden sm:inline-block ${rsiConfig.text}`}>
-                          {rsiConfig.label}
-                        </span>
-
-                        {/* Top 10 Expand/Collapse indicator */}
-                        <div className="pl-1 flex-shrink-0">
-                          <span className={`inline-flex items-center gap-0.5 text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border transition-all ${
-                            isExpanded
-                              ? "bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-xs"
-                              : "bg-slate-900/60 text-slate-400 border-slate-800 group-hover:text-slate-200 group-hover:border-slate-700"
-                          }`}>
-                            <span>Top 10</span>
-                            {isExpanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Expandable Top 10 Box */}
-                    {isExpanded && renderSectorTop10Box(sec)}
-                  </React.Fragment>
+                  <StockHeatmap
+                    sectors={displayed.map((sec) => ({
+                      ticker: sec.ticker,
+                      nameEN: sec.nameEN,
+                      nameES: sec.nameES,
+                      holdings: (sectorHoldingsData[sec.ticker] || SECTOR_TOP_HOLDINGS[sec.ticker])?.holdings ?? [],
+                    }))}
+                    timeframe={sectorTimeframe}
+                    language={language === "ES" ? "ES" : "EN"}
+                  />
                 );
-              };
+              }
 
-              // VIEW: BARS (RANKING)
-              const positiveSectors = displayed.filter((s) => getSectorPct(s) >= 0).sort((a, b) => getSectorPct(b) - getSectorPct(a));
-              const negativeSectors = displayed.filter((s) => getSectorPct(s) < 0).sort((a, b) => getSectorPct(a) - getSectorPct(b));
-
-              // VIEW: MAPA DE CALOR (clic en un sector → su top 10 debajo)
-              if (sectorView === "heatmap") {
+              // VIEW: SECTORES (clic en un sector → su top 10 debajo)
                 const sel = displayed.find((s) => s.ticker === expandedSectorTicker) ?? null;
                 return (
                   <div className="space-y-3">
@@ -1212,39 +1128,6 @@ export default function MarketDashboard({
                     {sel && renderSectorTop10Box(sel)}
                   </div>
                 );
-              }
-
-              return (
-                <div className="space-y-5">
-                  {/* Positive Sectors */}
-                  {positiveSectors.length > 0 && (
-                    <div>
-                      <div className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider mb-2.5 px-1 flex items-center gap-1.5 font-mono">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50" />
-                        <span>{language === "ES" ? "Sectores en Alza" : "Advancing Sectors"}</span>
-                        <span className="text-slate-500 font-normal">({positiveSectors.length})</span>
-                      </div>
-                      <div className="space-y-1.5">
-                        {positiveSectors.map((sec) => renderSectorRow(sec, true))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Negative Sectors */}
-                  {negativeSectors.length > 0 && (
-                    <div className="pt-2">
-                      <div className="text-[10px] font-bold text-rose-400 uppercase tracking-wider mb-2.5 px-1 flex items-center gap-1.5 font-mono">
-                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shadow-sm shadow-rose-500/50" />
-                        <span>{language === "ES" ? "Sectores en Baja" : "Declining Sectors"}</span>
-                        <span className="text-slate-500 font-normal">({negativeSectors.length})</span>
-                      </div>
-                      <div className="space-y-1.5">
-                        {negativeSectors.map((sec) => renderSectorRow(sec, false))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
             })()}
           </div>
         </div>

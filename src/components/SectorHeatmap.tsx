@@ -15,7 +15,7 @@ export interface HeatmapSector {
 }
 
 // Peso aproximado de cada sector en el S&P 500 (%, se revisa de vez en cuando; solo da el tamaño)
-const SP500_SECTOR_WEIGHT: Record<string, number> = {
+export const SP500_SECTOR_WEIGHT: Record<string, number> = {
   XLK: 32, XLF: 13.5, XLY: 10.5, XLC: 10, XLV: 9, XLI: 8.5, XLP: 5.5, XLE: 3, XLU: 2.5, XLRE: 2.2, XLB: 2,
 };
 
@@ -29,7 +29,7 @@ interface Props {
 }
 
 /** Color divergente: gris neutro en 0, verde o rojo más intenso cuanto mayor el movimiento. */
-function tileColor(pct: number, scale: number): string {
+export function tileColor(pct: number, scale: number): string {
   const t = Math.max(-1, Math.min(1, pct / scale));
   const neutral = [87, 83, 78]; // stone-600
   const target = t >= 0 ? [21, 128, 61] : [185, 28, 28]; // green-700 / red-700
