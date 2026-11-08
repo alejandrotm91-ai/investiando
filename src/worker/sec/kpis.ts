@@ -845,7 +845,7 @@ export async function processKpiRelease(db: D1Database, env: ClaudeEnv & { SEC_U
 }
 
 /** Tarea programada: encola comunicados nuevos (cada 12 h por empresa) y procesa hasta `max`. */
-export async function runKpisCron(db: D1Database, env: ClaudeEnv & { SEC_USER_AGENT?: string }, max = 4): Promise<Record<string, unknown>> {
+export async function runKpisCron(db: D1Database, env: ClaudeEnv & { SEC_USER_AGENT?: string }, max = 6): Promise<Record<string, unknown>> {
   const out: Record<string, unknown> = {};
   for (const ticker of Object.keys(KPI_DEFS)) {
     if (fetchBudgetLeft() < 10) break;
