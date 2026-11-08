@@ -1342,14 +1342,19 @@ input[type="number"] {
   -moz-appearance: textfield;
 }
 
+/* Sin scroll horizontal. "clip" en vez de "hidden": hidden convierte html/body/#root en contenedores de
+   scroll que nunca se desplazan y anula position: sticky (cabecera y banner de la página de inicio).
+   Los navegadores sin "clip" se quedan con hidden. */
 html, body {
   overflow-x: hidden;
+  overflow-x: clip;
   max-width: 100vw;
   width: 100%;
 }
 
 #root {
   overflow-x: hidden;
+  overflow-x: clip;
   max-width: 100vw;
   width: 100%;
 }

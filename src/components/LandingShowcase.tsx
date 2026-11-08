@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 // Página de presentación (antes de iniciar sesión): un recorrido vertical por las funciones de la app
 // que aparece a medida que se hace scroll. Colores propios por tema (variables CSS en la raíz) para
@@ -63,10 +63,6 @@ html{scroll-behavior:smooth}
 .lp-rv-scale{animation:lp-grow linear both;animation-timeline:view();animation-range:entry 0% cover 35%}
 .lp-rv-line{stroke-dasharray:900;animation:lp-draw linear both;animation-timeline:view();animation-range:entry 10% cover 45%}
 }
-.lp-hero{position:relative}
-@media (min-width: 1024px) and (min-height: 720px){
-.lp-hero{position:sticky;top:72px;z-index:0}
-}
 @media (prefers-reduced-motion: reduce){
 .lp-rv,.lp-rv-scale,.lp-rv-line{animation:none !important}
 html{scroll-behavior:auto}
@@ -121,6 +117,23 @@ export default function LandingShowcase({ language, theme, onThemeChange, onLang
   const t = (en: string, esText: string) => (es ? esText : en);
   const dark = theme === "dark";
   const vars = Object.fromEntries(Object.entries(PALETTE[theme]).map(([k, v]) => [`--${k}`, v])) as React.CSSProperties;
+  // Banner fijo con el resto subiendo por encima: se fija cuando su borde inferior llega al final de
+  // la pantalla (top negativo si es más alto que la pantalla), así se ve entero en cualquier tamaño
+  const heroRef = useRef<HTMLElement>(null);
+  const [heroTop, setHeroTop] = useState(72);
+  useEffect(() => {
+    const el = heroRef.current;
+    if (!el) return;
+    const update = () => setHeroTop(Math.min(72, window.innerHeight - el.offsetHeight));
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    window.addEventListener("resize", update);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, []);
   const go = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
 
   const card: React.CSSProperties = { background: "var(--card)", border: "1px solid var(--line)", borderRadius: 24, boxShadow: "var(--shadow)" };
@@ -202,8 +215,8 @@ export default function LandingShowcase({ language, theme, onThemeChange, onLang
           </nav>
         </header>
 
-        {/* HERO (fijo en pantallas grandes: el resto sube por encima) */}
-        <section className="lp-hero" style={{ padding: "64px 24px 56px" }}>
+        {/* HERO (fijo: el resto sube por encima) */}
+        <section ref={heroRef} style={{ position: "sticky", top: heroTop, zIndex: 0, padding: "64px 24px 56px" }}>
           <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: "radial-gradient(60% 50% at 75% 30%, var(--glow), transparent 70%)", pointerEvents: "none" }} />
           <div style={{ position: "relative", maxWidth: 1200, margin: "0 auto", display: "flex", flexWrap: "wrap", gap: 56, alignItems: "center" }}>
             <div style={{ flex: "1 1 460px", minWidth: 0 }}>
