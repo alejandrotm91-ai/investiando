@@ -1,11 +1,25 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { SP500_SECTOR_WEIGHT, tileColor } from "./SectorHeatmap";
 
 // Mapa de calor por acciones, al estilo Finviz: cada sector es un bloque (tamaño = su peso aproximado
 // en el S&P 500) con sus mayores empresas dentro (tamaño = capitalización, o peso en el ETF si no la
 // hay; color = rentabilidad de la acción en el periodo). Cada bloque muestra tantas como caben
 // (unos 750 px² de media por baldosa, mínimo 10). Distribución "squarified" propia: la de Recharts no deja
 // sitio para el nombre del sector encima de su bloque.
+
+// Peso aproximado de cada sector en el S&P 500 (%, se revisa de vez en cuando; solo da el tamaño del bloque)
+const SP500_SECTOR_WEIGHT: Record<string, number> = {
+  XLK: 32, XLF: 13.5, XLY: 10.5, XLC: 10, XLV: 9, XLI: 8.5, XLP: 5.5, XLE: 3, XLU: 2.5, XLRE: 2.2, XLB: 2,
+};
+
+/** Color divergente: gris neutro en 0, verde o rojo más intenso cuanto mayor el movimiento. */
+function tileColor(pct: number, scale: number): string {
+  const t = Math.max(-1, Math.min(1, pct / scale));
+  const neutral = [87, 83, 78]; // stone-600
+  const target = t >= 0 ? [21, 128, 61] : [185, 28, 28]; // green-700 / red-700
+  const k = Math.pow(Math.abs(t), 0.7);
+  const c = neutral.map((n, i) => Math.round(n + (target[i] - n) * k));
+  return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+}
 
 type Timeframe = "1D" | "1W" | "1M" | "YTD" | "1Y";
 

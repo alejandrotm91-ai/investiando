@@ -28,7 +28,6 @@ import {
 import { getMarketStatus } from "../utils/market";
 import { PortfolioData, Holding } from "../types";
 import { SECTOR_TOP_HOLDINGS, SectorHoldingsConfig, SectorTopHolding } from "../data/sp500SectorHoldings";
-import SectorHeatmap from "./SectorHeatmap";
 import StockHeatmap from "./StockHeatmap";
 
 interface IndexCardProps {
@@ -328,27 +327,7 @@ export default function MarketDashboard({
   // Mapa de calor por acciones: 25-30 empresas por sector con capitalización (se pide al abrir la
   // vista Stocks y cada 3 minutos mientras está abierta)
   const [sectorMapData, setSectorMapData] = useState<Record<string, { symbol: string; name: string; cap: number | null; price: number | null; returns: Record<string, number> }[]> | null>(null);
-  const [sectorView, setSectorView] = useState<"sectors" | "stocks">("sectors");
-  useEffect(() => {
-    if (sectorView !== "stocks") return;
-    let alive = true;
-    const load = () =>
-      fetch("/api/market/sector-map")
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d) => {
-          if (alive && d && typeof d === "object" && Object.keys(d).length) setSectorMapData(d);
-        })
-        .catch(() => {});
-    load();
-    const id = setInterval(load, 3 * 60 * 1000);
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
-  }, [sectorView]);
-  const [expandedSectorTicker, setExpandedSectorTicker] = useState<string | null>(null);
   const [sectorHoldingsData, setSectorHoldingsData] = useState<Record<string, SectorHoldingsConfig>>(SECTOR_TOP_HOLDINGS);
-  const [top10SortBy, setTop10SortBy] = useState<"weight" | "perf" | "upside">("weight");
 
   // Fetch real-time sector top 10 holdings
   const fetchTop10 = useCallback(async () => {
@@ -368,9 +347,27 @@ export default function MarketDashboard({
     }
   }, []);
 
-  useEffect(() => {
-    fetchTop10();
+  // Mapa de calor por acciones (15-30 empresas por sector con capitalización). Si la ruta falla,
+  // se usa el top 10 por peso de cada ETF.
+  const fetchSectorMap = useCallback(async () => {
+    try {
+      const r = await fetch("/api/market/sector-map");
+      const d = r.ok ? await r.json() : null;
+      if (d && typeof d === "object" && Object.keys(d).length) {
+        setSectorMapData(d);
+        return;
+      }
+    } catch {
+      // se usa el top 10
+    }
+    await fetchTop10();
   }, [fetchTop10]);
+
+  useEffect(() => {
+    fetchSectorMap();
+    const id = setInterval(fetchSectorMap, 3 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [fetchSectorMap]);
 
   const [sectors, setSectors] = useState<SectorItem[]>([
     { key: "technology", ticker: "XLK", nameEN: "Technology", nameES: "Tecnología", category: "growth", price: 195.75, pct: 0.64, pct1W: 0.21, pct1M: 7.06, pctYTD: 12.71, pct1Y: 22.59, rsi14: 65.1, sparkline: [12, 31, 4, 0, 2, 34, 47, 89, 100, 93, 88, 100, 86, 86, 96], sentiment: "Bullish", sentimentES: "Alcista" },
@@ -601,7 +598,7 @@ export default function MarketDashboard({
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([fetchSectors(), fetchIndices(), fetchMarketData(), fetchTop10()]);
+    await Promise.all([fetchSectors(), fetchIndices(), fetchMarketData(), fetchSectorMap()]);
     setRefreshing(false);
   };
 
@@ -704,24 +701,8 @@ export default function MarketDashboard({
                 </div>
               </div>
 
-              {/* Controls: vista (mapa de calor / barras) + escala temporal, en la misma fila */}
+              {/* Escala temporal */}
               <div className="flex items-center gap-2 self-start md:self-auto flex-wrap md:flex-nowrap shrink-0">
-                <div className="flex items-center bg-slate-950/90 p-1 rounded-xl border border-slate-800 shadow-inner">
-                  {([
-                    { id: "sectors", label: language === "ES" ? "Sectores" : "Sectors" },
-                    { id: "stocks", label: language === "ES" ? "Acciones" : "Stocks" },
-                  ] as const).map((v) => (
-                    <button
-                      key={v.id}
-                      onClick={() => setSectorView(v.id)}
-                      className={`px-3 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${
-                        sectorView === v.id ? "bg-slate-700 text-white shadow" : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
-                      }`}
-                    >
-                      {v.label}
-                    </button>
-                  ))}
-                </div>
                 <div className="flex items-center bg-slate-950/90 p-1 rounded-xl border border-slate-800 shadow-inner">
                   {(["1D", "1W", "1M", "YTD", "1Y"] as const).map((tf) => {
                     const active = sectorTimeframe === tf;
@@ -816,343 +797,21 @@ export default function MarketDashboard({
               );
             })()}
 
-            {/* Main Interactive Views */}
-            {(() => {
-              const displayed = sectors;
-
-              const maxAbsPct = Math.max(...displayed.map((s) => Math.abs(getSectorPct(s))), 0.1);
-
-              const getRsiConfig = (rsiVal: number) => {
-                if (rsiVal > 70) {
-                  return {
-                    badge: "text-amber-400 bg-amber-500/10 border-amber-500/20",
-                    text: "text-amber-400",
-                    dot: "bg-amber-400",
-                    label: language === "ES" ? "Sobrecompra" : "Overbought"
-                  };
-                }
-                if (rsiVal < 30) {
-                  return {
-                    badge: "text-purple-400 bg-purple-500/10 border-purple-500/20",
-                    text: "text-purple-400",
-                    dot: "bg-purple-400",
-                    label: language === "ES" ? "Sobrevendido" : "Oversold"
-                  };
-                }
-                if (rsiVal > 55) {
-                  return {
-                    badge: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
-                    text: "text-emerald-400",
-                    dot: "bg-emerald-400",
-                    label: language === "ES" ? "Alcista" : "Bullish"
-                  };
-                }
-                if (rsiVal < 45) {
-                  return {
-                    badge: "text-rose-400 bg-rose-500/10 border-rose-500/20",
-                    text: "text-rose-400",
-                    dot: "bg-rose-400",
-                    label: language === "ES" ? "Bajista" : "Bearish"
-                  };
-                }
-                return {
-                  badge: "text-slate-400 bg-slate-800/50 border-slate-700/50",
-                  text: "text-slate-400",
-                  dot: "bg-slate-400",
-                  label: language === "ES" ? "Neutral" : "Neutral"
-                };
-              };
-
-              // Top 10 by Weight expandable card for any clicked sector
-              const renderSectorTop10Box = (sec: SectorItem) => {
-                const holdingsConfig = sectorHoldingsData[sec.ticker] || SECTOR_TOP_HOLDINGS[sec.ticker];
-                if (!holdingsConfig || !holdingsConfig.holdings || holdingsConfig.holdings.length === 0) {
-                  return null;
-                }
-
-                let list = [...holdingsConfig.holdings];
-                if (top10SortBy === "perf") {
-                  list.sort((a, b) => (b.returns[sectorTimeframe] ?? 0) - (a.returns[sectorTimeframe] ?? 0));
-                } else if (top10SortBy === "upside") {
-                  list.sort((a, b) => {
-                    const highA = a.fiftyTwoWeekHigh || a.price * 1.08;
-                    const upA = a.upside52WHighPct !== undefined ? a.upside52WHighPct : (a.price > 0 && highA > a.price ? ((highA - a.price) / a.price) * 100 : 0);
-                    const highB = b.fiftyTwoWeekHigh || b.price * 1.08;
-                    const upB = b.upside52WHighPct !== undefined ? b.upside52WHighPct : (b.price > 0 && highB > b.price ? ((highB - b.price) / b.price) * 100 : 0);
-                    return upB - upA;
-                  });
-                } else {
-                  list.sort((a, b) => b.weight - a.weight);
-                }
-
-                const top10 = list.slice(0, 10);
-                const maxWeight = Math.max(...top10.map((h) => h.weight), 1);
-                const totalTop10Weight = top10.reduce((sum, h) => sum + h.weight, 0);
-                const avgReturn = top10.reduce((sum, h) => sum + (h.returns[sectorTimeframe] ?? 0), 0) / (top10.length || 1);
-
-                const avgUpside = top10.reduce((sum, h) => {
-                  const high52 = h.fiftyTwoWeekHigh || Math.round(h.price * 1.08 * 100) / 100;
-                  const up = h.upside52WHighPct !== undefined ? h.upside52WHighPct : (h.price > 0 && high52 > h.price ? ((high52 - h.price) / h.price) * 100 : 0);
-                  return sum + up;
-                }, 0) / (top10.length || 1);
-
-                const byPerf = [...top10].sort((a, b) => (b.returns[sectorTimeframe] ?? 0) - (a.returns[sectorTimeframe] ?? 0));
-                const leader = byPerf[0];
-                const laggard = byPerf[byPerf.length - 1];
-
-                return (
-                  <div className="my-2 p-3 sm:p-4 bg-slate-900/95 border border-amber-500/40 rounded-2xl shadow-2xl relative overflow-hidden transition-all backdrop-blur-md">
-                    {/* Top accent glow line */}
-                    <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-amber-500/10 via-amber-400 to-amber-500/10" />
-
-                    {/* Header bar */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-slate-800/80">
-                      <div className="flex items-center gap-2 flex-wrap min-w-0">
-                        <span className="font-mono text-xs font-black px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30 shadow-xs">
-                          {sec.ticker}
-                        </span>
-                        <span className="text-white font-bold text-xs sm:text-sm truncate">
-                          {language === "ES" ? sec.nameES : sec.nameEN}
-                        </span>
-                        <span className="text-[10px] font-mono font-semibold text-slate-300 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700">
-                          {language === "ES" ? "Top 10 por Ponderación (Weight)" : "Top 10 Holdings by Weight"}
-                        </span>
-                        <span className="text-[10px] font-mono text-amber-400/90 font-medium">
-                          ~{totalTop10Weight.toFixed(1)}% {language === "ES" ? "del ETF" : "of ETF"}
-                        </span>
-                      </div>
-
-                      {/* Controls: Sort toggle + Close */}
-                      <div className="flex items-center gap-2 self-end sm:self-auto flex-wrap">
-                        {/* Sort toggle */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setTop10SortBy((prev) => (prev === "weight" ? "perf" : prev === "perf" ? "upside" : "weight"));
-                          }}
-                          className="px-2 py-0.5 text-[9px] font-mono text-slate-300 bg-slate-800/80 hover:bg-slate-700 border border-slate-700 rounded-md transition-colors cursor-pointer"
-                          title={language === "ES" ? "Alternar orden: Peso, Retorno o Upside a Máx 52S" : "Toggle sort: Weight, Return or 52W Upside"}
-                        >
-                          {language === "ES"
-                            ? top10SortBy === "weight"
-                              ? "Orden: Peso"
-                              : top10SortBy === "perf"
-                              ? "Orden: Retorno"
-                              : "Orden: Upside 52S"
-                            : top10SortBy === "weight"
-                              ? "Sort: Weight"
-                              : top10SortBy === "perf"
-                              ? "Sort: Return"
-                              : "Sort: 52W Upside"}
-                        </button>
-
-                        {/* Close button */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setExpandedSectorTicker(null);
-                          }}
-                          className="w-6 h-6 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-                          title={language === "ES" ? "Cerrar panel" : "Close panel"}
-                        >
-                          <X size={13} />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Top 10 Table */}
-                    <div className="mt-2 overflow-x-auto">
-                      <table className="w-full text-left text-xs">
-                        <thead>
-                          <tr className="border-b border-slate-800/80 text-[10px] font-mono text-slate-400 uppercase tracking-wider">
-                            <th className="py-1.5 px-2 w-7 text-center">#</th>
-                            <th className="py-1.5 px-2">{language === "ES" ? "Ticker & Empresa" : "Ticker & Company"}</th>
-                            <th className="py-1.5 px-2 text-right">{language === "ES" ? "Ponderación (Weight)" : "Weight"}</th>
-                            <th className="py-1.5 px-2 text-right">{language === "ES" ? "Precio" : "Price"}</th>
-                            <th className="py-1.5 px-2 text-right">
-                              {language === "ES" ? `Rendimiento (${sectorTimeframe})` : `Performance (${sectorTimeframe})`}
-                            </th>
-                            <th className="py-1.5 px-2 text-right hidden sm:table-cell">
-                              52wk High
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-800/40">
-                          {top10.map((h, idx) => {
-                            const ret = h.returns[sectorTimeframe] ?? 0;
-                            const isPos = ret >= 0;
-                            const weightRatio = Math.min((h.weight / maxWeight) * 100, 100);
-
-                            const high52 = h.fiftyTwoWeekHigh || Math.round(h.price * 1.08 * 100) / 100;
-                            const upsideToHighPct = h.upside52WHighPct !== undefined
-                              ? h.upside52WHighPct
-                              : (h.price > 0 && high52 > h.price ? Number((((high52 - h.price) / h.price) * 100).toFixed(1)) : 0);
-                            const isAtAth = h.price >= high52 || upsideToHighPct <= 0;
-
-                            return (
-                              <tr
-                                key={h.symbol}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (onSelectTicker) onSelectTicker(h.symbol);
-                                }}
-                                className="hover:bg-slate-800/40 transition-colors group/row cursor-pointer"
-                                title={language === "ES" ? `Explorar fundamentales de ${h.symbol}` : `Explore fundamentals for ${h.symbol}`}
-                              >
-                                <td className="py-1.5 px-2 font-mono text-[10px] text-slate-500 text-center font-bold">
-                                  #{idx + 1}
-                                </td>
-                                <td className="py-1.5 px-2">
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-mono text-[11px] font-black text-white bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800 group-hover/row:border-amber-500/50 group-hover/row:text-amber-300 transition-colors">
-                                      {h.symbol}
-                                    </span>
-                                    <span className="text-[11px] text-slate-300 truncate max-w-[120px] sm:max-w-[200px]">
-                                      {h.name}
-                                    </span>
-                                    {onSelectTicker && (
-                                      <ExternalLink size={10} className="text-slate-500 opacity-0 group-hover/row:opacity-100 transition-opacity" />
-                                    )}
-                                  </div>
-                                </td>
-                                <td className="py-1.5 px-2 text-right">
-                                  <div className="flex items-center justify-end gap-2">
-                                    <div className="hidden sm:block w-14 h-1.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800/60">
-                                      <div
-                                        className="h-full bg-gradient-to-r from-amber-500/50 to-amber-400 rounded-full"
-                                        style={{ width: `${weightRatio}%` }}
-                                      />
-                                    </div>
-                                    <span className="font-mono text-[11px] font-bold text-slate-200">
-                                      {h.weight.toFixed(1)}%
-                                    </span>
-                                  </div>
-                                </td>
-                                <td className="py-1.5 px-2 text-right font-mono text-[11px] text-slate-300">
-                                  <div className="flex flex-col items-end">
-                                    <span>${h.price.toFixed(2)}</span>
-                                    {!isAtAth && (
-                                      <span className="block sm:hidden text-[9px] text-emerald-400 font-mono mt-0.5 font-semibold">
-                                        +{upsideToHighPct.toFixed(1)}%
-                                      </span>
-                                    )}
-                                  </div>
-                                </td>
-                                <td className="py-1.5 px-2 text-right font-mono">
-                                  <span className={`inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md font-bold text-[10px] sm:text-[11px] ${
-                                    isPos
-                                      ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                                      : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
-                                  }`}>
-                                    {isPos ? <ArrowUpRight size={11} /> : <ArrowDownRight size={11} />}
-                                    {isPos ? "+" : ""}{ret.toFixed(2)}%
-                                  </span>
-                                </td>
-                                <td className="py-1.5 px-2 text-right font-mono hidden sm:table-cell">
-                                  <div className="flex flex-col items-end leading-tight">
-                                    <span className="text-[11px] font-bold text-slate-200">
-                                      ${high52.toFixed(2)}
-                                    </span>
-                                    {!isAtAth && (
-                                      <span
-                                        className="text-[10px] font-semibold text-emerald-400 mt-0.5"
-                                        title={language === "ES" ? `Upside para alcanzar el 52wk High: +${upsideToHighPct.toFixed(1)}%` : `Upside to reach 52wk High: +${upsideToHighPct.toFixed(1)}%`}
-                                      >
-                                        +{upsideToHighPct.toFixed(1)}%
-                                      </span>
-                                    )}
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {/* Summary Footer */}
-                    <div className="mt-2.5 pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2.5 text-[10px] font-mono text-slate-400">
-                      <div className="flex items-center gap-3 sm:gap-4 flex-wrap">
-                        <div>
-                          <span>{language === "ES" ? "Promedio Top 10" : "Top 10 Mean"}: </span>
-                          <span className={`font-bold ${avgReturn >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                            {avgReturn >= 0 ? "+" : ""}{avgReturn.toFixed(2)}%
-                          </span>
-                        </div>
-                        <div>
-                          <span>{language === "ES" ? "Upside medio (52S)" : "Avg Upside (52W)"}: </span>
-                          <span className="font-bold text-emerald-400">
-                            +{avgUpside.toFixed(1)}%
-                          </span>
-                        </div>
-                        {leader && (
-                          <div className="flex items-center gap-1">
-                            <Flame size={11} className="text-emerald-400" />
-                            <span>{language === "ES" ? "Líder" : "Leader"}: </span>
-                            <span className="font-bold text-white">{leader.symbol}</span>
-                            <span className="text-emerald-400 font-bold">
-                              +{(leader.returns[sectorTimeframe] ?? 0).toFixed(2)}%
-                            </span>
-                          </div>
-                        )}
-                        {laggard && (
-                          <div className="flex items-center gap-1">
-                            <TrendingDown size={11} className="text-rose-400" />
-                            <span>{language === "ES" ? "Rezago" : "Laggard"}: </span>
-                            <span className="font-bold text-white">{laggard.symbol}</span>
-                            <span className="text-rose-400 font-bold">
-                              {(laggard.returns[sectorTimeframe] ?? 0) >= 0 ? "+" : ""}{(laggard.returns[sectorTimeframe] ?? 0).toFixed(2)}%
-                            </span>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="text-[9px] text-slate-500 flex items-center gap-1">
-                        <span>{language === "ES" ? "Fuente: SPDR S&P 500 ETF" : "Source: SPDR S&P 500 ETF"}</span>
-                        <span>•</span>
-                        <span>{sec.ticker}</span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              };
-
-              // VIEW: ACCIONES (mapa de calor del top 10 de cada sector)
-              if (sectorView === "stocks") {
-                return (
-                  <StockHeatmap
-                    sectors={displayed.map((sec) => ({
-                      ticker: sec.ticker,
-                      nameEN: sec.nameEN,
-                      nameES: sec.nameES,
-                      pct: getSectorPct(sec as SectorItem),
-                      rsi: sec.rsi14,
-                      holdings: sectorMapData?.[sec.ticker]?.length
-                        ? sectorMapData[sec.ticker]
-                        : (sectorHoldingsData[sec.ticker] || SECTOR_TOP_HOLDINGS[sec.ticker])?.holdings ?? [],
-                    }))}
-                    timeframe={sectorTimeframe}
-                    language={language === "ES" ? "ES" : "EN"}
-                  />
-                );
-              }
-
-              // VIEW: SECTORES (clic en un sector → su top 10 debajo)
-                const sel = displayed.find((s) => s.ticker === expandedSectorTicker) ?? null;
-                return (
-                  <div className="space-y-3">
-                    <SectorHeatmap
-                      sectors={displayed}
-                      pctOf={(s) => getSectorPct(s as SectorItem)}
-                      timeframe={sectorTimeframe}
-                      selected={expandedSectorTicker}
-                      onSelect={setExpandedSectorTicker}
-                      language={language === "ES" ? "ES" : "EN"}
-                    />
-                    {sel && renderSectorTop10Box(sel)}
-                  </div>
-                );
-            })()}
+            {/* Mapa de calor por acciones (al estilo Finviz) */}
+            <StockHeatmap
+              sectors={sectors.map((sec) => ({
+                ticker: sec.ticker,
+                nameEN: sec.nameEN,
+                nameES: sec.nameES,
+                pct: getSectorPct(sec),
+                rsi: sec.rsi14,
+                holdings: sectorMapData?.[sec.ticker]?.length
+                  ? sectorMapData[sec.ticker]
+                  : (sectorHoldingsData[sec.ticker] || SECTOR_TOP_HOLDINGS[sec.ticker])?.holdings ?? [],
+              }))}
+              timeframe={sectorTimeframe}
+              language={language === "ES" ? "ES" : "EN"}
+            />
           </div>
         </div>
 
