@@ -132,7 +132,7 @@ const days = (a: string, b: string) => Math.round((t(b) - t(a)) / DAY);
 const nextDay = (d: string) => new Date(t(d) + DAY).toISOString().slice(0, 10);
 const ALLOWED = new Set(["10-K", "10-K/A", "10-Q", "10-Q/A", "10-KT", "10-KT/A"]);
 
-interface Picked { val: number; filed: string; form: string; accn: string }
+interface Picked { val: number; filed: string; form: string; accn: string; tag?: string }
 
 /** Último valor presentado para cada (inicio, fin) o (fin) de una etiqueta. */
 function indexTag(facts: SecFact[] | undefined, instant: boolean): Map<string, Picked> {
@@ -210,13 +210,21 @@ export function normalizeCompanyFacts(cf: CompanyFacts, opts: NormalizeOptions =
       if (!idx.has(key)) idx.set(key, indexTag(unitFacts(cf, tag, c.kind), c.kind === "instant"));
     }
   }
-  const getDur = (c: ConceptDef, start: string, end: string): Picked | undefined => {
+  // `preferTag`: en los conceptos con pick "max" (ingresos), la etiqueta que usó el ejercicio. Los
+  // trimestres usan la misma si la tienen, para que el T4 (año − 9 meses) cuadre: Mastercard da los
+  // ingresos netos en Revenues y los brutos antes de incentivos en RevenueFromContract…, y el máximo
+  // tomaba los brutos en los trimestres de 2022 (T4 negativo).
+  const getDur = (c: ConceptDef, start: string, end: string, preferTag?: string): Picked | undefined => {
+    if (c.pick === "max" && preferTag) {
+      const v = idx.get(`${c.kind}:${preferTag}`)?.get(`${start}|${end}`);
+      if (v) return { ...v, tag: preferTag };
+    }
     if (c.pick === "max") {
       let best: Picked | undefined;
       for (const tag of c.tags) {
         if (c.maxExclude?.includes(tag)) continue;
         const v = idx.get(`${c.kind}:${tag}`)!.get(`${start}|${end}`);
-        if (v && (!best || v.val > best.val)) best = v;
+        if (v && (!best || v.val > best.val)) best = { ...v, tag };
       }
       if (best) return best;
     }
@@ -237,8 +245,46 @@ export function normalizeCompanyFacts(cf: CompanyFacts, opts: NormalizeOptions =
   const annual: SecPeriod[] = [];
   const quarterly: SecPeriod[] = [];
 
+  /** Trimestres de un concepto en un ejercicio (directo o diferencia de acumulados), con o sin etiqueta preferida. */
+  const quarterVals = (c: ConceptDef, fy: FiscalYear, ends: string[], pref?: string): (number | undefined)[] => {
+    let prev: string | null = null;
+    return ends.map((qEnd) => {
+      const qStart = prev ? nextDay(prev) : fy.start;
+      const before = prev;
+      prev = qEnd;
+      const d = getDur(c, qStart, qEnd, pref);
+      if (d) return d.val;
+      const cum = getDur(c, fy.start, qEnd, pref);
+      if (!cum) return undefined;
+      if (!before) return cum.val;
+      const cp = getDur(c, fy.start, before, pref);
+      return cp ? cum.val - cp.val : undefined;
+    });
+  };
+  // Conceptos "max" (ingresos): si el máximo da algún trimestre imposible (≤ 0 o menos de un tercio de
+  // la media de los demás), los trimestres usan la etiqueta del ejercicio (o la del último completo)
+  let lastFyTag = new Map<string, string>();
   for (const fy of fys) {
     const fiscalYear = Number(fy.end.slice(0, 4));
+    const fyTag = new Map<string, string>();
+    {
+      const complete = fys.indexOf(fy) < fys.length - 1 || getDur(CONCEPTS[0], fy.start, fy.end) !== undefined;
+      const ends = [...fy.quarterEnds, ...(complete ? [fy.end] : [])];
+      for (const c of CONCEPTS) {
+        if (c.pick !== "max") continue;
+        const tag = getDur(c, fy.start, fy.end)?.tag ?? lastFyTag.get(c.key);
+        if (!tag) continue;
+        lastFyTag.set(c.key, tag);
+        const vals = quarterVals(c, fy, ends).filter((v): v is number => typeof v === "number");
+        const bad = vals.some((v, i) => {
+          if (v <= 0) return true;
+          const others = vals.filter((_, j) => j !== i);
+          const mean = others.length ? others.reduce((a, b) => a + b, 0) / others.length : v;
+          return v < mean / 3;
+        });
+        if (bad) fyTag.set(c.key, tag);
+      }
+    }
     const isComplete = fys.indexOf(fy) < fys.length - 1 || getDur(CONCEPTS[0], fy.start, fy.end) !== undefined || getDur(CONCEPTS.find((c) => c.key === "netIncome")!, fy.start, fy.end) !== undefined;
 
     // --- Ejercicio completo ---
@@ -269,7 +315,8 @@ export function normalizeCompanyFacts(cf: CompanyFacts, opts: NormalizeOptions =
           continue;
         }
         // Valor directo de 3 meses
-        let direct = c.kind !== "perShare" || !isQ4 ? getDur(c, qStart, qEnd) : undefined;
+        const pref = fyTag.get(c.key);
+        let direct = c.kind !== "perShare" || !isQ4 ? getDur(c, qStart, qEnd, pref) : undefined;
         if (direct) {
           p[c.key] = c.sign === -1 ? -Math.abs(direct.val) : direct.val;
           track(p, direct);
@@ -295,14 +342,14 @@ export function normalizeCompanyFacts(cf: CompanyFacts, opts: NormalizeOptions =
           continue;
         }
         // Acumulado del ejercicio hasta este cierre − acumulado hasta el cierre anterior
-        const cum = getDur(c, fy.start, qEnd);
+        const cum = getDur(c, fy.start, qEnd, pref);
         if (!cum) continue;
         if (!prevEnd) {
           p[c.key] = c.sign === -1 ? -Math.abs(cum.val) : cum.val;
           track(p, cum);
           continue;
         }
-        const cumPrev = getDur(c, fy.start, prevEnd);
+        const cumPrev = getDur(c, fy.start, prevEnd, pref);
         if (cumPrev) {
           const v = cum.val - cumPrev.val;
           p[c.key] = c.sign === -1 ? -Math.abs(v) : v;
