@@ -86,3 +86,44 @@ export function parseExtensionFacts(xml: string, meta: { accn: string; form: str
   }
   return out;
 }
+
+/**
+ * Cifras de una sola clase de acción: contextos cuya única dimensión es StatementClassOfStockAxis
+ * con el miembro `member` (nombre sin prefijo, p. ej. "CommonClassAMember"). Visa y Berkshire solo
+ * publican el BPA y las acciones medias por clase, y companyfacts no trae cifras con dimensiones.
+ * Devuelve, por etiqueta us-gaap de `tags`, las cifras con duración.
+ */
+export function parseClassFacts(
+  xml: string,
+  meta: { accn: string; form: string; filed: string },
+  member: string,
+  tags: string[]
+): Map<string, SecFact[]> {
+  const ctx = new Map<string, Ctx>();
+  const ctxRe = /<(?:[\w-]+:)?context\b([^>]*)>([\s\S]*?)<\/(?:[\w-]+:)?context>/g;
+  for (const m of xml.matchAll(ctxRe)) {
+    const id = attr(m[1], "id");
+    const body = m[2];
+    const dims = [...body.matchAll(/dimension="([^"]+)"[^>]*>\s*([^<\s]+)\s*</g)];
+    if (!id || dims.length !== 1) continue;
+    const [, axis, mem] = dims[0];
+    if (axis.split(":").pop() !== "StatementClassOfStockAxis" || mem.split(":").pop() !== member) continue;
+    const start = body.match(/<(?:[\w-]+:)?startDate>\s*([\d-]+)\s*</)?.[1];
+    const end = body.match(/<(?:[\w-]+:)?endDate>\s*([\d-]+)\s*</)?.[1];
+    if (start && end) ctx.set(id, { start, end });
+  }
+  const out = new Map<string, SecFact[]>();
+  const want = new Set(tags);
+  const factRe = /<us-gaap:(\w+)\b([^>]*?)(?:\/>|>([^<]*)<\/us-gaap:\1>)/g;
+  for (const m of xml.matchAll(factRe)) {
+    const [, tag, attrs, raw] = m;
+    if (!want.has(tag) || raw === undefined || /xsi:nil="true"/.test(attrs)) continue;
+    const c = ctx.get(attr(attrs, "contextRef") ?? "");
+    const val = Number(raw.trim());
+    if (!c?.start || !Number.isFinite(val)) continue;
+    const list = out.get(tag) ?? [];
+    if (!list.some((x) => x.start === c.start && x.end === c.end)) list.push({ start: c.start, end: c.end, val, accn: meta.accn, form: meta.form, filed: meta.filed });
+    out.set(tag, list);
+  }
+  return out;
+}

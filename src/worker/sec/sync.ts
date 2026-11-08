@@ -12,6 +12,7 @@ import { secFetch, cik10, fetchBudgetLeft, BudgetExhausted } from "./client";
 import { mergeCompanyFacts, normalizeCompanyFacts, type CompanyFacts, type SecPeriod } from "./normalize";
 import { parseXbrlInstance } from "./xbrl";
 import { fillExtensionCapex } from "./capex";
+import { fillClassEps } from "./classEps";
 import { SEC_UNIVERSE } from "./universe";
 
 export interface SecFinancials {
@@ -222,10 +223,17 @@ export async function syncCompany(db: D1Database, ticker: string, ua?: string): 
       return null;
     });
     if (withCapex) ({ annual, quarterly } = withCapex);
+    // BPA y acciones de empresas que solo los publican por clase de acción (classEps.ts)
+    const classEps = await fillClassEps(db, t, merged, { annual, quarterly }, (f) => fetchFilingText(id.cik, f, "instance", ua)).catch((e) => {
+      if (isBudgetError(e)) throw e;
+      return { result: null, more: false };
+    });
+    if (classEps.result) ({ annual, quarterly } = classEps.result);
     if (annual.length === 0 && quarterly.length === 0) throw new Error(`${t}: sin 10-K/10-Q normalizables`);
     const latest = [...annual, ...quarterly].sort((a, b) => (b.filed || "").localeCompare(a.filed || ""))[0];
     const lastPeriod = [quarterly[0]?.date, annual[0]?.date].filter(Boolean).sort().pop() ?? null;
     const now = Date.now();
+    const syncedAt = classEps.more ? 0 : now;
     await db
       .prepare(
         `INSERT INTO sec_companies (ticker, cik, name, in_universe, annual, quarterly, last_filed, last_form, last_period, synced_at, error)
@@ -235,7 +243,7 @@ export async function syncCompany(db: D1Database, ticker: string, ua?: string): 
            last_period = excluded.last_period, synced_at = excluded.synced_at, error = NULL`
       )
       .bind(t, id.cik, all[0].entityName ?? id.name, inUniverse, JSON.stringify(annual), JSON.stringify(quarterly),
-        latest?.filed ?? null, latest?.form ?? null, lastPeriod, now)
+        latest?.filed ?? null, latest?.form ?? null, lastPeriod, syncedAt)
       .run();
     return { ticker: t, cik: id.cik, name: all[0].entityName ?? id.name, annual, quarterly, lastFiled: latest?.filed ?? null, lastForm: latest?.form ?? null, lastPeriod, syncedAt: now };
   } catch (e: any) {
