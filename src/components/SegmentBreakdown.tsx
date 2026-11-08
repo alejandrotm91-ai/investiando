@@ -29,7 +29,11 @@ interface SegAxis {
   periods: SegPeriod[];
   recast?: { filed: string; accn: string; url: string | null };
 }
-interface SegmentData { asOf: string | null; axes: Partial<Record<AxisKey, SegAxis>> }
+interface SegmentData {
+  asOf: string | null;
+  axes: Partial<Record<AxisKey, SegAxis>>;
+  single?: { id: string; label: string; periods: SegPeriod[] }; // un solo segmento (Netflix): solo márgenes
+}
 
 interface Props {
   ticker: string;
@@ -434,6 +438,25 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
       {/* Márgenes y costes por segmento (solo eje de segmentos) */}
       {axis === "segment" && (
         <SegmentMargins periods={view.periods} series={view.visible.filter((s) => s.id !== OTHER)} label={view.label} theme={theme} isES={isES} />
+      )}
+      {/* Un solo segmento (Netflix, Pfizer): no hay desglose, pero sí márgenes y costes de ese segmento */}
+      {!data.axes.segment && data.single && (
+        <SegmentMargins
+          periods={data.single.periods
+            .filter((p) => p.kind === activeKind)
+            .sort((a, b) => a.date.localeCompare(b.date))
+            .slice(activeKind === "Q" ? -8 : -11)}
+          series={[
+            {
+              id: data.single.id,
+              label: /reportable/i.test(data.single.label) ? (isES ? "Toda la empresa (un solo segmento)" : "Whole company (single segment)") : data.single.label,
+              color: PALETTE[theme][0],
+            },
+          ]}
+          label={view.label}
+          theme={theme}
+          isES={isES}
+        />
       )}
 
       {view.anyRecast && axisData?.recast && (

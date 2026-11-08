@@ -16,8 +16,9 @@ import { SEC_UNIVERSE } from "./universe";
 const PREV_CIKS = new Map(SEC_UNIVERSE.filter((u) => u.prev).map((u) => [u.ticker, u.prev!]));
 
 const KEEP_FILINGS = 6;
-// Versión del lector de cada informe: 2 = total sin dimensiones por informe + gastos por segmento
-const READ_VERSION = "2";
+// Versión del lector de cada informe: 2 = total sin dimensiones por informe + gastos por segmento;
+// 3 = etiquetas propias de Uber y Netflix
+const READ_VERSION = "3";
 const YEARS_KEPT = 4.5; // cifras trimestrales y acumuladas
 const YEARS_KEPT_ANNUAL = 12.5; // ejercicios completos
 const HISTORY_10K = [3, 6, 9]; // posiciones en la lista de ejercicios de la capa 1

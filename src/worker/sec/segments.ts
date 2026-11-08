@@ -56,8 +56,16 @@ const AGGREGATE_MEMBER = /:ReportableSegmentAggregationBeforeOtherOperatingSegme
  * la primera etiqueta con dato.
  */
 export type CostKey = "cogs" | "sga" | "rnd" | "sm" | "ga" | "da" | "capex";
-export const COST_TAGS: Record<CostKey, string[]> = {
-  cogs: ["CostOfGoodsAndServicesSold", "CostOfRevenue", "CostOfGoodsSold", "CostOfServices"],
+// Una lista dentro de la lista = suma de partes (solo si están todas). Etiquetas propias de empresa
+// con su prefijo: costes directos de Uber (seguros, pagos…) y la amortización de contenidos de
+// Netflix, que con "otros costes de ingresos" forma su coste de ventas.
+export const COST_TAGS: Record<CostKey, (string | string[])[]> = {
+  cogs: [
+    "CostOfGoodsAndServicesSold", "CostOfRevenue", "CostOfGoodsSold", "CostOfServices",
+    "uber:PlatformParticipantDirectTransactionCosts",
+    ["nflx:CostOfServicesAmortizationOfStreamingContentAssets", "OtherCostOfOperatingRevenue"],
+    ["nflx:CostofServicesAmortizationofStreamingContentAssets", "OtherCostOfOperatingRevenue"], // así en el 10-K
+  ],
   sga: ["SellingGeneralAndAdministrativeExpense"],
   rnd: ["ResearchAndDevelopmentExpense", "ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost"],
   sm: ["SellingAndMarketingExpense"],
@@ -65,10 +73,11 @@ export const COST_TAGS: Record<CostKey, string[]> = {
   da: ["DepreciationDepletionAndAmortization", "DepreciationAndAmortization", "DepreciationAmortizationAndAccretionNet", "Depreciation"],
   capex: ["SegmentExpenditureAdditionToLongLivedAssets", "PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets"],
 };
-// Beneficio del segmento antes de impuestos (Caterpillar): solo si no hay beneficio operativo
-const PROFIT_ALT = ["IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments", "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest"];
+// Beneficio del segmento si no hay operativo: antes de impuestos (Caterpillar) o EBITDA ajustado
+// (Uber en su 10-K; en los 10-Q lo etiqueta como beneficio operativo)
+const PROFIT_ALT = ["uber:AdjustedEarningsBeforeInterestTaxesDepreciationAndAmortization", "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments", "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest"];
 const REVENUE_SET = new Set(REVENUE_TAGS);
-const TAGS = new Set([...REVENUE_TAGS, OI_TAG, ...PROFIT_ALT, ...Object.values(COST_TAGS).flat()]);
+const TAGS = new Set([...REVENUE_TAGS, OI_TAG, ...PROFIT_ALT, ...Object.values(COST_TAGS).flat(2)]);
 
 /**
  * Cifra de un miembro en un periodo: [eje, miembro, etiqueta, inicio, fin, valor, presentado].
@@ -160,9 +169,11 @@ export function parseSegmentFacts(xml: string, filed: string, prefer?: "ops" | "
   const seen = new Map<string, { i: number; ops: boolean }>();
   const crossed = new Map<string, { fact: SegFact; via: Set<string> }>();
   const halves = new Map<string, { fact: SegFact; parts: Map<string, number> }>();
-  const factRe = /<us-gaap:(\w+)\b([^>]*?)>([^<]*)<\/us-gaap:\1>/g;
+  // Etiquetas estándar sin prefijo; las propias de cada empresa (en COST_TAGS), con él
+  const factRe = /<([\w-]+):(\w+)\b([^>]*?)>([^<]*)<\/\1:\2>/g;
   for (const m of xml.matchAll(factRe)) {
-    const [, tag, attrs, raw] = m;
+    const [, prefix, local, attrs, raw] = m;
+    const tag = prefix === "us-gaap" ? local : `${prefix}:${local}`;
     if (!TAGS.has(tag)) continue;
     const c = ctx.get(attr(attrs, "contextRef") ?? "");
     const val = Number(raw.trim());
@@ -303,7 +314,11 @@ export interface SegAxis {
 /** 8-K con el histórico rehecho tras una reorganización (capa 4, recast.ts). */
 export interface RecastRef { axis: AxisKey; filed: string; accn: string; url: string | null }
 
+/** Empresa con un solo segmento (Netflix): no es un desglose, pero sus gastos dan márgenes y costes. */
+export interface SingleSegment { id: string; label: string; periods: SegPeriod[] }
+
 export interface SegmentData {
+  single?: SingleSegment;
   asOf: string | null; // último informe usado
   axes: Partial<Record<AxisKey, SegAxis>>;
 }
@@ -425,6 +440,30 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
     return now !== undefined && before !== undefined ? now - before : undefined;
   };
 
+  /** Gastos de los segmentos `members` en el periodo (por concepto, la primera etiqueta con dato). */
+  const costsFor = (members: string[], p: PeriodRef) => {
+    const costs: Partial<Record<CostKey, Record<string, number>>> = {};
+    for (const [key, tags] of Object.entries(COST_TAGS) as [CostKey, (string | string[])[]][]) {
+      const byMember: Record<string, number> = {};
+      for (const m of members) {
+        for (const t of tags) {
+          const parts = (Array.isArray(t) ? t : [t]).map((x) => periodValue("segment", m, x, p));
+          if (parts.some((v) => v === undefined)) continue;
+          byMember[m] = (parts as number[]).reduce((a, b) => a + b, 0);
+          break;
+        }
+      }
+      if (Object.keys(byMember).length) costs[key] = byMember;
+    }
+    return Object.keys(costs).length ? costs : null;
+  };
+  /** Beneficio del segmento: operativo; si no hay, antes de impuestos (Caterpillar). */
+  const profitFor = (axis: AxisKey, m: string, p: PeriodRef) => {
+    let o = periodValue(axis, m, OI_TAG, p);
+    if (o === undefined && axis === "segment") for (const t of PROFIT_ALT) if ((o = periodValue(axis, m, t, p)) !== undefined) break;
+    return o;
+  };
+
   const out: SegmentData = { asOf, axes: {} };
   for (const axis of ["segment", "product", "geography"] as AxisKey[]) {
     const membersOf = new Map<string, Set<string>>(); // etiqueta → miembros
@@ -531,8 +570,7 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
         const oi: Record<string, number> = {};
         for (const [m, v] of vals) if (use.has(m)) revenue[m] = v;
         for (const m of use) {
-          let o = periodValue(axis, m, OI_TAG, p);
-          if (o === undefined && axis === "segment") for (const t of PROFIT_ALT) if ((o = periodValue(axis, m, t, p)) !== undefined) break;
+          const o = profitFor(axis, m, p);
           if (o !== undefined) oi[m] = o;
         }
         if (chosen) matchedCount++;
@@ -540,21 +578,8 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
         const sp: SegPeriod = { date: p.date, start: p.start, kind: p.kind, fiscalYear: p.fiscalYear, fiscalQuarter: p.fiscalQuarter, revenue, operatingIncome: oi, total, matched: !!chosen };
         if (asRep[pi] !== undefined) sp.asReported = true;
         if (axis === "segment") {
-          const costs: Partial<Record<CostKey, Record<string, number>>> = {};
-          for (const [key, tags] of Object.entries(COST_TAGS) as [CostKey, string[]][]) {
-            const byMember: Record<string, number> = {};
-            for (const m of use) {
-              for (const t of tags) {
-                const v = periodValue(axis, m, t, p);
-                if (v !== undefined) {
-                  byMember[m] = v;
-                  break;
-                }
-              }
-            }
-            if (Object.keys(byMember).length) costs[key] = byMember;
-          }
-          if (Object.keys(costs).length) sp.costs = costs;
+          const costs = costsFor([...use], p);
+          if (costs) sp.costs = costs;
         }
         if (recast && newestOf[pi] === `${recast.filed}R`) sp.recast = true; // recastKey() en recast.ts
         sp.src = newestOf[pi];
@@ -590,6 +615,27 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
       .map((id) => ({ id, label: memberLabel(id, labels) }));
     bestAxis.periods.sort((a, b) => b.date.localeCompare(a.date) || (a.kind === "FY" ? 1 : -1));
     out.axes[axis] = bestAxis;
+  }
+  // Un solo segmento en el último informe (Netflix desde 2024; antes tuvo varios): sus gastos se
+  // guardan aparte para los márgenes, en los periodos en que existe
+  const segRev = [...latest.values()].filter((f) => f[0] === "segment" && REVENUE_SET.has(f[2]));
+  const newestSeg = segRev.reduce((mx, f) => (f[6] > mx ? f[6] : mx), "");
+  const segMembers = new Set(segRev.filter((f) => f[6] === newestSeg).map((f) => f[1]));
+  if (!out.axes.segment && segMembers.size === 1) {
+    const m = [...segMembers][0];
+    const periods: SegPeriod[] = [];
+    for (const p of refs) {
+      let rev: number | undefined;
+      for (const t of REVENUE_TAGS) if ((rev = periodValue("segment", m, t, p)) !== undefined) break;
+      const costs = rev !== undefined && rev > 0 ? costsFor([m], p) : null;
+      if (rev === undefined || !costs) continue;
+      const oi = profitFor("segment", m, p);
+      periods.push({
+        date: p.date, start: p.start, kind: p.kind, fiscalYear: p.fiscalYear, fiscalQuarter: p.fiscalQuarter,
+        revenue: { [m]: rev }, operatingIncome: oi === undefined ? {} : { [m]: oi }, total: p.total, matched: true, costs,
+      });
+    }
+    if (periods.length) out.single = { id: m, label: memberLabel(m, labels), periods: periods.sort((a, b) => b.date.localeCompare(a.date) || (a.kind === "FY" ? 1 : -1)) };
   }
   return out;
 }

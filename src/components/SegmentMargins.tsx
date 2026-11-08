@@ -285,8 +285,8 @@ export default function SegmentMargins({ periods, series, label, theme, isES }: 
                   ? "\"Otros costes\" es la diferencia hasta el beneficio operativo: partidas que la empresa no clasifica en las categorías estándar."
                   : "\"Other costs\" is the remainder up to operating income: items the company doesn't classify in the standard categories."
                 : isES
-                  ? "Beneficio operativo del segmento según la empresa (algunas, como Caterpillar, usan beneficio antes de impuestos)."
-                  : "Segment operating income as defined by the company (some, like Caterpillar, use pre-tax profit)."}
+                  ? "Beneficio del segmento según la empresa: operativo, o la medida que use (Caterpillar, antes de impuestos; Uber, EBITDA ajustado)."
+                  : "Segment profit as defined by the company: operating income, or its own measure (Caterpillar: pre-tax profit; Uber: adjusted EBITDA)."}
           {firstWithCosts && active !== "operating" &&
             (isES
               ? ` Los gastos por segmento se publican desde ${label(firstWithCosts)} (norma de la SEC de 2024).`
