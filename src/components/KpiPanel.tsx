@@ -41,6 +41,7 @@ function fmt(v: number | undefined | null, unitIn: KpiMeta["unit"] | "x" | "frac
   // Los KPIs en % llegan ya en puntos (9 = 9 %); la comisión calculada, en fracción (0,2 = 20 %)
   const unit = unitIn === "%" ? "pct" : unitIn === "frac" ? "%" : unitIn;
   if (v === undefined || v === null || !Number.isFinite(v)) return "—";
+  if (v === 0) return unitIn === "%" || unitIn === "frac" || unitIn === "share" ? "0%" : unitIn === "$M" || unitIn === "$" ? "$0" : "0";
   const a = Math.abs(v), sign = v < 0 ? "−" : "";
   if (unit === "%") return `${(v * 100).toFixed(1)}%`;
   if (unit === "pct") return `${v > 0 ? "+" : ""}${v.toFixed(v % 1 ? 1 : 0)}%`;

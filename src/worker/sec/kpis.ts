@@ -864,7 +864,8 @@ export async function runKpisCron(db: D1Database, env: ClaudeEnv & { SEC_USER_AG
   }
   // Errores pasajeros: se reintentan al cabo de un día
   const { results } = await db
-    .prepare("SELECT accn FROM sec_kpis WHERE status = 'pending' OR (status = 'error' AND updated_at < ?) ORDER BY filed DESC LIMIT ?")
+    // updated_at < 0 = prioritario (para adelantar una empresa: UPDATE sec_kpis SET updated_at = -1 WHERE ticker = …)
+    .prepare("SELECT accn FROM sec_kpis WHERE status = 'pending' OR (status = 'error' AND updated_at < ?) ORDER BY (updated_at < 0) DESC, filed DESC LIMIT ?")
     .bind(Date.now() - DAY, max)
     .all<{ accn: string }>();
   for (const { accn } of results) {
