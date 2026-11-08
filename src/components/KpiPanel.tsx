@@ -6,7 +6,7 @@ import { Activity, Info, ExternalLink, Loader2 } from "lucide-react";
 // ARM de Netflix… Salen de los comunicados de resultados (8-K) leídos con Claude y validados con los
 // ingresos de la SEC. Datos: GET /api/sec/kpis/:ticker (src/worker/sec/kpis.ts).
 
-interface KpiMeta { key: string; en: string; es: string; unit: "M" | "$M" | "$"; kind: "flow" | "stock" | "avg" }
+interface KpiMeta { key: string; en: string; es: string; unit: "M" | "$M" | "$" | "%"; kind: "flow" | "stock" | "avg" }
 interface KpiChart { id: string; en: string; es: string; type: "bar" | "stack" | "line"; keys: string[]; derived?: "per_user_month" | "take_rate" }
 interface KpiPoint { date: string; values: Record<string, number>; confirmed: Record<string, boolean> }
 interface KpiData {
@@ -33,13 +33,16 @@ const quarterLabel = (date: string) => {
   return `Q${Math.ceil(m / 3)}'${String(y).slice(2)}`;
 };
 
-function fmt(v: number | undefined | null, unit: KpiMeta["unit"] | "x" | "%"): string {
+function fmt(v: number | undefined | null, unitIn: KpiMeta["unit"] | "x" | "frac"): string {
+  // Los KPIs en % llegan ya en puntos (9 = 9 %); la comisión calculada, en fracción (0,2 = 20 %)
+  const unit = unitIn === "%" ? "pct" : unitIn === "frac" ? "%" : unitIn;
   if (v === undefined || v === null || !Number.isFinite(v)) return "—";
   const a = Math.abs(v), sign = v < 0 ? "−" : "";
   if (unit === "%") return `${(v * 100).toFixed(1)}%`;
+  if (unit === "pct") return `${v > 0 ? "+" : ""}${v.toFixed(v % 1 ? 1 : 0)}%`;
   if (unit === "x") return v.toFixed(1);
   if (unit === "$") return `${sign}$${a.toFixed(2)}`;
-  if (unit === "$M") return a >= 1000 ? `${sign}$${(a / 1000).toFixed(a >= 100000 ? 0 : 1)}B` : `${sign}$${a.toFixed(0)}M`;
+  if (unit === "$M") return a >= 1e6 ? `${sign}$${(a / 1e6).toFixed(2)}T` : a >= 1000 ? `${sign}$${(a / 1000).toFixed(a >= 100000 ? 0 : 1)}B` : `${sign}$${a.toFixed(0)}M`;
   return a >= 1000 ? `${sign}${(a / 1000).toFixed(2)}B` : `${sign}${a.toFixed(a >= 100 ? 0 : a >= 10 ? 1 : 2)}M`;
 }
 
@@ -99,7 +102,7 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
       .filter((r) => r.value !== undefined || c.keys.some((k) => r[k] !== undefined));
 
   const headline = (c: KpiChart, rows: Record<string, any>[]) => {
-    const unit: any = c.derived === "per_user_month" ? "x" : c.derived === "take_rate" ? "%" : meta[c.keys[0]]?.unit ?? "M";
+    const unit: any = c.derived === "per_user_month" ? "x" : c.derived === "take_rate" ? "frac" : meta[c.keys[0]]?.unit ?? "M";
     const val = (r: Record<string, any>) => (c.derived ? r.value : c.type === "stack" ? r.total : c.type === "bar" ? r[c.keys[0]] : undefined);
     const last = [...rows].reverse().find((r) => val(r) !== undefined);
     if (!last) return null;
@@ -116,7 +119,7 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
     if (!active || !payload?.length) return null;
     const row = payload[0].payload;
     const c: KpiChart = chart;
-    const unit: any = c.derived === "per_user_month" ? "x" : c.derived === "take_rate" ? "%" : null;
+    const unit: any = c.derived === "per_user_month" ? "x" : c.derived === "take_rate" ? "frac" : null;
     const items = [...payload].filter((p: any) => p.value !== undefined && p.value !== null).reverse();
     const allConfirmed = c.keys.every((k) => row.confirmed?.[k] !== false);
     return (
@@ -185,7 +188,7 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
             const rows = seriesOf(c);
             if (!rows.length) return null;
             const h = headline(c, rows);
-            const unit: any = c.derived === "per_user_month" ? "x" : c.derived === "take_rate" ? "%" : meta[c.keys[0]]?.unit ?? "M";
+            const unit: any = c.derived === "per_user_month" ? "x" : c.derived === "take_rate" ? "frac" : meta[c.keys[0]]?.unit ?? "M";
             const keys = c.derived ? ["value"] : c.keys.filter((k) => rows.some((r) => r[k] !== undefined));
             return (
               <div key={c.id} className="border border-theme-border rounded-2xl p-4 space-y-2">

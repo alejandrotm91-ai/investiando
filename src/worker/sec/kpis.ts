@@ -20,7 +20,7 @@ export interface KpiDef {
   key: string;
   en: string;
   es: string;
-  unit: "M" | "$M" | "$"; // millones (personas, viajes), millones de dólares, dólares
+  unit: "M" | "$M" | "$" | "%"; // millones (personas, viajes), millones de dólares, dólares, crecimiento interanual en %
   kind: "flow" | "stock" | "avg"; // suma del trimestre, saldo al cierre, media del trimestre
   range: [number, number]; // en su unidad; fuera de él se descarta
   hint: string; // cómo lo llama el comunicado (para Claude)
@@ -58,6 +58,56 @@ export const KPI_DEFS: Record<string, CompanyKpis> = {
       { id: "trips", en: "Trips", es: "Viajes y pedidos", type: "bar", keys: ["trips"] },
       { id: "mapcs", en: "Monthly active consumers", es: "Usuarios activos mensuales", type: "bar", keys: ["mapcs"] },
       { id: "freq", en: "Trips per user per month", es: "Viajes por usuario al mes", type: "line", keys: ["trips", "mapcs"], derived: "per_user_month" },
+      { id: "take", en: "Take rate (revenue ÷ gross bookings)", es: "Comisión (ingresos ÷ reservas)", type: "line", keys: ["revenue", "gross_bookings"], derived: "take_rate" },
+    ],
+  },
+  // Visa no publica en el comunicado el volumen de pagos en dólares (solo su crecimiento)
+  V: {
+    from: "2023-01-01",
+    kpis: [
+      { key: "processed_tx", en: "Processed transactions", es: "Transacciones procesadas", unit: "M", kind: "flow", range: [20000, 300000], hint: "Total processed transactions in the quarter, in millions (e.g. 74.2 billion -> 74200)" },
+      { key: "pv_growth", en: "Payments volume growth", es: "Crecimiento del volumen de pagos", unit: "%", kind: "avg", range: [-50, 100], hint: "Payments volume year-over-year growth in the quarter, constant-dollar basis, in % (e.g. 9)" },
+      { key: "cb_growth", en: "Cross-border volume growth (ex intra-Europe)", es: "Crecimiento transfronterizo (sin intra-Europa)", unit: "%", kind: "avg", range: [-80, 200], hint: "Cross-border volume excluding intra-Europe, year-over-year growth in the quarter, constant-dollar basis, in %" },
+      { key: "tx_growth", en: "Processed transactions growth", es: "Crecimiento de transacciones", unit: "%", kind: "avg", range: [-50, 100], hint: "Processed transactions year-over-year growth in the quarter, in %" },
+    ],
+    charts: [
+      { id: "tx", en: "Processed transactions", es: "Transacciones procesadas", type: "bar", keys: ["processed_tx"] },
+      { id: "growth", en: "Year-over-year growth (constant dollars)", es: "Crecimiento interanual (dólares constantes)", type: "line", keys: ["pv_growth", "cb_growth", "tx_growth"] },
+    ],
+  },
+  MA: {
+    from: "2023-01-01",
+    kpis: [
+      { key: "gdv", en: "Gross dollar volume", es: "Volumen bruto en dólares (GDV)", unit: "$M", kind: "flow", range: [500000, 10000000], hint: "Worldwide gross dollar volume (GDV, all credit, charge and debit programs) in the quarter, in millions of USD (e.g. $2,952 billion -> 2952000)" },
+      { key: "gdv_us", en: "GDV · United States", es: "GDV · EE. UU.", unit: "$M", kind: "flow", range: [100000, 5000000], hint: "United States GDV (all programs) in the quarter, in millions of USD" },
+      { key: "gdv_intl", en: "GDV · Rest of world", es: "GDV · Resto del mundo", unit: "$M", kind: "flow", range: [200000, 8000000], hint: "Worldwide less United States GDV (all programs) in the quarter, in millions of USD" },
+      { key: "purchase_tx", en: "Purchase transactions", es: "Transacciones de compra", unit: "M", kind: "flow", range: [10000, 300000], hint: "Worldwide purchase transactions (all programs) in the quarter, in millions" },
+      { key: "cards", en: "Cards", es: "Tarjetas", unit: "M", kind: "stock", range: [1000, 10000], hint: "Mastercard and Maestro-branded cards issued (worldwide, all programs) at end of quarter, in millions" },
+      { key: "cb_growth", en: "Cross-border volume growth", es: "Crecimiento transfronterizo", unit: "%", kind: "avg", range: [-80, 200], hint: "Cross-border volume year-over-year growth in the quarter, local currency basis, in %" },
+      { key: "switched_growth", en: "Switched transactions growth", es: "Crecimiento de transacciones procesadas", unit: "%", kind: "avg", range: [-50, 100], hint: "Switched transactions year-over-year growth in the quarter, in %" },
+    ],
+    charts: [
+      { id: "gdv", en: "Gross dollar volume by region", es: "Volumen bruto (GDV) por región", type: "stack", keys: ["gdv_us", "gdv_intl"] },
+      { id: "tx", en: "Purchase transactions", es: "Transacciones de compra", type: "bar", keys: ["purchase_tx"] },
+      { id: "cards", en: "Cards", es: "Tarjetas", type: "bar", keys: ["cards"] },
+      { id: "growth", en: "Year-over-year growth", es: "Crecimiento interanual", type: "line", keys: ["cb_growth", "switched_growth"] },
+    ],
+  },
+  BKNG: {
+    from: "2023-01-01",
+    kpis: [
+      { key: "room_nights", en: "Room nights", es: "Noches de hotel", unit: "M", kind: "flow", range: [50, 1500], hint: "Room nights sold in the quarter, in millions" },
+      { key: "car_days", en: "Rental car days", es: "Días de alquiler de coche", unit: "M", kind: "flow", range: [3, 200], hint: "Rental car days sold in the quarter, in millions" },
+      { key: "flights", en: "Flight tickets", es: "Billetes de avión", unit: "M", kind: "flow", range: [1, 200], hint: "Airline / flight tickets sold in the quarter, in millions" },
+      { key: "gross_bookings", en: "Gross bookings", es: "Reservas brutas", unit: "$M", kind: "flow", range: [10000, 400000], hint: "Total gross bookings in the quarter, in millions of USD (e.g. $54.5 billion -> 54500)" },
+      { key: "gb_merchant", en: "Gross bookings · Merchant", es: "Reservas · Merchant", unit: "$M", kind: "flow", range: [1000, 300000], hint: "Merchant gross bookings in the quarter, in millions of USD" },
+      { key: "gb_agency", en: "Gross bookings · Agency", es: "Reservas · Agencia", unit: "$M", kind: "flow", range: [1000, 200000], hint: "Agency gross bookings in the quarter, in millions of USD" },
+    ],
+    charts: [
+      { id: "gb", en: "Gross bookings (merchant / agency)", es: "Reservas brutas (merchant / agencia)", type: "stack", keys: ["gb_merchant", "gb_agency"] },
+      { id: "nights", en: "Room nights", es: "Noches de hotel", type: "bar", keys: ["room_nights"] },
+      { id: "cars", en: "Rental car days", es: "Días de alquiler de coche", type: "bar", keys: ["car_days"] },
+      { id: "flights", en: "Flight tickets", es: "Billetes de avión", type: "bar", keys: ["flights"] },
       { id: "take", en: "Take rate (revenue ÷ gross bookings)", es: "Comisión (ingresos ÷ reservas)", type: "line", keys: ["revenue", "gross_bookings"], derived: "take_rate" },
     ],
   },
@@ -198,7 +248,10 @@ export function validateKpis(x: Extract, defs: KpiDef[], quarterly: { date: stri
     const date = matchQuarter(q.period_end, quarterly) ?? q.period_end;
     const sec = quarterly.find((p) => p.date === date)?.totalRevenue;
     if (typeof q.revenue === "number" && typeof sec === "number" && sec > 0) {
-      const ok = Math.abs(q.revenue * 1e6 - sec) <= sec * 0.005 + 1e6;
+      // Ingresos redondeados en el comunicado (Booking da los trimestres anteriores en miles de millones
+      // con un decimal): se admite el medio paso del redondeo
+      const rounding = q.revenue % 100 === 0 ? 50e6 : q.revenue % 10 === 0 ? 5e6 : 0;
+      const ok = Math.abs(q.revenue * 1e6 - sec) <= sec * 0.005 + 1e6 + rounding;
       checks.push({ name: `ingresos ${date}`, ok, detail: `comunicado ${q.revenue} M; SEC ${(sec / 1e6).toFixed(0)} M${ok ? "" : ": trimestre descartado"}` });
       if (!ok) {
         mismatched++;
@@ -278,7 +331,7 @@ export async function processKpiRelease(db: D1Database, env: ClaudeEnv & { SEC_U
 }
 
 /** Tarea programada: encola comunicados nuevos (cada 12 h por empresa) y procesa hasta `max`. */
-export async function runKpisCron(db: D1Database, env: ClaudeEnv & { SEC_USER_AGENT?: string }, max = 3): Promise<Record<string, unknown>> {
+export async function runKpisCron(db: D1Database, env: ClaudeEnv & { SEC_USER_AGENT?: string }, max = 4): Promise<Record<string, unknown>> {
   const out: Record<string, unknown> = {};
   for (const ticker of Object.keys(KPI_DEFS)) {
     if (fetchBudgetLeft() < 10) break;
