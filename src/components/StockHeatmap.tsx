@@ -11,14 +11,39 @@ const SP500_SECTOR_WEIGHT: Record<string, number> = {
   XLK: 32, XLF: 13.5, XLY: 10.5, XLC: 10, XLV: 9, XLI: 8.5, XLP: 5.5, XLE: 3, XLU: 2.5, XLRE: 2.2, XLB: 2,
 };
 
-/** Color divergente: gris neutro en 0, verde o rojo más intenso cuanto mayor el movimiento. */
-function tileColor(pct: number, scale: number): string {
+/** Color divergente: gris neutro en 0, verde o rojo más intenso cuanto mayor el movimiento.
+ *  En modo claro el neutro es un gris claro y los extremos, verde/rojo más vivos. */
+function tileRgb(pct: number, scale: number, light: boolean): number[] {
   const t = Math.max(-1, Math.min(1, pct / scale));
-  const neutral = [87, 83, 78]; // stone-600
-  const target = t >= 0 ? [21, 128, 61] : [185, 28, 28]; // green-700 / red-700
+  const neutral = light ? [226, 232, 240] : [87, 83, 78]; // slate-200 / stone-600
+  const target = light
+    ? t >= 0 ? [22, 163, 74] : [220, 38, 38] // green-600 / red-600
+    : t >= 0 ? [21, 128, 61] : [185, 28, 28]; // green-700 / red-700
   const k = Math.pow(Math.abs(t), 0.7);
-  const c = neutral.map((n, i) => Math.round(n + (target[i] - n) * k));
+  return neutral.map((n, i) => Math.round(n + (target[i] - n) * k));
+}
+const tileColor = (pct: number, scale: number, light: boolean) => {
+  const c = tileRgb(pct, scale, light);
   return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+};
+/** Texto oscuro sobre baldosas claras (modo claro con movimientos pequeños), blanco en el resto. */
+const tileInk = (pct: number, scale: number, light: boolean) => {
+  if (!light) return { main: "#ffffff", sub: "rgba(255,255,255,0.9)" };
+  const [r, g, b] = tileRgb(pct, scale, true);
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return lum > 0.62 ? { main: "#0f172a", sub: "rgba(15,23,42,0.75)" } : { main: "#ffffff", sub: "rgba(255,255,255,0.92)" };
+};
+
+/** true mientras <html> tenga la clase "light" (el tema se cambia desde la cabecera de la app). */
+function useLightMode(): boolean {
+  const get = () => typeof document !== "undefined" && document.documentElement.classList.contains("light");
+  const [light, setLight] = useState(get);
+  useEffect(() => {
+    const mo = new MutationObserver(() => setLight(get()));
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => mo.disconnect();
+  }, []);
+  return light;
 }
 
 type Timeframe = "1D" | "1W" | "1M" | "YTD" | "1Y";
@@ -96,6 +121,11 @@ const GAP = 2;
 
 export default function StockHeatmap({ sectors, timeframe, language }: Props) {
   const isES = language === "ES";
+  const light = useLightMode();
+  // Colores que dependen del tema (fondo del bloque, cabecera y verde/rojo de los textos)
+  const ui = light
+    ? { block: "#f1f5f9", blockStroke: "#e2e8f0", name: "#334155", rsi: "#64748b", up: "#059669", down: "#e11d48" }
+    : { block: "#0f111a", blockStroke: "#0b0d14", name: "#cbd5e1", rsi: "#94a3b8", up: "#34d399", down: "#fb7185" };
   const box = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [hover, setHover] = useState<{ x: number; y: number; d: any } | null>(null);
@@ -144,7 +174,7 @@ export default function StockHeatmap({ sectors, timeframe, language }: Props) {
         <svg width={size.w} height={size.h} className="block">
           {layout.map((b) => (
             <g key={b.item.ticker}>
-              <rect x={b.x + 0.5} y={b.y + 0.5} width={Math.max(0, b.w - 1)} height={Math.max(0, b.h - 1)} rx={4} fill="#0f111a" stroke="#0b0d14" />
+              <rect x={b.x + 0.5} y={b.y + 0.5} width={Math.max(0, b.w - 1)} height={Math.max(0, b.h - 1)} rx={4} fill={ui.block} stroke={ui.blockStroke} />
               {b.w > 40 && (() => {
                 // Nombre del sector + rentabilidad + (RSI). Si no cabe: (RSI n) → (n) → sin RSI → nombre
                 // acortado → solo el nombre. Anchos aproximados a 9.5 px en negrita.
@@ -171,14 +201,14 @@ export default function StockHeatmap({ sectors, timeframe, language }: Props) {
                 }
                 return (
                   <text x={b.x + 5} y={b.y + 11.5} fontSize={9.5} fontWeight={800} style={{ letterSpacing: "0.04em" }}>
-                    {shown && <tspan fill="#cbd5e1">{shown}</tspan>}
+                    {shown && <tspan fill={ui.name}>{shown}</tspan>}
                     {pctTxt && (
-                      <tspan dx={shown ? 5 : 0} fill={(p ?? 0) >= 0 ? "#34d399" : "#fb7185"} style={{ fontVariantNumeric: "tabular-nums" }}>
+                      <tspan dx={shown ? 5 : 0} fill={(p ?? 0) >= 0 ? ui.up : ui.down} style={{ fontVariantNumeric: "tabular-nums" }}>
                         {pctTxt}
                       </tspan>
                     )}
                     {rsiTxt && (
-                      <tspan dx={4} fill="#94a3b8" fontWeight={600}>
+                      <tspan dx={4} fill={ui.rsi} fontWeight={600}>
                         {rsiTxt}
                       </tspan>
                     )}
@@ -191,6 +221,7 @@ export default function StockHeatmap({ sectors, timeframe, language }: Props) {
                 const showTicker = t.w > 24 && t.h > 13;
                 const showPct = typeof rv === "number" && t.w > 34 && t.h > 30;
                 const fs = Math.max(8, Math.min(18, Math.min(t.w / 4.2, t.h / 2.8)));
+                const ink = tileInk(typeof rv === "number" ? rv : 0, scale, light);
                 return (
                   <g
                     key={t.item.symbol}
@@ -200,14 +231,14 @@ export default function StockHeatmap({ sectors, timeframe, language }: Props) {
                     }}
                     style={{ cursor: "default" }}
                   >
-                    <rect x={t.x + 1} y={t.y + 1} width={Math.max(0, t.w - 2)} height={Math.max(0, t.h - 2)} rx={2} fill={tileColor(r, scale)} />
+                    <rect x={t.x + 1} y={t.y + 1} width={Math.max(0, t.w - 2)} height={Math.max(0, t.h - 2)} rx={2} fill={tileColor(r, scale, light)} />
                     {showTicker && (
-                      <text x={t.x + t.w / 2} y={t.y + t.h / 2 + (showPct ? -fs * 0.15 : fs * 0.35)} textAnchor="middle" fill="#ffffff" fontSize={fs} fontWeight={800}>
+                      <text x={t.x + t.w / 2} y={t.y + t.h / 2 + (showPct ? -fs * 0.15 : fs * 0.35)} textAnchor="middle" fill={ink.main} fontSize={fs} fontWeight={800}>
                         {t.item.symbol}
                       </text>
                     )}
                     {showPct && (
-                      <text x={t.x + t.w / 2} y={t.y + t.h / 2 + fs * 0.85} textAnchor="middle" fill="rgba(255,255,255,0.9)" fontSize={Math.max(8, fs * 0.62)} style={{ fontVariantNumeric: "tabular-nums" }}>
+                      <text x={t.x + t.w / 2} y={t.y + t.h / 2 + fs * 0.85} textAnchor="middle" fill={ink.sub} fontSize={Math.max(8, fs * 0.62)} style={{ fontVariantNumeric: "tabular-nums" }}>
                         {r >= 0 ? "+" : ""}
                         {r.toFixed(2)}%
                       </text>
@@ -230,7 +261,7 @@ export default function StockHeatmap({ sectors, timeframe, language }: Props) {
             <div className="flex justify-between gap-3 mt-1">
               <span className="text-theme-text-muted">{timeframe}</span>
               {typeof hover.d.r === "number" ? (
-                <span className="font-mono font-bold" style={{ color: hover.d.r >= 0 ? "#34d399" : "#fb7185" }}>
+                <span className="font-mono font-bold" style={{ color: hover.d.r >= 0 ? ui.up : ui.down }}>
                   {hover.d.r >= 0 ? "+" : ""}
                   {hover.d.r.toFixed(2)}%
                 </span>
@@ -266,7 +297,7 @@ export default function StockHeatmap({ sectors, timeframe, language }: Props) {
         </span>
         <span className="flex items-center gap-1.5">
           <span>−{scale.toFixed(1)}%</span>
-          <span className="h-2 w-28 rounded-full" style={{ background: `linear-gradient(90deg, ${tileColor(-scale, scale)}, ${tileColor(0, scale)}, ${tileColor(scale, scale)})` }} />
+          <span className="h-2 w-28 rounded-full" style={{ background: `linear-gradient(90deg, ${tileColor(-scale, scale, light)}, ${tileColor(0, scale, light)}, ${tileColor(scale, scale, light)})` }} />
           <span>+{scale.toFixed(1)}%</span>
         </span>
       </div>
