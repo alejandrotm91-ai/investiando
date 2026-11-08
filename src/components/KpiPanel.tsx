@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from "recharts";
 import { Activity, Info, ExternalLink, Loader2 } from "lucide-react";
 
 // KPIs operativos de cada empresa (capa 5 de la SEC): viajes y reservas de Uber, suscriptores y
@@ -76,6 +76,11 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
     };
   }, [ticker]);
 
+  // Leyenda = filtro: líneas seleccionadas por gráfico (vacío = todas). Crecimiento sobre las barras:
+  // frente al trimestre anterior (QoQ) o al mismo trimestre del año anterior (YoY)
+  const [selected, setSelected] = useState<Record<string, string[]>>({});
+  const [growthMode, setGrowthMode] = useState<"QoQ" | "YoY">("YoY");
+  useEffect(() => setSelected({}), [ticker]);
   const meta = useMemo(() => Object.fromEntries((data?.kpis ?? []).map((k) => [k.key, k])), [data]);
   const points = useMemo(() => (data?.points ?? []).slice(-MAX_QUARTERS), [data]);
 
@@ -153,7 +158,7 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
     const row = payload[0].payload;
     const c: KpiChart = chart;
     const unit: any = c.derived === "guidance" ? "$M" : c.derived === "per_user_month" ? "x" : c.derived === "take_rate" || c.derived === "margins" ? "frac" : null;
-    const items = [...payload].filter((p: any) => p.value !== undefined && p.value !== null).reverse();
+    const items = [...payload].filter((p: any) => p.dataKey !== "__pos" && p.value !== undefined && p.value !== null).reverse();
     const allConfirmed = c.keys.every((k) => row.confirmed?.[k] !== false);
     return (
       <div className="bg-theme-sidebar border border-theme-border rounded-xl px-3 py-2 shadow-xl text-xs min-w-[170px]">
@@ -203,12 +208,25 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
             )}
           </p>
         </div>
-        {pending > 0 && (
-          <span className="flex items-center gap-1.5 text-[11px] text-theme-text-muted shrink-0">
-            <Loader2 size={12} className="animate-spin" />
-            {isES ? `${pending} comunicados por leer` : `${pending} releases to read`}
-          </span>
-        )}
+        <div className="flex items-center gap-3 shrink-0">
+          {pending > 0 && (
+            <span className="flex items-center gap-1.5 text-[11px] text-theme-text-muted">
+              <Loader2 size={12} className="animate-spin" />
+              {isES ? `${pending} comunicados por leer` : `${pending} releases to read`}
+            </span>
+          )}
+          <div className="flex bg-theme-input border border-theme-border rounded-xl p-0.5" title={isES ? "Crecimiento sobre las barras" : "Growth above the bars"}>
+            {(["QoQ", "YoY"] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => setGrowthMode(m)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer transition-all ${growthMode === m ? "bg-theme-border text-theme-text-bright" : "text-theme-text-muted hover:text-theme-text-bright"}`}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {points.length === 0 ? (
@@ -218,11 +236,41 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {data.charts.map((c) => {
-            const rows = seriesOf(c);
-            if (!rows.length) return null;
+            const allRows = seriesOf(c);
+            if (!allRows.length) return null;
+            const sel = selected[c.id] ?? [];
+            const filterable = !c.derived && c.keys.length > 1;
+            const shown = (k: string) => !filterable || sel.length === 0 || sel.includes(k);
+            // Barras: las líneas no seleccionadas quedan sin dato; el total y el crecimiento son de lo visible
+            const barGrowth = c.type === "stack" || (c.type === "bar" && !c.derived && c.keys.filter(shown).length === 1);
+            const rows = allRows.map((r) => {
+              if (c.type === "line" || c.derived) return r;
+              const o: Record<string, any> = { ...r };
+              for (const k of c.keys) if (!shown(k)) o[k] = undefined;
+              const vis = c.keys.filter(shown);
+              const present = vis.filter((k) => typeof o[k] === "number");
+              o.__keys = present.join("|");
+              o.__vis = present.length ? present.reduce((a, k) => a + o[k], 0) : undefined;
+              o.__pos = present.reduce((a, k) => a + Math.max(0, o[k]), 0);
+              if (c.type === "stack") o.total = present.length === vis.length ? o.__vis : undefined;
+              return o;
+            });
+            // Crecimiento de lo visible frente al trimestre anterior (70-110 días) o al del año anterior
+            // (340-390 días), solo con las mismas líneas en los dos periodos
+            if (barGrowth)
+              for (const r of rows) {
+                const t = new Date(r.date).getTime();
+                const [lo, hi] = growthMode === "QoQ" ? [70, 110] : [340, 390];
+                const prev = rows.find((q) => {
+                  const d = (t - new Date(q.date).getTime()) / 86400000;
+                  return d >= lo && d <= hi;
+                });
+                r.growth = prev && prev.__keys === r.__keys && prev.__vis > 0 && r.__vis >= 0 ? r.__vis / prev.__vis - 1 : null;
+              }
             const h = headline(c, rows);
             const unit: any = c.derived === "guidance" ? "$M" : c.derived === "per_user_month" ? "x" : c.derived === "take_rate" || c.derived === "margins" ? "frac" : meta[c.keys[0]]?.unit ?? "M";
-            const keys = c.derived === "guidance" ? ["actual", "guided"] : c.derived === "margins" ? (c.series ?? []).map((x) => x.key).filter((k) => rows.some((r) => r[k] !== undefined)) : c.derived ? ["value"] : c.keys.filter((k) => rows.some((r) => r[k] !== undefined));
+            // Claves con dato (de las filas sin filtrar: la leyenda sigue mostrando las no seleccionadas)
+            const keys = c.derived === "guidance" ? ["actual", "guided"] : c.derived === "margins" ? (c.series ?? []).map((x) => x.key).filter((k) => allRows.some((r) => r[k] !== undefined)) : c.derived ? ["value"] : c.keys.filter((k) => allRows.some((r) => r[k] !== undefined));
             return (
               <div key={c.id} className="border border-theme-border rounded-2xl p-4 space-y-2">
                 <div className="flex items-start justify-between gap-2">
@@ -239,13 +287,40 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
                   )}
                 </div>
                 {keys.length > 1 && (
-                  <div className="flex flex-wrap gap-x-3 gap-y-1">
-                    {keys.map((k, i) => (
-                      <span key={k} className="flex items-center gap-1 text-[10px] text-theme-text-bright">
-                        <span className={c.type === "line" ? "w-3 h-0.5 rounded" : "w-2 h-2 rounded-sm"} style={{ background: PALETTE[theme][i] }} />
-                        {name(k)}
-                      </span>
-                    ))}
+                  <div className="flex flex-wrap items-center gap-1">
+                    {keys.map((k, i) =>
+                      filterable ? (
+                        <button
+                          key={k}
+                          type="button"
+                          aria-pressed={sel.includes(k)}
+                          onClick={() =>
+                            setSelected((cur) => {
+                              const now = cur[c.id] ?? [];
+                              const next = now.includes(k) ? now.filter((x) => x !== k) : [...now, k];
+                              // Todas seleccionadas = sin filtro
+                              return { ...cur, [c.id]: next.length === c.keys.length ? [] : next };
+                            })
+                          }
+                          title={isES ? "Clic para filtrar" : "Click to filter"}
+                          className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] cursor-pointer transition-all ${
+                            sel.includes(k)
+                              ? "border-emerald-500 text-theme-text-bright font-semibold"
+                              : sel.length
+                                ? "border-transparent text-theme-text-muted opacity-60 hover:opacity-100"
+                                : "border-transparent text-theme-text-bright hover:border-theme-border"
+                          }`}
+                        >
+                          <span className={c.type === "line" ? "w-3 h-0.5 rounded" : "w-2 h-2 rounded-sm"} style={{ background: PALETTE[theme][i] }} />
+                          {name(k)}
+                        </button>
+                      ) : (
+                        <span key={k} className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-theme-text-bright">
+                          <span className={c.type === "line" ? "w-3 h-0.5 rounded" : "w-2 h-2 rounded-sm"} style={{ background: PALETTE[theme][i] }} />
+                          {name(k)}
+                        </span>
+                      )
+                    )}
                   </div>
                 )}
                 <div className="h-[150px] -ml-2">
@@ -257,11 +332,11 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
                         <YAxis tickFormatter={(v) => fmt(v, unit)} tick={{ fill: axisColor, fontSize: 10 }} axisLine={false} tickLine={false} width={50} domain={["auto", "auto"]} />
                         <Tooltip content={<Tip chart={c} />} />
                         {keys.map((k, i) => (
-                          <Line key={k} dataKey={k} stroke={PALETTE[theme][i]} strokeWidth={2} dot={{ r: 2.5, strokeWidth: 0, fill: PALETTE[theme][i] }} activeDot={{ r: 4 }} isAnimationActive={false} connectNulls={false} />
+                          <Line key={k} dataKey={k} hide={!shown(k)} stroke={PALETTE[theme][i]} strokeWidth={2} dot={{ r: 2.5, strokeWidth: 0, fill: PALETTE[theme][i] }} activeDot={{ r: 4 }} isAnimationActive={false} connectNulls={false} />
                         ))}
                       </LineChart>
                     ) : (
-                      <BarChart data={rows} margin={{ top: 6, right: 6, left: 0, bottom: 0 }} barCategoryGap="22%" stackOffset="sign">
+                      <BarChart data={rows} margin={{ top: barGrowth ? 16 : 6, right: 6, left: 0, bottom: 0 }} barCategoryGap="22%" stackOffset="sign">
                         <CartesianGrid vertical={false} stroke={gridColor} />
                         <XAxis dataKey="name" tick={{ fill: axisColor, fontSize: 10 }} axisLine={false} tickLine={false} interval="preserveStartEnd" minTickGap={16} />
                         <YAxis tickFormatter={(v) => fmt(v, unit)} tick={{ fill: axisColor, fontSize: 10 }} axisLine={false} tickLine={false} width={50} />
@@ -278,6 +353,23 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
                             isAnimationActive={false}
                           />
                         ))}
+                        {/* Crecimiento encima de cada barra: barra transparente con la altura de lo visible,
+                            en un eje X propio (oculto) para no ocupar sitio junto a las de verdad */}
+                        {barGrowth && <XAxis xAxisId="growth" dataKey="name" hide />}
+                        {barGrowth && (
+                          <Bar xAxisId="growth" dataKey="__pos" fill="transparent" isAnimationActive={false} legendType="none" activeBar={false}>
+                            <LabelList
+                              dataKey="growth"
+                              content={({ x, y, width, value }: any) =>
+                                value === null || value === undefined || x === undefined || y === undefined ? null : (
+                                  <text x={Number(x) + Number(width) / 2} y={Number(y) - 4} textAnchor="middle" fontSize={9.5} fontWeight={700} fill={growthColor(value >= 0)} style={{ fontVariantNumeric: "tabular-nums" }}>
+                                    {`${value >= 0 ? "+" : ""}${(value * 100).toFixed(Math.abs(value) >= 0.995 || rows.length > 8 ? 0 : 1)}%`}
+                                  </text>
+                                )
+                              }
+                            />
+                          </Bar>
+                        )}
                       </BarChart>
                     )}
                   </ResponsiveContainer>
