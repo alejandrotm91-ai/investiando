@@ -170,7 +170,23 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
     const gap = latest.total !== null && !latest.matched ? latest.total - sumLatest : null;
     const hasOI = table.some((r) => r.oi !== undefined);
     const anyRecast = periods.some((p) => p.recast) || !!prior?.recast;
-    return { periods, latest, prior, series, visible, rows, table, gap, hasOI, label, anyRecast };
+    // CAGR de cada línea visible: de su primer a su último periodo con dato positivo en el gráfico
+    // (un segmento que empieza más tarde lleva su propio rango). Menos de ~1 año: no se calcula.
+    const cagr = visible.map((s) => {
+      const pts = periods.filter((p) => (valueOf(p, s.id, "revenue") ?? 0) > 0);
+      const last = pts[pts.length - 1];
+      // Trimestral: mismo trimestre de otro año (comparar T1 con T4 mezclaría la estacionalidad)
+      const first = activeKind === "Q" ? pts.find((p) => p.fiscalQuarter === last?.fiscalQuarter) : pts[0];
+      const years = first && last ? (new Date(last.date).getTime() - new Date(first.date).getTime()) / (365.25 * 86400000) : 0;
+      const value = years >= 0.9 ? Math.pow(valueOf(last, s.id, "revenue")! / valueOf(first, s.id, "revenue")!, 1 / years) - 1 : null;
+      const range = first && last ? `${label(first)} → ${label(last)}` : null;
+      return { ...s, value, range, points: pts.length };
+    });
+    // Rango más común: va en el título; cada línea solo muestra el suyo si es distinto
+    const counts = new Map<string, number>();
+    for (const c of cagr) if (c.value !== null && c.range) counts.set(c.range, (counts.get(c.range) ?? 0) + 1);
+    const cagrRange = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+    return { periods, latest, prior, series, visible, rows, table, gap, hasOI, label, anyRecast, cagr, cagrRange };
   }, [axisData, activeKind, theme, isES, selected]);
 
   const toggleSeries = (id: string) =>
@@ -379,56 +395,21 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
         </ResponsiveContainer>
       </div>
 
-      {/* Tabla del último periodo */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="text-[10px] uppercase tracking-wider text-theme-text-muted border-b border-theme-border">
-              <th className="text-left font-bold py-2 pr-3">{axisNames[axis]} · {view.label(view.latest)}</th>
-              <th className="text-right font-bold py-2 px-3">{isES ? "Ingresos" : "Revenue"}</th>
-              <th className="text-right font-bold py-2 px-3">{isES ? "Peso" : "Share"}</th>
-              <th className="text-right font-bold py-2 px-3">{isES ? "Crec. interanual" : "YoY"}</th>
-              {view.hasOI && <th className="text-right font-bold py-2 px-3">{isES ? "Bº operativo" : "Op. income"}</th>}
-              {view.hasOI && <th className="text-right font-bold py-2 pl-3">{isES ? "Margen" : "Margin"}</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {view.table.filter((r) => r.value !== undefined).map((r) => (
-              <tr key={r.id} className="border-b border-theme-border/50">
-                <td className="py-2 pr-3 text-theme-text-bright font-semibold">
-                  <span className="inline-flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: r.color }} />
-                    {r.label}
-                  </span>
-                </td>
-                <td className="py-2 px-3 text-right font-mono text-theme-text-bright">{fmtMoney(r.value)}</td>
-                <td className="py-2 px-3 text-right font-mono text-theme-text-muted">{r.share === null ? "—" : `${(r.share * 100).toFixed(1)}%`}</td>
-                <td
-                  className="py-2 px-3 text-right font-mono"
-                  style={{ color: r.yoy === null ? undefined : r.yoy >= 0 ? (theme === "light" ? "#15803d" : "#34d399") : theme === "light" ? "#b91c1c" : "#fb7185" }}
-                >
-                  {fmtPct(r.yoy)}
-                </td>
-                {view.hasOI && <td className="py-2 px-3 text-right font-mono text-theme-text-bright">{fmtMoney(r.oi)}</td>}
-                {view.hasOI && <td className="py-2 pl-3 text-right font-mono text-theme-text-muted">{r.margin === null ? "—" : `${(r.margin * 100).toFixed(1)}%`}</td>}
-              </tr>
-            ))}
-            {view.gap !== null && Math.abs(view.gap) > 0 && (
-              <tr className="border-b border-theme-border/50 text-theme-text-muted italic">
-                <td className="py-2 pr-3">{isES ? "Corporativo y eliminaciones" : "Corporate & eliminations"}</td>
-                <td className="py-2 px-3 text-right font-mono">{fmtMoney(view.gap)}</td>
-                <td colSpan={view.hasOI ? 4 : 2} />
-              </tr>
-            )}
-            {view.latest.total !== null && (
-              <tr className="text-theme-text-bright font-bold">
-                <td className="py-2 pr-3">{isES ? "Total consolidado" : "Consolidated total"}</td>
-                <td className="py-2 px-3 text-right font-mono">{fmtMoney(view.latest.total)}</td>
-                <td colSpan={view.hasOI ? 4 : 2} />
-              </tr>
-            )}
-          </tbody>
-        </table>
+      {/* Bajo el eje X: cada línea visible con su crecimiento anual compuesto (CAGR) en lo que muestra el gráfico */}
+      <div className="flex flex-wrap gap-x-6 gap-y-2 sm:pl-[60px] -mt-1">
+        <span className="w-full text-[10px] uppercase tracking-wider text-theme-text-muted font-bold">
+          {isES ? "Crecimiento anual compuesto (CAGR)" : "Compound annual growth (CAGR)"}{view.cagrRange ? ` · ${view.cagrRange}` : ""}
+        </span>
+        {view.cagr.filter((c) => c.points > 0).map((c) => (
+          <span key={c.id} className="flex items-baseline gap-1.5 text-xs">
+            <span className="w-2.5 h-2.5 rounded-sm shrink-0 self-center" style={{ background: c.color }} />
+            <span className="text-theme-text-bright font-semibold">{c.label}</span>
+            <span className="font-mono font-bold" style={{ color: c.value === null ? undefined : growthColor(c.value) }}>
+              {c.value === null ? "—" : fmtPct(c.value)}
+            </span>
+            {c.value !== null && c.range && c.range !== view.cagrRange && <span className="text-[10px] text-theme-text-muted">({c.range})</span>}
+          </span>
+        ))}
       </div>
 
       {view.anyRecast && axisData?.recast && (
