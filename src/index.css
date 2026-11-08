@@ -1498,3 +1498,12 @@ div#root:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-
 .light .light-search-input {
   color: #121420 !important;
 }
+
+/* Holdings > Basis: el contenedor de Proyección / Valor futuro / Sectores toma el fondo de la app
+   (solo las tres tarjetas son blancas). Tres id para ganar a las reglas posicionales de arriba. */
+html.light #root #holdings-section #portfolio-projections-section,
+html.light #root #holdings-section #portfolio-projections-section > .grid {
+  background-color: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}

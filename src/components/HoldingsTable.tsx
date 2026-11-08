@@ -6,7 +6,7 @@ import { getStockScore, calculatePortfolioScoreFromMatrix } from "../utils/stock
 import { getCachedFinancials, getAllCachedFinancials, setCachedFinancials } from "../utils/financialsCache";
 import { CompanyFinancials } from "./CompanyFinancials";
 import { getQuarterlyBasicEpsCagrFromFinancials } from "./WhatIfSimulator";
-import { Table, LayoutGrid, Edit, Plus, Trash2, Search, Loader2, Briefcase, PieChart, PieChart as PieChartIcon, TrendingUp, TrendingDown, Sparkles, Activity, Rocket, Target, ChevronDown, ChevronRight, Info, Award, BarChart3, FileText, Percent } from "lucide-react";
+import { Table, LayoutGrid, Edit, Plus, Trash2, Search, Loader2, Briefcase, PieChart, PieChart as PieChartIcon, TrendingUp, TrendingDown, Sparkles, Activity, Rocket, Target, ChevronDown, ChevronRight, Info, Award, BarChart3, FileText, Percent, Layers } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line, ReferenceLine, ComposedChart, BarChart, Bar, Cell } from "recharts";
 
 import { TICKER_CLASSIFICATION, SECTOR_SUBSECTORS } from "../data/tickerClassification";
@@ -119,7 +119,7 @@ export const getTickerSubsector = (ticker: string, isCash: boolean, language: "E
 
   const sector = getTickerSector(ticker, isCash);
   const subs = SECTOR_SUBSECTORS[sector] || ["General"];
-  
+
   let hash = 0;
   for (let i = 0; i < upper.length; i++) {
     hash = upper.charCodeAt(i) + ((hash << 5) - hash);
@@ -238,7 +238,7 @@ export const getTickerBeta = (ticker: string, isCash: boolean): number => {
   if (isCash) return 0;
   const upper = ticker.toUpperCase();
   if (TICKER_BETA[upper] !== undefined) return TICKER_BETA[upper];
-  
+
   let hash = 0;
   for (let i = 0; i < upper.length; i++) {
     hash = upper.charCodeAt(i) + ((hash << 5) - hash);
@@ -274,7 +274,7 @@ const getAnalystData = (ticker: string, price: number) => {
       epsCagr: null
     };
   }
-  
+
   if (TICKER_ANALYST_DATA[upperTicker] !== undefined) {
     const data = TICKER_ANALYST_DATA[upperTicker];
     return {
@@ -331,7 +331,7 @@ const generateTimelineChartData = (ticker: string, currentPrice: number, changeP
 
   const points: { date: string; close: number }[] = [];
   const today = new Date();
-  
+
   let price = currentPrice;
   for (let i = 0; i < numPoints; i++) {
     const d = new Date(today);
@@ -351,7 +351,7 @@ const generateTimelineChartData = (ticker: string, currentPrice: number, changeP
     const randomDrift = ((hash + i) % 11 - 5) / 100;
     price = price * (1 - changeFactor + randomDrift);
   }
-  
+
   return points.reverse();
 };
 
@@ -396,6 +396,21 @@ const formatDividendPerShare = (pos: Position): string => {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(rate);
 };
 
+type BasisSortKey = "ticker" | "price" | "shares" | "avgCost" | "mktValue" | "weight" | "dailyPnL" | "chgPct" | "returnAmt" | "returnPct" | "dividend";
+
+/** Valor de una posición para ordenar la tabla Basis. */
+const basisSortValue = (p: Position, k: BasisSortKey): number | string => {
+  if (k === "ticker") return p.ticker;
+  if (k === "dividend") return (getDividendPerShare(p) ?? 0) * p.shares;
+  const v = (p as any)[k];
+  return typeof v === "number" && Number.isFinite(v) ? v : -Infinity;
+};
+
+/** Fila de la tabla Basis: posición o cabecera de grupo (sector / subsector) con sus sumas. */
+type BasisRow =
+  | { kind: "pos"; pos: Position; idx: number }
+  | { kind: "group"; level: "sector" | "subsector"; label: string; count: number; mktValue: number; weight: number; dailyPnL: number; returnAmt: number; cost: number; dividend: number };
+
 const formatTotalDividend = (pos: Position, isReadOnly?: boolean): string => {
   if (pos.isCash) return "—";
   const rate = getDividendPerShare(pos);
@@ -414,10 +429,10 @@ const formatTotalDividend = (pos: Position, isReadOnly?: boolean): string => {
 };
 
 const getStockDetails = (
-  ticker: string, 
-  currentPrice: number, 
-  chgPct: number, 
-  isCash: boolean, 
+  ticker: string,
+  currentPrice: number,
+  chgPct: number,
+  isCash: boolean,
   companyName?: string,
   livePe?: number | null,
   liveFwdPe?: number | null,
@@ -460,7 +475,7 @@ const getStockDetails = (
 
   const epsVal = peVal > 0 ? (currentPrice / peVal) : 1.5;
   const betaVal = raw.beta ?? parseFloat((0.8 + (hash % 100) / 100).toFixed(2));
-  
+
   // PEG Ratio: P/E divided by EPS CAGR (growth)
   const pegRatioVal = livePeg ?? (epsCagrNum > 0 ? peVal / epsCagrNum : 1.0);
 
@@ -499,11 +514,11 @@ const getStockDetails = (
   const cagrFactor = 1 + (epsCagrNum / 100);
   const priceFactor = 1.15;
   let fundamentalsList: any[] = [];
-  
+
   if (financialsData && financialsData.annual && financialsData.annual.length > 0) {
     const annuals = [...financialsData.annual].sort((a, b) => new Date(a.date || a.fiscalDateEnding || 0).getTime() - new Date(b.date || b.fiscalDateEnding || 0).getTime());
     const last5 = annuals.slice(Math.max(annuals.length - 5, 0));
-    
+
     fundamentalsList = last5.map((a, idx) => {
       const yearMatch = (a.date || a.fiscalDateEnding || "").match(/^(\d{4})/);
       const year = yearMatch ? yearMatch[1] : (new Date().getFullYear() - (last5.length - 1 - idx)).toString();
@@ -512,16 +527,16 @@ const getStockDetails = (
       const prevP = idx > 0 ? currentPrice / Math.pow(priceFactor, (last5.length - idx)) : p;
       const prevA = idx > 0 ? last5[idx - 1] : null;
       const prevEps = prevA ? (prevA.basicEPS ?? prevA.dilutedEPS ?? eps) : eps;
-      
-      return { 
-        year, 
-        price: fmtC(p), 
-        priceYoY: idx > 0 ? getYoY(p, prevP) : "—", 
-        eps: fmtC(eps), 
-        epsYoY: idx > 0 ? getYoY(eps, prevEps) : "—", 
-        pe: (p / eps).toFixed(1) + "x", 
-        rawPrice: p, 
-        rawEps: eps 
+
+      return {
+        year,
+        price: fmtC(p),
+        priceYoY: idx > 0 ? getYoY(p, prevP) : "—",
+        eps: fmtC(eps),
+        epsYoY: idx > 0 ? getYoY(eps, prevEps) : "—",
+        pe: (p / eps).toFixed(1) + "x",
+        rawPrice: p,
+        rawEps: eps
       };
     });
 
@@ -550,7 +565,7 @@ const getStockDetails = (
     const y24Eps = y25Eps / cagrFactor;
     const y23Eps = y24Eps / cagrFactor;
     const y22Eps = y23Eps / cagrFactor;
-    
+
     const y26Price = currentPrice;
     const y25Price = currentPrice / priceFactor;
     const y24Price = y25Price / priceFactor;
@@ -714,9 +729,9 @@ const getEPSData = (ticker: string, epsType: "GAAP" | "Normalized") => {
     if (!target) return <span className="text-slate-500">—</span>;
     const distance = ((current - target) / target) * 100;
     const isPositive = distance >= 0;
-    
+
     return (
-      <span 
+      <span
         className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded font-mono border ${isPositive ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'}`}
       >
         {isPositive ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
@@ -753,17 +768,17 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
                 }
               }
             });
-            
+
             const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
             const sortedMonths = Object.keys(monthlyCloses)
               .map(Number)
               .sort((a, b) => a - b);
-              
+
             const monthlyList = sortedMonths.map((m) => ({
               label: `${monthNames[m]} 26`,
               price: monthlyCloses[m]
             }));
-            
+
             if (active) {
               setMonthlyPrices2026(monthlyList);
             }
@@ -780,10 +795,10 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
   }, [position.ticker, epsType]);
 
   const dt = getStockDetails(
-    position.ticker, 
-    position.price, 
-    position.chgPct, 
-    position.isCash, 
+    position.ticker,
+    position.price,
+    position.chgPct,
+    position.isCash,
     position.name,
     position.pe,
     position.fwdPe,
@@ -807,21 +822,21 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
     }));
 
     const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    const currentMonth = new Date().getMonth(); 
-    
+    const currentMonth = new Date().getMonth();
+
     // Fallbacks in case list is empty
-    const p25 = list.length > 0 ? list[list.length - 1].rawPrice : position.price * 0.8; 
-    
+    const p25 = list.length > 0 ? list[list.length - 1].rawPrice : position.price * 0.8;
+
     const p26_current = position.price;
     const currentYearData = dt.fundamentals.length > 1 ? dt.fundamentals[dt.fundamentals.length - 2] : dt.fundamentals[0];
     const eps26 = currentYearData ? currentYearData.rawEps : dt.summary.eps;
-    
+
     const monthlyPoints: any[] = [];
-    
+
     if (monthlyPrices2026 && monthlyPrices2026.length > 0) {
       monthlyPrices2026.forEach((pt, idx) => {
         const isLast = idx === monthlyPrices2026.length - 1;
-        
+
         monthlyPoints.push({
           year: isLast ? (currentYearData ? currentYearData.year : "Current") : pt.label,
           rawPrice: pt.price,
@@ -844,10 +859,10 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
         const fraction = (m + 1) / (currentMonth + 1);
         const noise = ((hash + m) % 7 - 3) * (position.price * 0.02);
         const mPrice = p25 + (p26_current - p25) * fraction + noise;
-        
+
         const isLast = m === currentMonth;
         const yearLabel = currentYearData ? currentYearData.year : "Current";
-        
+
         monthlyPoints.push({
           year: isLast ? yearLabel : `${monthNames[m]} ${yearLabel.slice(-2)}`,
           rawPrice: Number(mPrice.toFixed(2)),
@@ -860,9 +875,9 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
         });
       }
     }
-    
+
     const futureYearData = dt.fundamentals.length > 0 ? dt.fundamentals[dt.fundamentals.length - 1] : null;
-    
+
     const futureElement = futureYearData ? [{
       year: futureYearData.year,
       rawPrice: null,
@@ -1022,16 +1037,16 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
   const isDailyPositive = position.chgPct >= 0;
 
   return (
-    <div 
+    <div
       className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 md:p-6 overflow-y-auto"
       onClick={onClose}
     >
-      <div 
+      <div
         className="bg-[#0b0c16] border border-slate-800 rounded-2xl p-4 md:p-5 shadow-2xl relative text-left w-full max-w-4xl my-auto max-h-[92vh] overflow-y-auto select-text scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent"
         onClick={(e) => e.stopPropagation()}
       >
-        <button 
-          onClick={onClose} 
+        <button
+          onClick={onClose}
           className="absolute top-4 right-4 text-slate-500 hover:text-slate-300 text-sm w-7 h-7 flex items-center justify-center rounded-full border border-slate-800 hover:border-slate-700 bg-slate-900/60 transition-all cursor-pointer z-10"
         >
           ✕
@@ -1228,29 +1243,29 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={fundamentalsChartData} margin={{ top: 20, right: 20, left: -5, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" opacity={0.3} vertical={false} />
-                  <XAxis 
-                    dataKey="year" 
-                    stroke="#475569" 
-                    fontSize={11} 
-                    tickLine={false} 
+                  <XAxis
+                    dataKey="year"
+                    stroke="#475569"
+                    fontSize={11}
+                    tickLine={false}
                     className="font-mono font-bold"
                     ticks={["2022", "2023", "2024", "2025", "2026", "2027E"]}
                   />
-                  <YAxis 
+                  <YAxis
                     yAxisId="left"
-                    stroke="#10b981" 
-                    fontSize={10} 
-                    tickLine={false} 
+                    stroke="#10b981"
+                    fontSize={10}
+                    tickLine={false}
                     tickFormatter={(v) => `$${v}`}
                     width={45}
                     className="font-mono"
                   />
-                  <YAxis 
+                  <YAxis
                     yAxisId="right"
                     orientation="right"
-                    stroke="#c084fc" 
-                    fontSize={10} 
-                    tickLine={false} 
+                    stroke="#c084fc"
+                    fontSize={10}
+                    tickLine={false}
                     tickFormatter={(v) => `$${v.toFixed(2)}`}
                     width={45}
                     className="font-mono"
@@ -1330,20 +1345,20 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={epsData} margin={{ top: 20, right: 35, left: -20, bottom: 45 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" opacity={0.3} vertical={false} />
-                  <XAxis 
-                    dataKey="quarter" 
-                    stroke="#475569" 
-                    fontSize={10} 
-                    tickLine={false} 
+                  <XAxis
+                    dataKey="quarter"
+                    stroke="#475569"
+                    fontSize={10}
+                    tickLine={false}
                     tick={<CustomXAxisTick />}
                     interval={0}
                     padding={{ left: 45, right: 45 }}
                   />
-                  <YAxis 
-                    stroke="#475569" 
-                    fontSize={9} 
-                    domain={["auto", "auto"]} 
-                    tickLine={false} 
+                  <YAxis
+                    stroke="#475569"
+                    fontSize={9}
+                    domain={["auto", "auto"]}
+                    tickLine={false}
                     tickFormatter={(v) => v.toFixed(2)}
                   />
                   <Tooltip
@@ -1388,11 +1403,11 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
                   <ReferenceLine x={selectedQ.quarter} stroke="#475569" strokeDasharray="3 3" strokeOpacity={0.8} />
 
                   {/* Horizontal Guideline at selected quarter's actual/estimate level */}
-                  <ReferenceLine 
-                    y={selectedQ.actual !== null ? selectedQ.actual : selectedQ.estimate} 
-                    stroke="#475569" 
-                    strokeDasharray="3 3" 
-                    strokeOpacity={0.6} 
+                  <ReferenceLine
+                    y={selectedQ.actual !== null ? selectedQ.actual : selectedQ.estimate}
+                    stroke="#475569"
+                    strokeDasharray="3 3"
+                    strokeOpacity={0.6}
                   />
 
                   {/* Estimate points line */}
@@ -1499,16 +1514,16 @@ interface HoldingsTableProps {
   financialsMap?: Record<string, { annual: any[]; quarterly: any[] }>;
 }
 
-export const HealthMetricsTooltip = ({ 
-  title, 
-  metrics, 
-  raw, 
+export const HealthMetricsTooltip = ({
+  title,
+  metrics,
+  raw,
   language,
   placement = "top"
-}: { 
-  title: string, 
-  metrics: {key: string, label: string, suffix?: string}[], 
-  raw?: any, 
+}: {
+  title: string,
+  metrics: {key: string, label: string, suffix?: string}[],
+  raw?: any,
   language: string,
   placement?: "top" | "bottom"
 }) => {
@@ -1525,16 +1540,16 @@ export const HealthMetricsTooltip = ({
           <div key={m.key} className="flex justify-between items-center gap-2">
             <span className="tooltip-label text-[10px] truncate">{m.label}</span>
             <span className="tooltip-val text-[10px] font-mono font-bold shrink-0">
-              {raw[m.key] !== undefined && raw[m.key] !== null 
-                ? `${typeof raw[m.key] === "number" ? raw[m.key].toFixed(1) : raw[m.key]}${m.suffix || ""}` 
+              {raw[m.key] !== undefined && raw[m.key] !== null
+                ? `${typeof raw[m.key] === "number" ? raw[m.key].toFixed(1) : raw[m.key]}${m.suffix || ""}`
                 : "—"}
             </span>
           </div>
         ))}
       </div>
       <div className={`absolute left-1/2 -translate-x-1/2 border-[5px] border-transparent ${
-        isBottom 
-          ? "arrow-top bottom-full -mb-[1px]" 
+        isBottom
+          ? "arrow-top bottom-full -mb-[1px]"
           : "arrow-bottom top-full -mt-[1px]"
       }`} />
     </div>
@@ -1547,7 +1562,7 @@ const ScoreDonut = ({ score, label, colorClass }: { score: number, label: string
   const radius = 24;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - (Math.max(0, Math.min(100, displayScore)) / 100) * circumference;
-  
+
   return (
     <div className="flex flex-col items-center gap-2">
        <div className="relative flex items-center justify-center w-14 h-14">
@@ -1562,13 +1577,13 @@ const ScoreDonut = ({ score, label, colorClass }: { score: number, label: string
   );
 };
 
-export default function HoldingsTable({ 
-  positions, 
-  loading, 
-  onEditHoldings, 
-  language = "EN", 
-  isReadOnly = false, 
-  initialTabMode, 
+export default function HoldingsTable({
+  positions,
+  loading,
+  onEditHoldings,
+  language = "EN",
+  isReadOnly = false,
+  initialTabMode,
   onTabModeChange,
   financialsMap: propFinancialsMap,
 }: HoldingsTableProps) {
@@ -1580,6 +1595,21 @@ export default function HoldingsTable({
   });
   const [financialsViewMode, setFinancialsViewMode] = useState<"cards" | "table">("cards");
   const [holdingsTabMode, setHoldingsTabMode] = useState<"basis" | "valuation" | "health" | "financials">(initialTabMode || "basis");
+  // Basis: orden por columna (de mayor a menor al primer clic) y agrupación por sector / subsector
+  const [basisSort, setBasisSort] = useState<{ key: BasisSortKey; dir: "desc" | "asc" }>({ key: "mktValue", dir: "desc" });
+  const [groupBy, setGroupBy] = useState<{ sector: boolean; subsector: boolean }>(() => {
+    try {
+      const v = localStorage.getItem("investiando_holdings_groupby");
+      if (v) return JSON.parse(v);
+    } catch {}
+    return { sector: true, subsector: true };
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("investiando_holdings_groupby", JSON.stringify(groupBy));
+    } catch {}
+  }, [groupBy]);
+  const [groupMenuOpen, setGroupMenuOpen] = useState(false);
 
   useEffect(() => {
     if (initialTabMode) {
@@ -1634,7 +1664,7 @@ export default function HoldingsTable({
     if (fcf === undefined || fcf === null || netIncome === undefined || netIncome === null || basicEps === undefined || basicEps === null || basicEps === 0) return null;
 
     const sharesOutstanding = netIncome / basicEps;
-    
+
     const assumption = dcfAssumptionsMap[ticker] || dcfAssumptionsMap[ticker.toUpperCase()] || { growthRate: 10, discountRate: 8, terminalGrowthRate: 2.5 };
     const growthRate = assumption.growthRate / 100;
     const discountRate = assumption.discountRate / 100;
@@ -1707,7 +1737,7 @@ export default function HoldingsTable({
   useEffect(() => {
     const list = positions || [];
     const stockPos = list.filter((p) => p.ticker && p.ticker.toUpperCase() !== "CASH" && !p.isCash && p.shares > 0);
-    
+
     if (performanceTimeframe === "day") {
       const dayData: Record<string, number> = {};
       stockPos.forEach((pos) => {
@@ -1733,7 +1763,7 @@ export default function HoldingsTable({
 
     const fetchAllPerformances = async () => {
       const results: Record<string, number> = {};
-      
+
       await Promise.all(
         stockPos.map(async (pos) => {
           const ticker = pos.ticker.toUpperCase();
@@ -1786,8 +1816,8 @@ export default function HoldingsTable({
     const stockPos = list.filter((p) => p.ticker && p.ticker.toUpperCase() !== "CASH" && !p.isCash && p.shares > 0);
     const data = stockPos.map((pos) => {
       const tickerUpper = pos.ticker.toUpperCase();
-      const perf = tickerUpper in dynamicPerformance 
-        ? dynamicPerformance[tickerUpper] 
+      const perf = tickerUpper in dynamicPerformance
+        ? dynamicPerformance[tickerUpper]
         : getTickerPerformanceData(pos.ticker, performanceTimeframe, pos);
       return {
         name: pos.ticker,
@@ -2069,8 +2099,8 @@ export default function HoldingsTable({
   const totalGrowth = Math.max(0, projectedTotalValue - totalInvested);
   const interestGains = totalGrowth;
 
-  const percentageReturnOnInvested = totalInvested > 0 
-    ? ((projectedTotalValue - totalInvested) / totalInvested) * 100 
+  const percentageReturnOnInvested = totalInvested > 0
+    ? ((projectedTotalValue - totalInvested) / totalInvested) * 100
     : 0;
 
   const { sortedSectors, sectorSubsectors } = useMemo(() => {
@@ -2343,12 +2373,12 @@ export default function HoldingsTable({
     return acc + (pos.shares * targetPrice);
   }, 0);
 
-  const totalUpsideAvgPercent = totalMktValue > 0 
-    ? ((totalAvgValue - totalMktValue) / totalMktValue) * 100 
+  const totalUpsideAvgPercent = totalMktValue > 0
+    ? ((totalAvgValue - totalMktValue) / totalMktValue) * 100
     : 0;
 
-  const totalUpsideHighPercent = totalMktValue > 0 
-    ? ((totalHighValue - totalMktValue) / totalMktValue) * 100 
+  const totalUpsideHighPercent = totalMktValue > 0
+    ? ((totalHighValue - totalMktValue) / totalMktValue) * 100
     : 0;
 
   const totalDividendIncome = sortedPositions.reduce((acc, pos) => {
@@ -2362,7 +2392,7 @@ export default function HoldingsTable({
     const map = new Map<string, any>();
     const stockPositions = activePositions.filter((p) => !p.isCash);
     if (stockPositions.length === 0) return map;
-    
+
     stockPositions.forEach((pos) => {
       const sym = pos.ticker.toUpperCase();
       const sector = getTickerSector(pos.ticker, pos.isCash);
@@ -2385,12 +2415,12 @@ export default function HoldingsTable({
 
       let rowScores = unified.strategyScores;
       let rowFactors = unified.factors;
-      
+
       const finMap: Record<string, any> = {};
       if (finData) {
         finMap[sym] = finData;
       }
-      
+
       const scoredList = buildScores([raw], "zscore", finMap);
       if (scoredList && scoredList.length > 0) {
         rowScores = scoredList[0].scores;
@@ -2500,6 +2530,86 @@ export default function HoldingsTable({
   const marginMktValue = useMemo(() => marginPositions.reduce((sum, p) => sum + p.mktValue, 0), [marginPositions]);
   const marginAnnualCost = marginCostBasis * 0.0625;
   const marginMonthlyCost = marginCostBasis * (Math.pow(1 + 0.0625, 1 / 12) - 1);
+
+  // Tabla Basis: posiciones ordenadas por la columna elegida y agrupadas por sector y/o subsector.
+  // Los grupos se ordenan por la suma de la columna (o por valor de mercado si no es sumable);
+  // el efectivo va siempre al final, sin grupo.
+  const basisRows: BasisRow[] = (() => {
+    const dirMul = basisSort.dir === "desc" ? -1 : 1;
+    const cmp = (a: Position, b: Position) => {
+      const va = basisSortValue(a, basisSort.key), vb = basisSortValue(b, basisSort.key);
+      if (typeof va === "string" || typeof vb === "string") return String(va).localeCompare(String(vb)) * (basisSort.dir === "desc" ? 1 : -1);
+      return (va - vb) * dirMul;
+    };
+    const stocks = sortedPositions.filter((p) => !p.isCash).sort(cmp);
+    const cash = sortedPositions.filter((p) => p.isCash);
+    const indexOf = new Map(sortedPositions.map((p, i) => [p, i]));
+    const summable: BasisSortKey[] = ["mktValue", "weight", "dailyPnL", "returnAmt", "dividend"];
+    const sum = (ps: Position[], f: (p: Position) => number) => ps.reduce((a, p) => a + f(p), 0);
+    const groupScore = (ps: Position[]) => {
+      if (summable.includes(basisSort.key)) return sum(ps, (p) => basisSortValue(p, basisSort.key) as number);
+      // Porcentajes: el del grupo (rentabilidad sobre su coste; cambio del día sobre su valor de ayer)
+      if (basisSort.key === "returnPct") {
+        const cost = sum(ps, (p) => p.shares * p.avgCost);
+        return cost > 0 ? sum(ps, (p) => p.returnAmt) / cost : 0;
+      }
+      if (basisSort.key === "chgPct") {
+        const prev = sum(ps, (p) => p.mktValue - p.dailyPnL);
+        return prev > 0 ? sum(ps, (p) => p.dailyPnL) / prev : 0;
+      }
+      return sum(ps, (p) => p.mktValue);
+    };
+    const header = (level: "sector" | "subsector", label: string, ps: Position[]): BasisRow => ({
+      kind: "group",
+      level,
+      label,
+      count: ps.length,
+      mktValue: ps.reduce((a, p) => a + p.mktValue, 0),
+      weight: ps.reduce((a, p) => a + p.weight, 0),
+      dailyPnL: ps.reduce((a, p) => a + p.dailyPnL, 0),
+      returnAmt: ps.reduce((a, p) => a + p.returnAmt, 0),
+      cost: ps.reduce((a, p) => a + p.shares * p.avgCost, 0),
+      dividend: ps.reduce((a, p) => a + (getDividendPerShare(p) ?? 0) * p.shares, 0),
+    });
+    const groupsOf = (ps: Position[], keyFn: (p: Position) => string) => {
+      const m = new Map<string, Position[]>();
+      for (const p of ps) (m.get(keyFn(p)) ?? m.set(keyFn(p), []).get(keyFn(p))!).push(p);
+      // Orden de los grupos: por su suma; de mayor a menor salvo que el orden sea ascendente
+      return [...m.entries()].sort((a, b) => (groupScore(a[1]) - groupScore(b[1])) * (basisSort.key === "ticker" ? -1 : dirMul));
+    };
+    const rows: BasisRow[] = [];
+    const pushPositions = (ps: Position[]) => ps.forEach((p) => rows.push({ kind: "pos", pos: p, idx: indexOf.get(p) ?? 0 }));
+    const bySubsector = (ps: Position[]) => {
+      if (!groupBy.subsector) return pushPositions(ps);
+      for (const [label, sub] of groupsOf(ps, (p) => getTickerSubsector(p.ticker, false, language))) {
+        rows.push(header("subsector", label, sub));
+        pushPositions(sub);
+      }
+    };
+    if (groupBy.sector) {
+      for (const [label, ps] of groupsOf(stocks, (p) => getTickerSector(p.ticker, false))) {
+        rows.push(header("sector", label, ps));
+        bySubsector(ps);
+      }
+    } else bySubsector(stocks);
+    pushPositions(cash);
+    return rows;
+  })();
+  const toggleBasisSort = (key: BasisSortKey) =>
+    setBasisSort((cur) => (cur.key === key ? { key, dir: cur.dir === "desc" ? "asc" : "desc" } : { key, dir: key === "ticker" ? "asc" : "desc" }));
+  const sortTh = (key: BasisSortKey, label: React.ReactNode, className = "py-2 px-1 md:px-2 text-right") => (
+    <th className={className} aria-sort={basisSort.key === key ? (basisSort.dir === "desc" ? "descending" : "ascending") : "none"}>
+      <button
+        type="button"
+        onClick={() => toggleBasisSort(key)}
+        className={`inline-flex items-center gap-1 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:text-white transition-colors ${basisSort.key === key ? "text-emerald-400" : ""}`}
+        title={language === "EN" ? "Sort" : "Ordenar"}
+      >
+        {label}
+        <span className="text-[9px] opacity-80">{basisSort.key === key ? (basisSort.dir === "desc" ? "▼" : "▲") : "↕"}</span>
+      </button>
+    </th>
+  );
 
   return (
     <div className="space-y-6" id="holdings-section">
@@ -2637,6 +2747,679 @@ export default function HoldingsTable({
         </div>
       </div>
 
+      {/* 2.5 PROYECCIÓN, VALOR FUTURO Y SECTORES: solo en Basis, encima de la tabla */}
+      {holdingsTabMode === "basis" && activePositions.length > 0 && (
+        <div className="space-y-4" id="portfolio-projections-section">
+          {/* Tabs Selector: Portfolio / Margin / Total (only show selector if margin positions exist) */}
+          {marginActivePositions.length > 0 && (
+            <div className="flex bg-[#121420] p-1 rounded-2xl border border-slate-800/80 w-fit text-xs font-bold font-mono">
+              <button
+                type="button"
+                onClick={() => setProjectionTab("portfolio")}
+                className={`px-4 py-1.5 rounded-xl transition-all cursor-pointer ${
+                  projectionTab === "portfolio"
+                    ? "bg-emerald-500 text-slate-950 font-black shadow-lg shadow-emerald-500/10"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                {language === "EN" ? "Portfolio" : "Portafolio"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setProjectionTab("margin")}
+                className={`px-4 py-1.5 rounded-xl transition-all cursor-pointer ${
+                  projectionTab === "margin"
+                    ? "bg-amber-500 text-slate-950 font-black shadow-lg shadow-amber-500/10"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                {language === "EN" ? "Margin" : "Margen"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setProjectionTab("total")}
+                className={`px-4 py-1.5 rounded-xl transition-all cursor-pointer ${
+                  projectionTab === "total"
+                    ? "bg-indigo-500 text-slate-950 font-black shadow-lg shadow-indigo-500/10"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                Total
+              </button>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Card 1: PORTFOLIO PROJECTION */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl flex flex-col justify-between">
+              <div className="space-y-4">
+                {/* Header */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">📊</span>
+                    <h3 className="font-display font-bold text-xs text-slate-400 tracking-wider uppercase">
+                      {projectionTab === "portfolio"
+                        ? t.portfolioProjection
+                        : (projectionTab === "margin"
+                          ? (language === "EN" ? "MARGIN PROJECTION" : "PROYECCIÓN DE MARGEN")
+                          : (language === "EN" ? "TOTAL PROJECTION" : "PROYECCIÓN TOTAL")
+                        )
+                      }
+                    </h3>
+                  </div>
+
+                  {/* Year Selectors */}
+                  <div className="flex bg-[#121420] p-1 rounded-xl border border-slate-800/60 text-[10px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setYears(5)}
+                      className={`px-3 py-1.5 rounded-lg transition-all duration-150 cursor-pointer ${
+                        years === 5
+                          ? "bg-[#1c1e29] text-white shadow-inner"
+                          : "text-slate-500 hover:text-slate-300"
+                      }`}
+                    >
+                      5Y
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setYears(10)}
+                      className={`px-3 py-1.5 rounded-lg transition-all duration-150 cursor-pointer ${
+                        years === 10
+                          ? "bg-[#1c1e29] text-white shadow-inner"
+                          : "text-slate-500 hover:text-slate-300"
+                      }`}
+                    >
+                      10Y
+                    </button>
+                  </div>
+                </div>
+
+                {/* Controls Row */}
+                <div className="flex items-center justify-between gap-2 text-xs text-slate-400 w-full whitespace-nowrap">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="truncate">{t.monthlyAddition}</span>
+                    <div className="flex items-center bg-[#121420] border border-slate-800/80 rounded-xl px-2.5 py-1 shrink-0">
+                      <span className="text-slate-500 font-mono mr-1">$</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="100"
+                        disabled={projectionTab === "margin"}
+                        value={projectionTab === "margin" ? 0 : monthlyAddition}
+                        onChange={(e) => setMonthlyAddition(Math.max(0, Number(e.target.value)))}
+                        className="bg-transparent text-white font-mono font-bold w-12 sm:w-14 focus:outline-none text-right disabled:opacity-50"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span>{t.cagr}</span>
+                    <div className="flex items-center bg-[#121420] border border-slate-800/80 rounded-xl px-2 py-1">
+                      <input
+                        type="number"
+                        min="0"
+                        max="200"
+                        step="0.1"
+                        value={cagr}
+                        onChange={(e) => setCagr(Math.max(0, Number(e.target.value)))}
+                        className="bg-transparent text-white font-mono font-bold w-10 focus:outline-none text-right mr-0.5"
+                      />
+                      <span className="text-slate-500 font-mono">%</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Main Value Display */}
+                <div className="grid grid-cols-3 gap-2 pt-2">
+                  <div className="text-left">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">{t.current}</span>
+                    <span className="text-lg md:text-xl font-mono font-bold text-white mt-1 block">
+                      {formatAbbreviatedK(selectedTotalMktValue)}
+                    </span>
+                  </div>
+                  <div className="text-center">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">
+                      {t.additions} ({years}Y)
+                    </span>
+                    <span className="text-lg md:text-xl font-mono font-bold text-slate-300 mt-1 block">
+                      {formatAbbreviatedK(projectionTab === "margin" ? 0 : (monthlyAddition * years * 12))}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">
+                      {t.projected} ({years}Y)
+                    </span>
+                    <span className="text-lg md:text-xl font-mono font-bold text-emerald-400 mt-1 block">
+                      {formatAbbreviatedK(projectedTotalValue)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Chart Container */}
+              <div className="h-44 w-full mt-6">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="colorValueHoldings" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={getTabColor(projectionTab)} stopOpacity={0.25} />
+                        <stop offset="95%" stopColor={getTabColor(projectionTab)} stopOpacity={0.0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1c1e29" vertical={false} opacity={0.1} />
+                    <XAxis
+                      dataKey="year"
+                      stroke="#475569"
+                      fontSize={10}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <YAxis
+                      stroke="#475569"
+                      fontSize={10}
+                      tickFormatter={(val) => `$${Math.round(val / 1000)}k`}
+                      tickLine={false}
+                      axisLine={false}
+                      width={35}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "#0f111a",
+                        borderColor: "#1e293b",
+                        borderRadius: "12px"
+                      }}
+                      itemStyle={{ color: getTabColor(projectionTab) }}
+                      labelStyle={{ color: "#94a3b8", fontFamily: "monospace" }}
+                      formatter={(val: any) => [formatCurrency(Number(val)), "Value"]}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="value"
+                      stroke={getTabColor(projectionTab)}
+                      fillOpacity={1}
+                      fill="url(#colorValueHoldings)"
+                      strokeWidth={2}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Bottom Accent line */}
+              <div className="text-center mt-4">
+                <span className={`inline-flex items-center gap-1.5 font-mono text-[11px] px-4 py-1.5 rounded-full border ${getTabBadgeClass(projectionTab)}`}>
+                  <TrendingUp size={12} />
+                  CAGR {cagr.toFixed(1)}% · +{percentageReturnOnInvested.toFixed(1)}% {t.onInvested}
+                </span>
+              </div>
+            </div>
+
+            {/* Card 2: PORTFOLIO FUTURE VALUE */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl flex flex-col justify-between">
+              <div className="space-y-5">
+                {/* Header */}
+                <div className="flex items-center gap-2">
+                  <Rocket className="text-pink-500" size={16} />
+                  <h3 className="font-display font-bold text-xs text-slate-400 tracking-wider uppercase">
+                    {projectionTab === "portfolio"
+                      ? t.portfolioFutureValue
+                      : (projectionTab === "margin"
+                        ? (language === "EN" ? "MARGIN FUTURE VALUE" : "VALOR FUTURO CON MARGEN")
+                        : (language === "EN" ? "COMBINED FUTURE VALUE" : "VALOR FUTURO COMBINADO")
+                      )
+                    }
+                  </h3>
+                  <Info size={13} className="text-slate-500 hover:text-slate-300 cursor-pointer" />
+                </div>
+
+                {/* List Rows */}
+                <div className="space-y-4 pt-1">
+                  {/* Row 1: 52wk High */}
+                  <div className="flex items-center justify-between border-b border-slate-900 pb-3">
+                    <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                      <span>
+                        {projectionTab === "portfolio"
+                          ? t.high52wk
+                          : (projectionTab === "margin"
+                            ? (language === "EN" ? "52wk High Margin Portfolio" : "Máximo 52 Semanas Margen")
+                            : (language === "EN" ? "52wk High Combined Portfolio" : "Máximo 52 Semanas Combinado")
+                          )
+                        }
+                      </span>
+                      <Info size={12} className="text-slate-600 hover:text-slate-400 cursor-pointer" />
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="relative group/val cursor-help">
+                        <span className="text-sm font-mono font-bold text-white underline decoration-dotted decoration-slate-600 underline-offset-4 hover:decoration-emerald-400 hover:text-emerald-300 transition-colors">
+                          {formatCurrency(fiftyTwoWeekHighTotal)}
+                        </span>
+
+                        {/* Tooltip Card */}
+                        <div className="absolute right-0 bottom-full mb-2 hidden group-hover/val:block w-72 p-3.5 bg-[#0b0e17]/95 border border-slate-700/90 rounded-2xl shadow-2xl z-50 pointer-events-none text-left backdrop-blur-xl ring-1 ring-white/10">
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-800 pb-1.5 mb-2 flex items-center justify-between font-mono">
+                            <span>{language === "ES" ? "Desglose 52wk High" : "52wk High Breakdown"}</span>
+                            <span className="text-emerald-400">{total52wkGain >= 0 ? "+" : ""}{formatCurrency(total52wkGain)}</span>
+                          </div>
+
+                          <div className="space-y-1.5 text-xs">
+                            {/* Principal Gain */}
+                            {projectionTab !== "margin" && (
+                              <div className="flex items-center justify-between text-slate-300">
+                                <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                                  <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block shrink-0" />
+                                  {language === "ES" ? "Ganancia Principal:" : "Principal Gain:"}
+                                </span>
+                                <div className="text-right font-mono">
+                                  <span className="font-bold text-emerald-400 text-[11px]">
+                                    {principal52wk.gain >= 0 ? "+" : ""}{formatCurrency(principal52wk.gain)}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 ml-1">
+                                    ({principal52wk.gainPct >= 0 ? "+" : ""}{principal52wk.gainPct.toFixed(1)}%)
+                                  </span>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Margin Gain */}
+                            {(projectionTab === "margin" || (projectionTab === "total" && marginFinancedPrincipal > 0)) ? (
+                              <>
+                                <div className="flex items-center justify-between text-slate-300">
+                                  <span className="flex items-center gap-1.5 text-[11px] text-amber-400">
+                                    <span className="w-2 h-2 rounded-full bg-amber-400 inline-block shrink-0" />
+                                    {language === "ES" ? "Ganancia Margen:" : "Margin Gain:"}
+                                  </span>
+                                  <div className="text-right font-mono">
+                                    <span className="font-bold text-amber-300 text-[11px]">
+                                      {margin52wk.gain >= 0 ? "+" : ""}{formatCurrency(margin52wk.gain)}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 ml-1">
+                                      ({margin52wk.gainPct >= 0 ? "+" : ""}{margin52wk.gainPct.toFixed(1)}%)
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1.5 border-t border-slate-800/80 font-mono">
+                                  <span>{language === "ES" ? "Deuda financiada restada:" : "Deducted financing:"}</span>
+                                  <span className="text-rose-400">-{formatCurrency(marginFinancedPrincipal)}</span>
+                                </div>
+                              </>
+                            ) : (
+                              projectionTab === "portfolio" && (
+                                <div className="text-[10px] text-slate-500 italic pt-0.5">
+                                  {language === "ES" ? "Pestaña Cartera Principal (Sin margen)" : "Portfolio Tab (No margin)"}
+                                </div>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded font-mono">
+                        +{high52wkUpside.toFixed(1)}%
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Row 2: Analyst Avg Target */}
+                  <div className="flex items-center justify-between border-b border-slate-900 pb-3">
+                    <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                      <span>{t.avgTargetValue}</span>
+                      <Info size={12} className="text-slate-600 hover:text-slate-400 cursor-pointer" />
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="relative group/val cursor-help">
+                        <span className="text-sm font-mono font-bold text-white underline decoration-dotted decoration-slate-600 underline-offset-4 hover:decoration-emerald-400 hover:text-emerald-300 transition-colors">
+                          {formatCurrency(avgTargetValueTotal)}
+                        </span>
+
+                        {/* Tooltip Card */}
+                        <div className="absolute right-0 bottom-full mb-2 hidden group-hover/val:block w-72 p-3.5 bg-[#0b0e17]/95 border border-slate-700/90 rounded-2xl shadow-2xl z-50 pointer-events-none text-left backdrop-blur-xl ring-1 ring-white/10">
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-800 pb-1.5 mb-2 flex items-center justify-between font-mono">
+                            <span>{language === "ES" ? "Desglose Avg Target" : "Avg Target Breakdown"}</span>
+                            <span className="text-emerald-400">{totalAvgTargetGain >= 0 ? "+" : ""}{formatCurrency(totalAvgTargetGain)}</span>
+                          </div>
+
+                          <div className="space-y-1.5 text-xs">
+                            {/* Principal Gain */}
+                            {projectionTab !== "margin" && (
+                              <div className="flex items-center justify-between text-slate-300">
+                                <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                                  <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block shrink-0" />
+                                  {language === "ES" ? "Ganancia Principal:" : "Principal Gain:"}
+                                </span>
+                                <div className="text-right font-mono">
+                                  <span className="font-bold text-emerald-400 text-[11px]">
+                                    {principalAvgTarget.gain >= 0 ? "+" : ""}{formatCurrency(principalAvgTarget.gain)}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 ml-1">
+                                    ({principalAvgTarget.gainPct >= 0 ? "+" : ""}{principalAvgTarget.gainPct.toFixed(1)}%)
+                                  </span>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Margin Gain */}
+                            {(projectionTab === "margin" || (projectionTab === "total" && marginFinancedPrincipal > 0)) ? (
+                              <>
+                                <div className="flex items-center justify-between text-slate-300">
+                                  <span className="flex items-center gap-1.5 text-[11px] text-amber-400">
+                                    <span className="w-2 h-2 rounded-full bg-amber-400 inline-block shrink-0" />
+                                    {language === "ES" ? "Ganancia Margen:" : "Margin Gain:"}
+                                  </span>
+                                  <div className="text-right font-mono">
+                                    <span className="font-bold text-amber-300 text-[11px]">
+                                      {marginAvgTarget.gain >= 0 ? "+" : ""}{formatCurrency(marginAvgTarget.gain)}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 ml-1">
+                                      ({marginAvgTarget.gainPct >= 0 ? "+" : ""}{marginAvgTarget.gainPct.toFixed(1)}%)
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1.5 border-t border-slate-800/80 font-mono">
+                                  <span>{language === "ES" ? "Deuda financiada restada:" : "Deducted financing:"}</span>
+                                  <span className="text-rose-400">-{formatCurrency(marginFinancedPrincipal)}</span>
+                                </div>
+                              </>
+                            ) : (
+                              projectionTab === "portfolio" && (
+                                <div className="text-[10px] text-slate-500 italic pt-0.5">
+                                  {language === "ES" ? "Pestaña Cartera Principal (Sin margen)" : "Portfolio Tab (No margin)"}
+                                </div>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded font-mono">
+                        +{avgTargetUpside.toFixed(1)}%
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Row 3: Analyst High Target */}
+                  <div className="flex items-center justify-between border-b border-slate-900 pb-3">
+                    <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                      <span>{t.highTargetValue}</span>
+                      <Info size={12} className="text-slate-600 hover:text-slate-400 cursor-pointer" />
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="relative group/val cursor-help">
+                        <span className="text-sm font-mono font-bold text-white underline decoration-dotted decoration-slate-600 underline-offset-4 hover:decoration-emerald-400 hover:text-emerald-300 transition-colors">
+                          {formatCurrency(highTargetValueTotal)}
+                        </span>
+
+                        {/* Tooltip Card */}
+                        <div className="absolute right-0 bottom-full mb-2 hidden group-hover/val:block w-72 p-3.5 bg-[#0b0e17]/95 border border-slate-700/90 rounded-2xl shadow-2xl z-50 pointer-events-none text-left backdrop-blur-xl ring-1 ring-white/10">
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-800 pb-1.5 mb-2 flex items-center justify-between font-mono">
+                            <span>{language === "ES" ? "Desglose High Target" : "High Target Breakdown"}</span>
+                            <span className="text-emerald-400">{totalHighTargetGain >= 0 ? "+" : ""}{formatCurrency(totalHighTargetGain)}</span>
+                          </div>
+
+                          <div className="space-y-1.5 text-xs">
+                            {/* Principal Gain */}
+                            {projectionTab !== "margin" && (
+                              <div className="flex items-center justify-between text-slate-300">
+                                <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                                  <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block shrink-0" />
+                                  {language === "ES" ? "Ganancia Principal:" : "Principal Gain:"}
+                                </span>
+                                <div className="text-right font-mono">
+                                  <span className="font-bold text-emerald-400 text-[11px]">
+                                    {principalHighTarget.gain >= 0 ? "+" : ""}{formatCurrency(principalHighTarget.gain)}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 ml-1">
+                                    ({principalHighTarget.gainPct >= 0 ? "+" : ""}{principalHighTarget.gainPct.toFixed(1)}%)
+                                  </span>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Margin Gain */}
+                            {(projectionTab === "margin" || (projectionTab === "total" && marginFinancedPrincipal > 0)) ? (
+                              <>
+                                <div className="flex items-center justify-between text-slate-300">
+                                  <span className="flex items-center gap-1.5 text-[11px] text-amber-400">
+                                    <span className="w-2 h-2 rounded-full bg-amber-400 inline-block shrink-0" />
+                                    {language === "ES" ? "Ganancia Margen:" : "Margin Gain:"}
+                                  </span>
+                                  <div className="text-right font-mono">
+                                    <span className="font-bold text-amber-300 text-[11px]">
+                                      {marginHighTarget.gain >= 0 ? "+" : ""}{formatCurrency(marginHighTarget.gain)}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 ml-1">
+                                      ({marginHighTarget.gainPct >= 0 ? "+" : ""}{marginHighTarget.gainPct.toFixed(1)}%)
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1.5 border-t border-slate-800/80 font-mono">
+                                  <span>{language === "ES" ? "Deuda financiada restada:" : "Deducted financing:"}</span>
+                                  <span className="text-rose-400">-{formatCurrency(marginFinancedPrincipal)}</span>
+                                </div>
+                              </>
+                            ) : (
+                              projectionTab === "portfolio" && (
+                                <div className="text-[10px] text-slate-500 italic pt-0.5">
+                                  {language === "ES" ? "Pestaña Cartera Principal (Sin margen)" : "Portfolio Tab (No margin)"}
+                                </div>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded font-mono">
+                        +{highTargetUpside.toFixed(1)}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Projection Breakdown Box */}
+                {projectionTab === "portfolio" ? (
+                  <div className="bg-[#121420]/60 border border-slate-900 rounded-2xl p-4 mt-2">
+                    <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block mb-3 font-mono">
+                      {t.projectionBreakdown} ({years}Y · CAGR {cagr.toFixed(1)}%)
+                    </span>
+
+                    <div className="space-y-2.5 text-xs">
+                      <div className="flex justify-between items-center text-slate-400">
+                        <span>{t.principal}</span>
+                        <span className="font-mono font-semibold text-white">
+                          {formatCurrency(selectedTotalMktValue)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center text-slate-400">
+                        <span>{t.additions} ({years}Y)</span>
+                        <span className="font-mono font-semibold text-slate-300">
+                          +{formatCurrency(totalAdditions)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center text-slate-400">
+                        <span className="flex items-center gap-1">
+                          {t.interestGains}
+                          <ChevronDown size={12} className="text-slate-500" />
+                        </span>
+                        <span className="font-mono font-bold text-emerald-400">
+                          +{formatCurrency(interestGains)}
+                        </span>
+                      </div>
+                      <div className="border-t border-slate-900/80 my-2 pt-2.5 flex justify-between items-center">
+                        <span className="font-bold text-white">{t.totalValue}</span>
+                        <span className="font-mono font-extrabold text-lg text-emerald-400">
+                          {formatCurrency(projectedTotalValue)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-[#121420]/60 border border-slate-900 rounded-2xl p-4 mt-2 space-y-3 animate-fade-in">
+                    <span className={`text-[9px] ${projectionTab === "margin" ? "text-amber-400" : "text-indigo-400"} font-bold uppercase tracking-wider block font-mono`}>
+                      {projectionTab === "margin"
+                        ? (language === "EN" ? "DEBT & MARGIN INTEREST ANALYSIS" : "ANÁLISIS DE DEUDA E INTERESES DE MARGEN")
+                        : (language === "EN" ? "COMBINED DEBT & INTEREST ANALYSIS" : "ANÁLISIS COMBINADO DE DEUDA E INTERESES")
+                      } ({years}Y · {language === "EN" ? "Rate 6.25%" : "Tasa 6.25%"})
+                    </span>
+
+                    <div className="space-y-2.5 text-xs">
+                      <div className="flex justify-between items-center text-slate-400">
+                        <span>
+                          {projectionTab === "margin"
+                            ? (language === "EN" ? "Gross Projected Margin Value" : "Valor Bruto Margen Proyectado")
+                            : (language === "EN" ? "Gross Projected Total Value" : "Valor Bruto Total Proyectado")
+                          }
+                        </span>
+                        <span className="font-mono font-semibold text-white">
+                          {formatCurrency(projectedTotalValue)}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between items-center text-slate-400">
+                        <span className="flex items-center gap-1 text-rose-400">
+                          {language === "EN" ? "Margin Loan (Debt)" : "Préstamo de Margen (Deuda)"}
+                        </span>
+                        <span className="font-mono font-semibold text-rose-400">
+                          -{formatCurrency(marginFinancedPrincipal)}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between items-center text-slate-400">
+                        <span>{language === "EN" ? "Margin Interest (1 Year)" : "Interés de Margen (1 Año)"}</span>
+                        <span className="font-mono text-slate-300">
+                          {formatCurrency(marginFinancedPrincipal * 0.0625)}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between items-center text-slate-400 border-b border-slate-900 pb-2">
+                        <span className="text-rose-400 font-medium">{language === "EN" ? "Total Interest" : "Intereses Totales"} ({years} {language === "EN" ? "Years" : "Años"})</span>
+                        <span className="font-mono font-semibold text-rose-400">
+                          -{formatCurrency(marginFinancedPrincipal * 0.0625 * years)}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between items-center text-slate-400 pt-1">
+                        <span>{language === "EN" ? "Net Value (Minus Loan)" : "Valor Neto (Menos Deuda)"}</span>
+                        <span className="font-mono font-bold text-emerald-400">
+                          {formatCurrency(Math.max(0, projectedTotalValue - marginFinancedPrincipal))}
+                        </span>
+                      </div>
+
+                      <div className="border-t border-slate-900/80 my-2 pt-2.5 flex justify-between items-center">
+                        <div>
+                          <span className="font-bold text-white block">
+                            {projectionTab === "margin"
+                              ? (language === "EN" ? "Final Net Value" : "Valor Neto Final")
+                              : (language === "EN" ? "Combined Net Value" : "Valor Neto Combinado")
+                            }
+                          </span>
+                          <span className="text-[10px] text-slate-500 block leading-none">{language === "EN" ? "(Minus Loan & Interest)" : "(Menos Deuda e Intereses)"}</span>
+                        </div>
+                        <span className="font-mono font-extrabold text-lg text-emerald-400">
+                          {formatCurrency(Math.max(0, projectedTotalValue - marginFinancedPrincipal - (marginFinancedPrincipal * 0.0625 * years)))}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Card 3: SECTORES S&P 500 */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl flex flex-col justify-between">
+              <div className="space-y-4">
+                {/* Header */}
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
+                    <PieChartIcon className="text-blue-400" size={16} />
+                  </div>
+                  <div>
+                    <h3 className="font-display font-bold text-xs text-slate-400 tracking-wider uppercase">
+                      {projectionTab === "portfolio"
+                        ? (language === "EN" ? "SECTOR DISTRIBUTION (PORTFOLIO)" : "DISTRIBUCIÓN POR SECTOR (PORTAFOLIO)")
+                        : projectionTab === "margin"
+                        ? (language === "EN" ? "SECTOR DISTRIBUTION (MARGIN)" : "DISTRIBUCIÓN POR SECTOR (MARGEN)")
+                        : (language === "EN" ? "SECTOR DISTRIBUTION (COMBINED)" : "DISTRIBUCIÓN POR SECTOR (COMBINADO)")
+                      }
+                    </h3>
+                    <p className="text-[10px] text-slate-500">
+                      {projectionTab === "portfolio"
+                        ? (language === "EN" ? "Weighting of portfolio by market value" : "Distribución del portafolio por valor de mercado")
+                        : projectionTab === "margin"
+                        ? (language === "EN" ? "Weighting of margin positions by market value" : "Distribución de posiciones con margen por valor de mercado")
+                        : (language === "EN" ? "Weighting of combined portfolio by market value" : "Distribución del portafolio combinado por valor de mercado")
+                      }
+                    </p>
+                  </div>
+                </div>
+
+                {/* Sectors List */}
+                <div className="space-y-3 pr-1">
+                  {sortedSectors.map((sector, sIdx) => {
+                    const isExpanded = !!expandedSectors[sector.name];
+                    const subsectors = sectorSubsectors[sector.name]
+                      ? (Object.entries(sectorSubsectors[sector.name]) as [string, { mktValue: number; weight: number }][]).sort((a, b) => b[1].weight - a[1].weight)
+                      : [];
+
+                    return (
+                      <div key={`${sector.name}-${sIdx}`} className="border-b border-slate-800/10 pb-2.5 last:border-0 last:pb-0">
+                        <div
+                          onClick={() => toggleSector(sector.name)}
+                          className="flex justify-between items-center text-xs cursor-pointer group hover:bg-slate-800/30 p-1 rounded-lg transition-all"
+                        >
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="text-slate-500 group-hover:text-slate-300 shrink-0">
+                              {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                            </span>
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${getSectorColor(sector.name)}`} />
+                            <span className="font-semibold text-slate-300 group-hover:text-white truncate text-xs" title={language === "EN" ? sector.name : getSectorSpanish(sector.name)}>
+                              {language === "EN" ? sector.name : getSectorSpanish(sector.name)}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2.5 font-mono shrink-0 text-xs">
+                            <span className="text-slate-400 font-medium">{formatCurrency(sector.mktValue)}</span>
+                            <span className="text-white font-extrabold">{sector.weight.toFixed(1)}%</span>
+                          </div>
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="pl-6 pr-1 mt-1">
+                          <div className="h-1.5 w-full bg-slate-800/60 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-500 ${getSectorColor(sector.name)}`}
+                              style={{ width: `${sector.weight}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Subsectors */}
+                        {isExpanded && subsectors.length > 0 && (
+                          <div className="pl-8 pr-1 mt-2 flex flex-col gap-1.5 border-l-2 border-slate-800/60 ml-4">
+                            {subsectors.map(([subName, subData], subIdx) => (
+                              <div key={`${subName}-${subIdx}`} className="flex justify-between items-center text-[11px]">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <span className="w-1 h-1 rounded-full bg-slate-600 shrink-0" />
+                                  <span className="text-slate-400 font-medium truncate">{subName}</span>
+                                </div>
+                                <div className="flex items-center gap-2 font-mono shrink-0">
+                                  <span className="text-slate-500 text-[10px]">{formatCurrency(subData.mktValue)}</span>
+                                  <span className="text-slate-300 font-semibold">{subData.weight.toFixed(1)}%</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Insights panel will be rendered below the tickers list */}
       {holdingsTabMode === "health" && sortedPositions.length > 0 && (
         <div className="bg-[#0a0c14]/40 border border-slate-900/40 p-6 rounded-2xl flex flex-col xl:flex-row items-center gap-6 justify-between">
@@ -2655,7 +3438,7 @@ export default function HoldingsTable({
               </div>
             </div>
           </div>
-          
+
           <div className="flex items-center justify-center gap-4 sm:gap-6 md:gap-10 flex-1">
              <ScoreDonut score={portfolioWeightedFactors.growth} label={language === "EN" ? "Growth" : "Crecimiento"} colorClass={getScoreColorClass(portfolioWeightedFactors.growth)} />
              <ScoreDonut score={portfolioWeightedFactors.quality} label={language === "EN" ? "Quality" : "Calidad"} colorClass={getScoreColorClass(portfolioWeightedFactors.quality)} />
@@ -2689,7 +3472,7 @@ export default function HoldingsTable({
           )}
         </div>
       ) : holdingsTabMode === "financials" ? (
-        <CompanyFinancials 
+        <CompanyFinancials
           language={language}
           tickers={Array.from(new Set(positions.filter(p => !p.isCash).map(p => p.ticker)))}
           prefetchedData={effectiveFinancialsMap}
@@ -2698,29 +3481,87 @@ export default function HoldingsTable({
         />
       ) : viewMode === "table" ? (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl overflow-hidden">
+          {holdingsTabMode === "basis" && (
+            <div className="flex justify-end mb-3 relative">
+              <button
+                type="button"
+                onClick={() => setGroupMenuOpen((o) => !o)}
+                aria-expanded={groupMenuOpen}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-700 bg-slate-800/60 text-xs font-bold text-slate-300 hover:text-white cursor-pointer"
+              >
+                <Layers size={13} />
+                {language === "EN" ? "Group by" : "Agrupar por"}:{" "}
+                <span className="text-emerald-400">
+                  {groupBy.sector && groupBy.subsector
+                    ? language === "EN" ? "Sector + Subsector" : "Sector + Subsector"
+                    : groupBy.sector
+                      ? "Sector"
+                      : groupBy.subsector
+                        ? "Subsector"
+                        : language === "EN" ? "None" : "Ninguno"}
+                </span>
+                <ChevronDown size={13} className={groupMenuOpen ? "rotate-180 transition-transform" : "transition-transform"} />
+              </button>
+              {groupMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setGroupMenuOpen(false)} />
+                  <div className="absolute right-0 top-full mt-1.5 z-40 w-56 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl p-1.5 text-xs">
+                    {([
+                      { key: "sector", label: language === "EN" ? "S&P 500 sector" : "Sector S&P 500" },
+                      { key: "subsector", label: "Subsector" },
+                    ] as const).map((o) => (
+                      <label key={o.key} className="flex items-center gap-2 px-2.5 py-2 rounded-lg hover:bg-slate-800 cursor-pointer text-slate-200">
+                        <input
+                          type="checkbox"
+                          checked={groupBy[o.key]}
+                          onChange={(e) => setGroupBy((g) => ({ ...g, [o.key]: e.target.checked }))}
+                          className="accent-emerald-500 w-3.5 h-3.5"
+                        />
+                        {o.label}
+                      </label>
+                    ))}
+                    <div className="border-t border-slate-800 mt-1 pt-1 flex gap-1">
+                      <button type="button" onClick={() => setGroupBy({ sector: true, subsector: true })} className="flex-1 px-2 py-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white cursor-pointer">
+                        {language === "EN" ? "Both" : "Ambos"}
+                      </button>
+                      <button type="button" onClick={() => setGroupBy({ sector: false, subsector: false })} className="flex-1 px-2 py-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white cursor-pointer">
+                        {language === "EN" ? "None" : "Ninguno"}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           <div className="overflow-x-auto">
           <table className={`w-full text-left border-collapse ${holdingsTabMode === "valuation" ? "min-w-[950px]" : "min-w-[850px]"}`}>
             <thead>
               <tr className="border-b border-slate-800 text-slate-400 text-[10px] md:text-xs font-semibold uppercase tracking-wider">
-                <th className={`py-2 px-1 md:px-2 ${holdingsTabMode === "valuation" ? "w-[160px]" : ""}`}>Ticker</th>
-                {holdingsTabMode !== "valuation" && (
+                {holdingsTabMode === "basis" ? (
+                  sortTh("ticker", "Ticker", "py-2 px-1 md:px-2")
+                ) : (
+                  <th className={`py-2 px-1 md:px-2 ${holdingsTabMode === "valuation" ? "w-[160px]" : ""}`}>Ticker</th>
+                )}
+                {holdingsTabMode === "basis" ? (
+                  sortTh("price", language === "EN" ? "Price" : "Precio")
+                ) : holdingsTabMode !== "valuation" && (
                   <th className="py-2 px-1 md:px-2 text-right">
-                    {holdingsTabMode === "health" 
-                      ? "Piotroski F-Score" 
+                    {holdingsTabMode === "health"
+                      ? "Piotroski F-Score"
                       : (language === "EN" ? "Price" : "Precio")}
                   </th>
                 )}
                 {holdingsTabMode === "basis" ? (
                   <>
-                    <th className="py-2 px-1 md:px-2 text-right">{language === "EN" ? "Shares" : "Acciones"}</th>
-                    <th className="py-2 px-1 md:px-2 text-right">{language === "EN" ? "Avg Cost" : "Costo Prom."}</th>
-                    <th className="py-2 px-1 md:px-2 text-right">{language === "EN" ? "Mkt Value" : "Val. Mercado"}</th>
-                    <th className="py-2 px-1 md:px-2 text-right">{language === "EN" ? "Weight" : "Peso"}</th>
-                    <th className="py-2 px-1 md:px-2 text-right">{language === "EN" ? "Daily P&L" : "P&L Diario"}</th>
-                    <th className="py-2 px-1 md:px-2 text-right">{language === "EN" ? "Change %" : "Cambio %"}</th>
-                    <th className="py-2 px-1 md:px-2 text-right">{language === "EN" ? "Return $" : "Retorno $"}</th>
-                    <th className="py-2 px-1 md:px-2 text-right">{language === "EN" ? "Return %" : "Retorno %"}</th>
-                    <th className="py-2 px-1 md:px-2 text-right text-emerald-400 font-bold whitespace-nowrap">{language === "EN" ? "Dividend" : "Dividendo"}</th>
+                    {sortTh("shares", language === "EN" ? "Shares" : "Acciones")}
+                    {sortTh("avgCost", language === "EN" ? "Avg Cost" : "Costo Prom.")}
+                    {sortTh("mktValue", language === "EN" ? "Mkt Value" : "Val. Mercado")}
+                    {sortTh("weight", language === "EN" ? "Weight" : "Peso")}
+                    {sortTh("dailyPnL", language === "EN" ? "Daily P&L" : "P&L Diario")}
+                    {sortTh("chgPct", language === "EN" ? "Change %" : "Cambio %")}
+                    {sortTh("returnAmt", language === "EN" ? "Return $" : "Retorno $")}
+                    {sortTh("returnPct", language === "EN" ? "Return %" : "Retorno %")}
+                    {sortTh("dividend", language === "EN" ? "Dividend" : "Dividendo", "py-2 px-1 md:px-2 text-right text-emerald-400 font-bold whitespace-nowrap")}
                   </>
                 ) : holdingsTabMode === "valuation" ? (
                   <>
@@ -2751,15 +3592,48 @@ export default function HoldingsTable({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
-              {sortedPositions.map((pos, idx) => {
+              {(holdingsTabMode === "basis" ? basisRows : sortedPositions.map((pos, idx): BasisRow => ({ kind: "pos", pos, idx }))).map((row, rowIdx) => {
+                if (row.kind === "group") {
+                  const up = row.returnAmt >= 0;
+                  const sector = row.level === "sector";
+                  return (
+                    <tr
+                      key={`g-${row.level}-${row.label}-${rowIdx}`}
+                      className={sector ? "bg-slate-800/40 text-slate-100" : "bg-slate-800/15 text-slate-300"}
+                    >
+                      <td colSpan={4} className={`py-2 ${sector ? "px-1 md:px-2" : "pl-5 md:pl-7 pr-2"} text-[11px] md:text-xs font-bold uppercase tracking-wider`}>
+                        <span className={sector ? "text-emerald-400" : "text-slate-400"}>{sector ? "■" : "▸"}</span> {row.label}
+                        <span className="ml-1.5 font-normal normal-case tracking-normal text-slate-500">
+                          ({row.count})
+                        </span>
+                      </td>
+                      <td className="py-2 px-1 md:px-2 text-right font-mono font-bold text-[11px] md:text-xs">{formatCurrency(row.mktValue)}</td>
+                      <td className="py-2 px-1 md:px-2 text-right font-mono text-[11px] md:text-xs">{row.weight.toFixed(1)}%</td>
+                      <td className={`py-2 px-1 md:px-2 text-right font-mono text-[11px] md:text-xs ${row.dailyPnL >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                        {row.dailyPnL >= 0 ? "+" : ""}
+                        {formatStockValue(row.dailyPnL)}
+                      </td>
+                      <td className="py-2 px-1 md:px-2" />
+                      <td className={`py-2 px-1 md:px-2 text-right font-mono text-[11px] md:text-xs ${up ? "text-emerald-400" : "text-rose-400"}`}>
+                        {up ? "+" : ""}
+                        {formatStockValue(row.returnAmt)}
+                      </td>
+                      <td className={`py-2 px-1 md:px-2 text-right font-mono text-[11px] md:text-xs ${up ? "text-emerald-400" : "text-rose-400"}`}>
+                        {row.cost > 0 ? formatPercent((row.returnAmt / row.cost) * 100) : "—"}
+                      </td>
+                      <td className="py-2 px-1 md:px-2 text-right font-mono text-[11px] md:text-xs text-emerald-400">{row.dividend > 0 ? formatCurrency(row.dividend) : "—"}</td>
+                    </tr>
+                  );
+                }
+                const { pos, idx } = row;
                 const tooltipPlacement = idx < sortedPositions.length / 2 ? "bottom" : "top";
                 const isDailyPositive = pos.dailyPnL >= 0;
                 const isTotalPositive = pos.returnAmt >= 0;
-                
+
                 const eps = pos.pe && pos.pe > 0 ? pos.price / pos.pe : null;
                 const analystData = getAnalystData(pos.ticker, pos.price);
                 const hasAvgTarget = analystData.avgTarget !== null && analystData.avgTarget > 0;
-                
+
                 let dcfIntrinsic = calculateTickerDCF(pos.ticker, eps);
                 if (dcfIntrinsic !== null && dcfIntrinsic < 0 && hasAvgTarget) {
                   dcfIntrinsic = analystData.avgTarget;
@@ -2793,7 +3667,7 @@ export default function HoldingsTable({
                               {pos.ticker}
                             </span>
                             {pos.isMargin && (
-                              <span 
+                              <span
                                 title={language === "ES" ? "Posición en Margen • Costo de financiamiento: 6.25% E.A. cobrado mensualmente (~0.51%/mes)" : "Margin Position • Financing cost: 6.25% effective annual rate charged monthly (~0.51%/mo)"}
                                 className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono font-bold uppercase tracking-wider"
                               >
@@ -3018,10 +3892,10 @@ export default function HoldingsTable({
                             {typeof scoredRow?.scores?.balanced === "number" ? scoredRow.scores.balanced.toFixed(0) : "—"}
                           </span>
                         </td>
-                        
+
                         {/* Growth */}
                         <td className="py-2.5 px-1 md:px-2 text-center group relative cursor-help">
-                          <HealthMetricsTooltip 
+                          <HealthMetricsTooltip
                             title={language === "ES" ? "Crecimiento" : "Growth"}
                             metrics={[
                               {key: "revenue_cagr", label: "Revenue CAGR", suffix: "%"},
@@ -3037,8 +3911,8 @@ export default function HoldingsTable({
                               {typeof scoredRow?.factors?.growth === "number" ? scoredRow.factors.growth.toFixed(0) : "—"}
                             </span>
                             <div className="w-12 h-1 bg-slate-950 rounded-full overflow-hidden mt-1">
-                              <div 
-                                className="bg-emerald-500 h-full rounded-full" 
+                              <div
+                                className="bg-emerald-500 h-full rounded-full"
                                 style={{ width: `${scoredRow?.factors?.growth ?? 0}%` }}
                               />
                             </div>
@@ -3047,7 +3921,7 @@ export default function HoldingsTable({
 
                         {/* Quality */}
                         <td className="py-2.5 px-1 md:px-2 text-center group relative cursor-help">
-                          <HealthMetricsTooltip 
+                          <HealthMetricsTooltip
                             title={language === "ES" ? "Calidad" : "Quality"}
                             metrics={[
                               {key: "roic", label: "ROIC", suffix: "%"},
@@ -3064,8 +3938,8 @@ export default function HoldingsTable({
                               {typeof scoredRow?.factors?.quality === "number" ? scoredRow.factors.quality.toFixed(0) : "—"}
                             </span>
                             <div className="w-12 h-1 bg-slate-950 rounded-full overflow-hidden mt-1">
-                              <div 
-                                className="bg-blue-500 h-full rounded-full" 
+                              <div
+                                className="bg-blue-500 h-full rounded-full"
                                 style={{ width: `${scoredRow?.factors?.quality ?? 0}%` }}
                               />
                             </div>
@@ -3074,7 +3948,7 @@ export default function HoldingsTable({
 
                         {/* Stability */}
                         <td className="py-2.5 px-1 md:px-2 text-center group relative cursor-help">
-                          <HealthMetricsTooltip 
+                          <HealthMetricsTooltip
                             title={language === "ES" ? "Estabilidad" : "Stability"}
                             metrics={[
                               {key: "beta", label: "Beta"},
@@ -3091,8 +3965,8 @@ export default function HoldingsTable({
                               {typeof scoredRow?.factors?.stability === "number" ? scoredRow.factors.stability.toFixed(0) : "—"}
                             </span>
                             <div className="w-12 h-1 bg-slate-950 rounded-full overflow-hidden mt-1">
-                              <div 
-                                className="bg-amber-500 h-full rounded-full" 
+                              <div
+                                className="bg-amber-500 h-full rounded-full"
                                 style={{ width: `${scoredRow?.factors?.stability ?? 0}%` }}
                               />
                             </div>
@@ -3101,7 +3975,7 @@ export default function HoldingsTable({
 
                         {/* Valuation */}
                         <td className="py-2.5 px-1 md:px-2 text-center group relative cursor-help">
-                          <HealthMetricsTooltip 
+                          <HealthMetricsTooltip
                             title={language === "ES" ? "Valoración" : "Valuation"}
                             metrics={[
                               {key: "trailing_pe", label: "Trailing P/E", suffix: "x"},
@@ -3118,8 +3992,8 @@ export default function HoldingsTable({
                               {typeof scoredRow?.factors?.valuation === "number" ? scoredRow.factors.valuation.toFixed(0) : "—"}
                             </span>
                             <div className="w-12 h-1 bg-slate-950 rounded-full overflow-hidden mt-1">
-                              <div 
-                                className="bg-rose-500 h-full rounded-full" 
+                              <div
+                                className="bg-rose-500 h-full rounded-full"
                                 style={{ width: `${scoredRow?.factors?.valuation ?? 0}%` }}
                               />
                             </div>
@@ -3133,7 +4007,7 @@ export default function HoldingsTable({
                               —
                             </span>
                           ) : (
-                            <span 
+                            <span
                               className={`text-[11px] font-bold px-2.5 py-1 rounded border block w-max truncate max-w-[170px] ${getTypeBadgeConfig(scoredRow?.type).className}`}
                               title={scoredRow?.type ? `${scoredRow?.type}\n${language === 'ES' ? 'Método:' : 'Method:'} ${scoredRow?.valuationMethod}` : ""}
                             >
@@ -3159,7 +4033,7 @@ export default function HoldingsTable({
             </tbody>
             {holdingsTabMode !== "health" && (
               <tfoot>
-                <tr 
+                <tr
                   className="border-t-2 border-slate-800 bg-transparent text-slate-100 font-bold text-[16px]"
                 >
                   <td className="py-3 px-1 md:px-2 font-display tracking-wider font-extrabold uppercase text-slate-400">
@@ -3277,7 +4151,7 @@ export default function HoldingsTable({
                 </div>
               </div>
             </div>
-            
+
             {holdingsTabMode !== "health" && (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 md:gap-8 border-t border-slate-800 md:border-t-0 pt-4 md:pt-0">
                 <div>
@@ -3349,7 +4223,7 @@ export default function HoldingsTable({
                             {pos.ticker}
                           </h3>
                           {pos.isMargin && (
-                            <span 
+                            <span
                               title={language === "ES" ? "Posición en Margen • Costo de financiamiento: 6.25% E.A. cobrado mensualmente (~0.51%/mes)" : "Margin Position • Financing cost: 6.25% effective annual rate charged monthly (~0.51%/mo)"}
                               className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono font-bold uppercase tracking-wider"
                             >
@@ -3439,7 +4313,7 @@ export default function HoldingsTable({
                   ) : (
                     <div className="grid grid-cols-4 gap-2 mt-4 bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/40">
                       <div className="text-center group relative cursor-help">
-                        <HealthMetricsTooltip 
+                        <HealthMetricsTooltip
                           title={language === "ES" ? "Crecimiento" : "Growth"}
                           metrics={[
                             {key: "revenue_cagr", label: "Revenue CAGR", suffix: "%"},
@@ -3456,7 +4330,7 @@ export default function HoldingsTable({
                         </p>
                       </div>
                       <div className="text-center group relative cursor-help">
-                        <HealthMetricsTooltip 
+                        <HealthMetricsTooltip
                           title={language === "ES" ? "Calidad" : "Quality"}
                           metrics={[
                             {key: "roic", label: "ROIC", suffix: "%"},
@@ -3474,7 +4348,7 @@ export default function HoldingsTable({
                         </p>
                       </div>
                       <div className="text-center group relative cursor-help">
-                        <HealthMetricsTooltip 
+                        <HealthMetricsTooltip
                           title={language === "ES" ? "Estabilidad" : "Stability"}
                           metrics={[
                             {key: "beta", label: "Beta"},
@@ -3492,7 +4366,7 @@ export default function HoldingsTable({
                         </p>
                       </div>
                       <div className="text-center group relative cursor-help">
-                        <HealthMetricsTooltip 
+                        <HealthMetricsTooltip
                           title={language === "ES" ? "Valoración" : "Valuation"}
                           metrics={[
                             {key: "trailing_pe", label: "Trailing P/E", suffix: "x"},
@@ -3621,7 +4495,7 @@ export default function HoldingsTable({
       {/* 2.3 TICKER PERFORMANCE COMPARATOR CHART */}
       {activePositions.filter(p => p.ticker && p.ticker.toUpperCase() !== "CASH" && !p.isCash && p.shares > 0).length > 0 && holdingsTabMode !== "financials" && (
         <div className="bg-[#0f111a]/80 backdrop-blur-md border border-slate-900/60 rounded-3xl p-6 shadow-xl mt-6" id="ticker-performance-comparator-card">
-          <div 
+          <div
             className="flex items-center justify-between cursor-pointer select-none"
             onClick={() => setIsPerformanceExpanded(!isPerformanceExpanded)}
           >
@@ -3634,16 +4508,16 @@ export default function HoldingsTable({
                   Ticker Performance
                 </h3>
                 <p className="text-xs text-slate-500 mt-1">
-                  {language === "ES" 
-                    ? "Rendimiento porcentual de cada posición ordenadas de mayor a menor retorno" 
+                  {language === "ES"
+                    ? "Rendimiento porcentual de cada posición ordenadas de mayor a menor retorno"
                     : "Percentage return of each holding sorted from highest to lowest return"}
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-3">
               <span className="text-[10px] text-white font-bold uppercase tracking-wider" style={{ color: '#ffffff' }}>
-                {isPerformanceExpanded 
-                  ? (language === "ES" ? "Ocultar" : "Collapse") 
+                {isPerformanceExpanded
+                  ? (language === "ES" ? "Ocultar" : "Collapse")
                   : (language === "ES" ? "Mostrar" : "Expand")}
               </span>
               <div className={`p-1.5 rounded-lg bg-slate-900/60 border border-slate-800/40 text-slate-400 transition-transform duration-200 ${isPerformanceExpanded ? "rotate-180" : ""}`}>
@@ -3690,34 +4564,34 @@ export default function HoldingsTable({
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={performanceData} margin={{ top: 15, right: 10, left: 10, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#1c1e29" vertical={false} opacity={0.1} />
-                    <XAxis 
-                      dataKey="name" 
-                      stroke="#475569" 
-                      fontSize={11} 
+                    <XAxis
+                      dataKey="name"
+                      stroke="#475569"
+                      fontSize={11}
                       tickLine={false}
                       axisLine={false}
                       dy={10}
                       className="font-mono font-bold"
                     />
-                    <YAxis 
-                      stroke="#475569" 
-                      fontSize={10} 
+                    <YAxis
+                      stroke="#475569"
+                      fontSize={10}
                       tickFormatter={(val) => `${val >= 0 ? "+" : ""}${val}%`}
                       tickLine={false}
                       axisLine={false}
                       width={55}
                       className="font-mono"
                     />
-                    <Tooltip 
+                    <Tooltip
                       content={<CustomPerformanceTooltip language={language} />}
                       cursor={{ fill: '#1e293b', opacity: 0.15 }}
                     />
                     <ReferenceLine y={0} stroke="#475569" strokeWidth={1} opacity={0.4} />
                     <Bar dataKey="performance" radius={[4, 4, 0, 0]} maxBarSize={45}>
                       {performanceData.map((entry, index) => (
-                        <Cell 
-                          key={`cell-${index}`} 
-                          fill={entry.performance >= 0 ? "#10b981" : "#f43f5e"} 
+                        <Cell
+                          key={`cell-${index}`}
+                          fill={entry.performance >= 0 ? "#10b981" : "#f43f5e"}
                         />
                       ))}
                     </Bar>
@@ -3729,688 +4603,16 @@ export default function HoldingsTable({
         </div>
       )}
 
-      {/* 2.5 PORTFOLIO PROJECTION, FUTURE VALUE & SECTORS */}
-      {activePositions.length > 0 && (
-        <div className="space-y-4">
-          {/* Tabs Selector: Portfolio / Margin / Total (only show selector if margin positions exist) */}
-          {marginActivePositions.length > 0 && (
-            <div className="flex bg-[#121420] p-1 rounded-2xl border border-slate-800/80 w-fit text-xs font-bold font-mono">
-              <button
-                type="button"
-                onClick={() => setProjectionTab("portfolio")}
-                className={`px-4 py-1.5 rounded-xl transition-all cursor-pointer ${
-                  projectionTab === "portfolio"
-                    ? "bg-emerald-500 text-slate-950 font-black shadow-lg shadow-emerald-500/10"
-                    : "text-slate-400 hover:text-white"
-                }`}
-              >
-                {language === "EN" ? "Portfolio" : "Portafolio"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setProjectionTab("margin")}
-                className={`px-4 py-1.5 rounded-xl transition-all cursor-pointer ${
-                  projectionTab === "margin"
-                    ? "bg-amber-500 text-slate-950 font-black shadow-lg shadow-amber-500/10"
-                    : "text-slate-400 hover:text-white"
-                }`}
-              >
-                {language === "EN" ? "Margin" : "Margen"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setProjectionTab("total")}
-                className={`px-4 py-1.5 rounded-xl transition-all cursor-pointer ${
-                  projectionTab === "total"
-                    ? "bg-indigo-500 text-slate-950 font-black shadow-lg shadow-indigo-500/10"
-                    : "text-slate-400 hover:text-white"
-                }`}
-              >
-                Total
-              </button>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Card 1: PORTFOLIO PROJECTION */}
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl flex flex-col justify-between">
-              <div className="space-y-4">
-                {/* Header */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">📊</span>
-                    <h3 className="font-display font-bold text-xs text-slate-400 tracking-wider uppercase">
-                      {projectionTab === "portfolio" 
-                        ? t.portfolioProjection 
-                        : (projectionTab === "margin" 
-                          ? (language === "EN" ? "MARGIN PROJECTION" : "PROYECCIÓN DE MARGEN") 
-                          : (language === "EN" ? "TOTAL PROJECTION" : "PROYECCIÓN TOTAL")
-                        )
-                      }
-                    </h3>
-                  </div>
-                  
-                  {/* Year Selectors */}
-                  <div className="flex bg-[#121420] p-1 rounded-xl border border-slate-800/60 text-[10px] font-bold">
-                    <button
-                      type="button"
-                      onClick={() => setYears(5)}
-                      className={`px-3 py-1.5 rounded-lg transition-all duration-150 cursor-pointer ${
-                        years === 5 
-                          ? "bg-[#1c1e29] text-white shadow-inner" 
-                          : "text-slate-500 hover:text-slate-300"
-                      }`}
-                    >
-                      5Y
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setYears(10)}
-                      className={`px-3 py-1.5 rounded-lg transition-all duration-150 cursor-pointer ${
-                        years === 10 
-                          ? "bg-[#1c1e29] text-white shadow-inner" 
-                          : "text-slate-500 hover:text-slate-300"
-                      }`}
-                    >
-                      10Y
-                    </button>
-                  </div>
-                </div>
-
-                {/* Controls Row */}
-                <div className="flex items-center justify-between gap-2 text-xs text-slate-400 w-full whitespace-nowrap">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <span className="truncate">{t.monthlyAddition}</span>
-                    <div className="flex items-center bg-[#121420] border border-slate-800/80 rounded-xl px-2.5 py-1 shrink-0">
-                      <span className="text-slate-500 font-mono mr-1">$</span>
-                      <input
-                        type="number"
-                        min="0"
-                        step="100"
-                        disabled={projectionTab === "margin"}
-                        value={projectionTab === "margin" ? 0 : monthlyAddition}
-                        onChange={(e) => setMonthlyAddition(Math.max(0, Number(e.target.value)))}
-                        className="bg-transparent text-white font-mono font-bold w-12 sm:w-14 focus:outline-none text-right disabled:opacity-50"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <span>{t.cagr}</span>
-                    <div className="flex items-center bg-[#121420] border border-slate-800/80 rounded-xl px-2 py-1">
-                      <input
-                        type="number"
-                        min="0"
-                        max="200"
-                        step="0.1"
-                        value={cagr}
-                        onChange={(e) => setCagr(Math.max(0, Number(e.target.value)))}
-                        className="bg-transparent text-white font-mono font-bold w-10 focus:outline-none text-right mr-0.5"
-                      />
-                      <span className="text-slate-500 font-mono">%</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Main Value Display */}
-                <div className="grid grid-cols-3 gap-2 pt-2">
-                  <div className="text-left">
-                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">{t.current}</span>
-                    <span className="text-lg md:text-xl font-mono font-bold text-white mt-1 block">
-                      {formatAbbreviatedK(selectedTotalMktValue)}
-                    </span>
-                  </div>
-                  <div className="text-center">
-                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">
-                      {t.additions} ({years}Y)
-                    </span>
-                    <span className="text-lg md:text-xl font-mono font-bold text-slate-300 mt-1 block">
-                      {formatAbbreviatedK(projectionTab === "margin" ? 0 : (monthlyAddition * years * 12))}
-                    </span>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">
-                      {t.projected} ({years}Y)
-                    </span>
-                    <span className="text-lg md:text-xl font-mono font-bold text-emerald-400 mt-1 block">
-                      {formatAbbreviatedK(projectedTotalValue)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Chart Container */}
-              <div className="h-44 w-full mt-6">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="colorValueHoldings" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={getTabColor(projectionTab)} stopOpacity={0.25} />
-                        <stop offset="95%" stopColor={getTabColor(projectionTab)} stopOpacity={0.0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1c1e29" vertical={false} opacity={0.1} />
-                    <XAxis 
-                      dataKey="year" 
-                      stroke="#475569" 
-                      fontSize={10}
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <YAxis 
-                      stroke="#475569" 
-                      fontSize={10} 
-                      tickFormatter={(val) => `$${Math.round(val / 1000)}k`}
-                      tickLine={false}
-                      axisLine={false}
-                      width={35}
-                    />
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: "#0f111a", 
-                        borderColor: "#1e293b",
-                        borderRadius: "12px"
-                      }}
-                      itemStyle={{ color: getTabColor(projectionTab) }}
-                      labelStyle={{ color: "#94a3b8", fontFamily: "monospace" }}
-                      formatter={(val: any) => [formatCurrency(Number(val)), "Value"]}
-                    />
-                    <Area 
-                      type="monotone" 
-                      dataKey="value" 
-                      stroke={getTabColor(projectionTab)} 
-                      fillOpacity={1} 
-                      fill="url(#colorValueHoldings)" 
-                      strokeWidth={2}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* Bottom Accent line */}
-              <div className="text-center mt-4">
-                <span className={`inline-flex items-center gap-1.5 font-mono text-[11px] px-4 py-1.5 rounded-full border ${getTabBadgeClass(projectionTab)}`}>
-                  <TrendingUp size={12} />
-                  CAGR {cagr.toFixed(1)}% · +{percentageReturnOnInvested.toFixed(1)}% {t.onInvested}
-                </span>
-              </div>
-            </div>
-
-            {/* Card 2: PORTFOLIO FUTURE VALUE */}
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl flex flex-col justify-between">
-              <div className="space-y-5">
-                {/* Header */}
-                <div className="flex items-center gap-2">
-                  <Rocket className="text-pink-500" size={16} />
-                  <h3 className="font-display font-bold text-xs text-slate-400 tracking-wider uppercase">
-                    {projectionTab === "portfolio" 
-                      ? t.portfolioFutureValue 
-                      : (projectionTab === "margin"
-                        ? (language === "EN" ? "MARGIN FUTURE VALUE" : "VALOR FUTURO CON MARGEN")
-                        : (language === "EN" ? "COMBINED FUTURE VALUE" : "VALOR FUTURO COMBINADO")
-                      )
-                    }
-                  </h3>
-                  <Info size={13} className="text-slate-500 hover:text-slate-300 cursor-pointer" />
-                </div>
-
-                {/* List Rows */}
-                <div className="space-y-4 pt-1">
-                  {/* Row 1: 52wk High */}
-                  <div className="flex items-center justify-between border-b border-slate-900 pb-3">
-                    <div className="flex items-center gap-1.5 text-xs text-slate-400">
-                      <span>
-                        {projectionTab === "portfolio" 
-                          ? t.high52wk 
-                          : (projectionTab === "margin"
-                            ? (language === "EN" ? "52wk High Margin Portfolio" : "Máximo 52 Semanas Margen")
-                            : (language === "EN" ? "52wk High Combined Portfolio" : "Máximo 52 Semanas Combinado")
-                          )
-                        }
-                      </span>
-                      <Info size={12} className="text-slate-600 hover:text-slate-400 cursor-pointer" />
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="relative group/val cursor-help">
-                        <span className="text-sm font-mono font-bold text-white underline decoration-dotted decoration-slate-600 underline-offset-4 hover:decoration-emerald-400 hover:text-emerald-300 transition-colors">
-                          {formatCurrency(fiftyTwoWeekHighTotal)}
-                        </span>
-
-                        {/* Tooltip Card */}
-                        <div className="absolute right-0 bottom-full mb-2 hidden group-hover/val:block w-72 p-3.5 bg-[#0b0e17]/95 border border-slate-700/90 rounded-2xl shadow-2xl z-50 pointer-events-none text-left backdrop-blur-xl ring-1 ring-white/10">
-                          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-800 pb-1.5 mb-2 flex items-center justify-between font-mono">
-                            <span>{language === "ES" ? "Desglose 52wk High" : "52wk High Breakdown"}</span>
-                            <span className="text-emerald-400">{total52wkGain >= 0 ? "+" : ""}{formatCurrency(total52wkGain)}</span>
-                          </div>
-
-                          <div className="space-y-1.5 text-xs">
-                            {/* Principal Gain */}
-                            {projectionTab !== "margin" && (
-                              <div className="flex items-center justify-between text-slate-300">
-                                <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
-                                  <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block shrink-0" />
-                                  {language === "ES" ? "Ganancia Principal:" : "Principal Gain:"}
-                                </span>
-                                <div className="text-right font-mono">
-                                  <span className="font-bold text-emerald-400 text-[11px]">
-                                    {principal52wk.gain >= 0 ? "+" : ""}{formatCurrency(principal52wk.gain)}
-                                  </span>
-                                  <span className="text-[10px] text-slate-400 ml-1">
-                                    ({principal52wk.gainPct >= 0 ? "+" : ""}{principal52wk.gainPct.toFixed(1)}%)
-                                  </span>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Margin Gain */}
-                            {(projectionTab === "margin" || (projectionTab === "total" && marginFinancedPrincipal > 0)) ? (
-                              <>
-                                <div className="flex items-center justify-between text-slate-300">
-                                  <span className="flex items-center gap-1.5 text-[11px] text-amber-400">
-                                    <span className="w-2 h-2 rounded-full bg-amber-400 inline-block shrink-0" />
-                                    {language === "ES" ? "Ganancia Margen:" : "Margin Gain:"}
-                                  </span>
-                                  <div className="text-right font-mono">
-                                    <span className="font-bold text-amber-300 text-[11px]">
-                                      {margin52wk.gain >= 0 ? "+" : ""}{formatCurrency(margin52wk.gain)}
-                                    </span>
-                                    <span className="text-[10px] text-slate-400 ml-1">
-                                      ({margin52wk.gainPct >= 0 ? "+" : ""}{margin52wk.gainPct.toFixed(1)}%)
-                                    </span>
-                                  </div>
-                                </div>
-                                
-                                <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1.5 border-t border-slate-800/80 font-mono">
-                                  <span>{language === "ES" ? "Deuda financiada restada:" : "Deducted financing:"}</span>
-                                  <span className="text-rose-400">-{formatCurrency(marginFinancedPrincipal)}</span>
-                                </div>
-                              </>
-                            ) : (
-                              projectionTab === "portfolio" && (
-                                <div className="text-[10px] text-slate-500 italic pt-0.5">
-                                  {language === "ES" ? "Pestaña Cartera Principal (Sin margen)" : "Portfolio Tab (No margin)"}
-                                </div>
-                              )
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded font-mono">
-                        +{high52wkUpside.toFixed(1)}%
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Row 2: Analyst Avg Target */}
-                  <div className="flex items-center justify-between border-b border-slate-900 pb-3">
-                    <div className="flex items-center gap-1.5 text-xs text-slate-400">
-                      <span>{t.avgTargetValue}</span>
-                      <Info size={12} className="text-slate-600 hover:text-slate-400 cursor-pointer" />
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="relative group/val cursor-help">
-                        <span className="text-sm font-mono font-bold text-white underline decoration-dotted decoration-slate-600 underline-offset-4 hover:decoration-emerald-400 hover:text-emerald-300 transition-colors">
-                          {formatCurrency(avgTargetValueTotal)}
-                        </span>
-
-                        {/* Tooltip Card */}
-                        <div className="absolute right-0 bottom-full mb-2 hidden group-hover/val:block w-72 p-3.5 bg-[#0b0e17]/95 border border-slate-700/90 rounded-2xl shadow-2xl z-50 pointer-events-none text-left backdrop-blur-xl ring-1 ring-white/10">
-                          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-800 pb-1.5 mb-2 flex items-center justify-between font-mono">
-                            <span>{language === "ES" ? "Desglose Avg Target" : "Avg Target Breakdown"}</span>
-                            <span className="text-emerald-400">{totalAvgTargetGain >= 0 ? "+" : ""}{formatCurrency(totalAvgTargetGain)}</span>
-                          </div>
-
-                          <div className="space-y-1.5 text-xs">
-                            {/* Principal Gain */}
-                            {projectionTab !== "margin" && (
-                              <div className="flex items-center justify-between text-slate-300">
-                                <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
-                                  <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block shrink-0" />
-                                  {language === "ES" ? "Ganancia Principal:" : "Principal Gain:"}
-                                </span>
-                                <div className="text-right font-mono">
-                                  <span className="font-bold text-emerald-400 text-[11px]">
-                                    {principalAvgTarget.gain >= 0 ? "+" : ""}{formatCurrency(principalAvgTarget.gain)}
-                                  </span>
-                                  <span className="text-[10px] text-slate-400 ml-1">
-                                    ({principalAvgTarget.gainPct >= 0 ? "+" : ""}{principalAvgTarget.gainPct.toFixed(1)}%)
-                                  </span>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Margin Gain */}
-                            {(projectionTab === "margin" || (projectionTab === "total" && marginFinancedPrincipal > 0)) ? (
-                              <>
-                                <div className="flex items-center justify-between text-slate-300">
-                                  <span className="flex items-center gap-1.5 text-[11px] text-amber-400">
-                                    <span className="w-2 h-2 rounded-full bg-amber-400 inline-block shrink-0" />
-                                    {language === "ES" ? "Ganancia Margen:" : "Margin Gain:"}
-                                  </span>
-                                  <div className="text-right font-mono">
-                                    <span className="font-bold text-amber-300 text-[11px]">
-                                      {marginAvgTarget.gain >= 0 ? "+" : ""}{formatCurrency(marginAvgTarget.gain)}
-                                    </span>
-                                    <span className="text-[10px] text-slate-400 ml-1">
-                                      ({marginAvgTarget.gainPct >= 0 ? "+" : ""}{marginAvgTarget.gainPct.toFixed(1)}%)
-                                    </span>
-                                  </div>
-                                </div>
-                                
-                                <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1.5 border-t border-slate-800/80 font-mono">
-                                  <span>{language === "ES" ? "Deuda financiada restada:" : "Deducted financing:"}</span>
-                                  <span className="text-rose-400">-{formatCurrency(marginFinancedPrincipal)}</span>
-                                </div>
-                              </>
-                            ) : (
-                              projectionTab === "portfolio" && (
-                                <div className="text-[10px] text-slate-500 italic pt-0.5">
-                                  {language === "ES" ? "Pestaña Cartera Principal (Sin margen)" : "Portfolio Tab (No margin)"}
-                                </div>
-                              )
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded font-mono">
-                        +{avgTargetUpside.toFixed(1)}%
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Row 3: Analyst High Target */}
-                  <div className="flex items-center justify-between border-b border-slate-900 pb-3">
-                    <div className="flex items-center gap-1.5 text-xs text-slate-400">
-                      <span>{t.highTargetValue}</span>
-                      <Info size={12} className="text-slate-600 hover:text-slate-400 cursor-pointer" />
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="relative group/val cursor-help">
-                        <span className="text-sm font-mono font-bold text-white underline decoration-dotted decoration-slate-600 underline-offset-4 hover:decoration-emerald-400 hover:text-emerald-300 transition-colors">
-                          {formatCurrency(highTargetValueTotal)}
-                        </span>
-
-                        {/* Tooltip Card */}
-                        <div className="absolute right-0 bottom-full mb-2 hidden group-hover/val:block w-72 p-3.5 bg-[#0b0e17]/95 border border-slate-700/90 rounded-2xl shadow-2xl z-50 pointer-events-none text-left backdrop-blur-xl ring-1 ring-white/10">
-                          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-800 pb-1.5 mb-2 flex items-center justify-between font-mono">
-                            <span>{language === "ES" ? "Desglose High Target" : "High Target Breakdown"}</span>
-                            <span className="text-emerald-400">{totalHighTargetGain >= 0 ? "+" : ""}{formatCurrency(totalHighTargetGain)}</span>
-                          </div>
-
-                          <div className="space-y-1.5 text-xs">
-                            {/* Principal Gain */}
-                            {projectionTab !== "margin" && (
-                              <div className="flex items-center justify-between text-slate-300">
-                                <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
-                                  <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block shrink-0" />
-                                  {language === "ES" ? "Ganancia Principal:" : "Principal Gain:"}
-                                </span>
-                                <div className="text-right font-mono">
-                                  <span className="font-bold text-emerald-400 text-[11px]">
-                                    {principalHighTarget.gain >= 0 ? "+" : ""}{formatCurrency(principalHighTarget.gain)}
-                                  </span>
-                                  <span className="text-[10px] text-slate-400 ml-1">
-                                    ({principalHighTarget.gainPct >= 0 ? "+" : ""}{principalHighTarget.gainPct.toFixed(1)}%)
-                                  </span>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Margin Gain */}
-                            {(projectionTab === "margin" || (projectionTab === "total" && marginFinancedPrincipal > 0)) ? (
-                              <>
-                                <div className="flex items-center justify-between text-slate-300">
-                                  <span className="flex items-center gap-1.5 text-[11px] text-amber-400">
-                                    <span className="w-2 h-2 rounded-full bg-amber-400 inline-block shrink-0" />
-                                    {language === "ES" ? "Ganancia Margen:" : "Margin Gain:"}
-                                  </span>
-                                  <div className="text-right font-mono">
-                                    <span className="font-bold text-amber-300 text-[11px]">
-                                      {marginHighTarget.gain >= 0 ? "+" : ""}{formatCurrency(marginHighTarget.gain)}
-                                    </span>
-                                    <span className="text-[10px] text-slate-400 ml-1">
-                                      ({marginHighTarget.gainPct >= 0 ? "+" : ""}{marginHighTarget.gainPct.toFixed(1)}%)
-                                    </span>
-                                  </div>
-                                </div>
-                                
-                                <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1.5 border-t border-slate-800/80 font-mono">
-                                  <span>{language === "ES" ? "Deuda financiada restada:" : "Deducted financing:"}</span>
-                                  <span className="text-rose-400">-{formatCurrency(marginFinancedPrincipal)}</span>
-                                </div>
-                              </>
-                            ) : (
-                              projectionTab === "portfolio" && (
-                                <div className="text-[10px] text-slate-500 italic pt-0.5">
-                                  {language === "ES" ? "Pestaña Cartera Principal (Sin margen)" : "Portfolio Tab (No margin)"}
-                                </div>
-                              )
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded font-mono">
-                        +{highTargetUpside.toFixed(1)}%
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Projection Breakdown Box */}
-                {projectionTab === "portfolio" ? (
-                  <div className="bg-[#121420]/60 border border-slate-900 rounded-2xl p-4 mt-2">
-                    <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block mb-3 font-mono">
-                      {t.projectionBreakdown} ({years}Y · CAGR {cagr.toFixed(1)}%)
-                    </span>
-                    
-                    <div className="space-y-2.5 text-xs">
-                      <div className="flex justify-between items-center text-slate-400">
-                        <span>{t.principal}</span>
-                        <span className="font-mono font-semibold text-white">
-                          {formatCurrency(selectedTotalMktValue)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center text-slate-400">
-                        <span>{t.additions} ({years}Y)</span>
-                        <span className="font-mono font-semibold text-slate-300">
-                          +{formatCurrency(totalAdditions)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center text-slate-400">
-                        <span className="flex items-center gap-1">
-                          {t.interestGains}
-                          <ChevronDown size={12} className="text-slate-500" />
-                        </span>
-                        <span className="font-mono font-bold text-emerald-400">
-                          +{formatCurrency(interestGains)}
-                        </span>
-                      </div>
-                      <div className="border-t border-slate-900/80 my-2 pt-2.5 flex justify-between items-center">
-                        <span className="font-bold text-white">{t.totalValue}</span>
-                        <span className="font-mono font-extrabold text-lg text-emerald-400">
-                          {formatCurrency(projectedTotalValue)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="bg-[#121420]/60 border border-slate-900 rounded-2xl p-4 mt-2 space-y-3 animate-fade-in">
-                    <span className={`text-[9px] ${projectionTab === "margin" ? "text-amber-400" : "text-indigo-400"} font-bold uppercase tracking-wider block font-mono`}>
-                      {projectionTab === "margin"
-                        ? (language === "EN" ? "DEBT & MARGIN INTEREST ANALYSIS" : "ANÁLISIS DE DEUDA E INTERESES DE MARGEN")
-                        : (language === "EN" ? "COMBINED DEBT & INTEREST ANALYSIS" : "ANÁLISIS COMBINADO DE DEUDA E INTERESES")
-                      } ({years}Y · {language === "EN" ? "Rate 6.25%" : "Tasa 6.25%"})
-                    </span>
-                    
-                    <div className="space-y-2.5 text-xs">
-                      <div className="flex justify-between items-center text-slate-400">
-                        <span>
-                          {projectionTab === "margin"
-                            ? (language === "EN" ? "Gross Projected Margin Value" : "Valor Bruto Margen Proyectado")
-                            : (language === "EN" ? "Gross Projected Total Value" : "Valor Bruto Total Proyectado")
-                          }
-                        </span>
-                        <span className="font-mono font-semibold text-white">
-                          {formatCurrency(projectedTotalValue)}
-                        </span>
-                      </div>
-
-                      <div className="flex justify-between items-center text-slate-400">
-                        <span className="flex items-center gap-1 text-rose-400">
-                          {language === "EN" ? "Margin Loan (Debt)" : "Préstamo de Margen (Deuda)"}
-                        </span>
-                        <span className="font-mono font-semibold text-rose-400">
-                          -{formatCurrency(marginFinancedPrincipal)}
-                        </span>
-                      </div>
-
-                      <div className="flex justify-between items-center text-slate-400">
-                        <span>{language === "EN" ? "Margin Interest (1 Year)" : "Interés de Margen (1 Año)"}</span>
-                        <span className="font-mono text-slate-300">
-                          {formatCurrency(marginFinancedPrincipal * 0.0625)}
-                        </span>
-                      </div>
-
-                      <div className="flex justify-between items-center text-slate-400 border-b border-slate-900 pb-2">
-                        <span className="text-rose-400 font-medium">{language === "EN" ? "Total Interest" : "Intereses Totales"} ({years} {language === "EN" ? "Years" : "Años"})</span>
-                        <span className="font-mono font-semibold text-rose-400">
-                          -{formatCurrency(marginFinancedPrincipal * 0.0625 * years)}
-                        </span>
-                      </div>
-
-                      <div className="flex justify-between items-center text-slate-400 pt-1">
-                        <span>{language === "EN" ? "Net Value (Minus Loan)" : "Valor Neto (Menos Deuda)"}</span>
-                        <span className="font-mono font-bold text-emerald-400">
-                          {formatCurrency(Math.max(0, projectedTotalValue - marginFinancedPrincipal))}
-                        </span>
-                      </div>
-
-                      <div className="border-t border-slate-900/80 my-2 pt-2.5 flex justify-between items-center">
-                        <div>
-                          <span className="font-bold text-white block">
-                            {projectionTab === "margin"
-                              ? (language === "EN" ? "Final Net Value" : "Valor Neto Final")
-                              : (language === "EN" ? "Combined Net Value" : "Valor Neto Combinado")
-                            }
-                          </span>
-                          <span className="text-[10px] text-slate-500 block leading-none">{language === "EN" ? "(Minus Loan & Interest)" : "(Menos Deuda e Intereses)"}</span>
-                        </div>
-                        <span className="font-mono font-extrabold text-lg text-emerald-400">
-                          {formatCurrency(Math.max(0, projectedTotalValue - marginFinancedPrincipal - (marginFinancedPrincipal * 0.0625 * years)))}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Card 3: SECTORES S&P 500 */}
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl flex flex-col justify-between">
-              <div className="space-y-4">
-                {/* Header */}
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
-                    <PieChartIcon className="text-blue-400" size={16} />
-                  </div>
-                  <div>
-                    <h3 className="font-display font-bold text-xs text-slate-400 tracking-wider uppercase">
-                      {projectionTab === "portfolio"
-                        ? (language === "EN" ? "SECTOR DISTRIBUTION (PORTFOLIO)" : "DISTRIBUCIÓN POR SECTOR (PORTAFOLIO)")
-                        : projectionTab === "margin"
-                        ? (language === "EN" ? "SECTOR DISTRIBUTION (MARGIN)" : "DISTRIBUCIÓN POR SECTOR (MARGEN)")
-                        : (language === "EN" ? "SECTOR DISTRIBUTION (COMBINED)" : "DISTRIBUCIÓN POR SECTOR (COMBINADO)")
-                      }
-                    </h3>
-                    <p className="text-[10px] text-slate-500">
-                      {projectionTab === "portfolio"
-                        ? (language === "EN" ? "Weighting of portfolio by market value" : "Distribución del portafolio por valor de mercado")
-                        : projectionTab === "margin"
-                        ? (language === "EN" ? "Weighting of margin positions by market value" : "Distribución de posiciones con margen por valor de mercado")
-                        : (language === "EN" ? "Weighting of combined portfolio by market value" : "Distribución del portafolio combinado por valor de mercado")
-                      }
-                    </p>
-                  </div>
-                </div>
-
-                {/* Sectors List */}
-                <div className="space-y-3 pr-1">
-                  {sortedSectors.map((sector, sIdx) => {
-                    const isExpanded = !!expandedSectors[sector.name];
-                    const subsectors = sectorSubsectors[sector.name]
-                      ? (Object.entries(sectorSubsectors[sector.name]) as [string, { mktValue: number; weight: number }][]).sort((a, b) => b[1].weight - a[1].weight)
-                      : [];
-
-                    return (
-                      <div key={`${sector.name}-${sIdx}`} className="border-b border-slate-800/10 pb-2.5 last:border-0 last:pb-0">
-                        <div
-                          onClick={() => toggleSector(sector.name)}
-                          className="flex justify-between items-center text-xs cursor-pointer group hover:bg-slate-800/30 p-1 rounded-lg transition-all"
-                        >
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <span className="text-slate-500 group-hover:text-slate-300 shrink-0">
-                              {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                            </span>
-                            <span className={`w-2 h-2 rounded-full shrink-0 ${getSectorColor(sector.name)}`} />
-                            <span className="font-semibold text-slate-300 group-hover:text-white truncate text-xs" title={language === "EN" ? sector.name : getSectorSpanish(sector.name)}>
-                              {language === "EN" ? sector.name : getSectorSpanish(sector.name)}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2.5 font-mono shrink-0 text-xs">
-                            <span className="text-slate-400 font-medium">{formatCurrency(sector.mktValue)}</span>
-                            <span className="text-white font-extrabold">{sector.weight.toFixed(1)}%</span>
-                          </div>
-                        </div>
-
-                        {/* Progress Bar */}
-                        <div className="pl-6 pr-1 mt-1">
-                          <div className="h-1.5 w-full bg-slate-800/60 rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full transition-all duration-500 ${getSectorColor(sector.name)}`}
-                              style={{ width: `${sector.weight}%` }}
-                            />
-                          </div>
-                        </div>
-
-                        {/* Subsectors */}
-                        {isExpanded && subsectors.length > 0 && (
-                          <div className="pl-8 pr-1 mt-2 flex flex-col gap-1.5 border-l-2 border-slate-800/60 ml-4">
-                            {subsectors.map(([subName, subData], subIdx) => (
-                              <div key={`${subName}-${subIdx}`} className="flex justify-between items-center text-[11px]">
-                                <div className="flex items-center gap-1.5 min-w-0">
-                                  <span className="w-1 h-1 rounded-full bg-slate-600 shrink-0" />
-                                  <span className="text-slate-400 font-medium truncate">{subName}</span>
-                                </div>
-                                <div className="flex items-center gap-2 font-mono shrink-0">
-                                  <span className="text-slate-500 text-[10px]">{formatCurrency(subData.mktValue)}</span>
-                                  <span className="text-slate-300 font-semibold">{subData.weight.toFixed(1)}%</span>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {selectedTicker && (
         (() => {
           const pos = sortedPositions.find(p => p.ticker === selectedTicker);
           if (!pos || pos.isCash) return null;
           return (
-            <StockDetailPanel 
-              position={pos} 
-              language={language} 
-              onClose={() => setSelectedTicker(null)} 
+            <StockDetailPanel
+              position={pos}
+              language={language}
+              onClose={() => setSelectedTicker(null)}
               financialsData={effectiveFinancialsMap[pos.ticker.toUpperCase()]}
             />
           );
@@ -4440,9 +4642,9 @@ const CustomPerformanceTooltip = ({ active, payload, label, language = "EN" }: C
       <div className="bg-[#0f111a] border border-slate-800 p-3 rounded-xl text-xs space-y-1.5 shadow-2xl font-mono text-left">
         <p className="font-bold text-white uppercase text-[11px] tracking-wide">{label}</p>
         <div className="flex items-center gap-2">
-          <span 
-            className="w-2.5 h-2.5 rounded-sm" 
-            style={{ backgroundColor: isPositive ? "#10b981" : "#f43f5e" }} 
+          <span
+            className="w-2.5 h-2.5 rounded-sm"
+            style={{ backgroundColor: isPositive ? "#10b981" : "#f43f5e" }}
           />
           <span className="text-slate-300 font-medium">
             {language === "ES" ? "Rendimiento" : "Performance"}:
@@ -4463,7 +4665,7 @@ const CustomPerformanceTooltip = ({ active, payload, label, language = "EN" }: C
 
 function getTickerPerformanceData(ticker: string, timeframe: "day" | "week" | "month" | "6m" | "ytd" | "1y" | "ath", pos?: any) {
   const symbol = ticker.toUpperCase();
-  
+
   // Base daily change from live position data if available
   let dayVal = pos && typeof pos.chgPct === "number" ? pos.chgPct : null;
   if (dayVal === null) {
@@ -4474,11 +4676,11 @@ function getTickerPerformanceData(ticker: string, timeframe: "day" | "week" | "m
     }
     dayVal = ((Math.abs(hash) % 120) - 50) / 10; // -5% to +7%
   }
-  
+
   if (timeframe === "day") {
     return dayVal;
   }
-  
+
   // Custom baseline mapping for known tickers
   const performanceMap: Record<string, { week: number; month: number; "6m": number; ytd: number; "1y": number; ath: number }> = {
     NVDA: { week: 3.2, month: 14.8, "6m": 72.3, ytd: 148.5, "1y": 182.4, ath: -2.4 },
@@ -4508,7 +4710,7 @@ function getTickerPerformanceData(ticker: string, timeframe: "day" | "week" | "m
     hash = symbol.charCodeAt(i) + ((hash << 5) - hash);
   }
   const absHash = Math.abs(hash);
-  
+
   if (timeframe === "week") {
     return parseFloat(((absHash % 100) / 10 - 3).toFixed(1)); // -3% to +7%
   } else if (timeframe === "month") {
