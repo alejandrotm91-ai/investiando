@@ -1,21 +1,21 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { 
-  TrendingUp, 
-  TrendingDown, 
-  RefreshCw, 
-  Activity, 
-  ArrowUpRight, 
-  ArrowDownRight, 
-  Globe, 
-  Zap, 
-  Award, 
-  Coins, 
-  ArrowUp, 
-  ArrowDown, 
-  Briefcase, 
-  Plus, 
-  Layers, 
-  CheckCircle2, 
+import {
+  TrendingUp,
+  TrendingDown,
+  RefreshCw,
+  Activity,
+  ArrowUpRight,
+  ArrowDownRight,
+  Globe,
+  Zap,
+  Award,
+  Coins,
+  ArrowUp,
+  ArrowDown,
+  Briefcase,
+  Plus,
+  Layers,
+  CheckCircle2,
   ChevronRight,
   ChevronDown,
   ChevronUp,
@@ -28,6 +28,8 @@ import {
 import { getMarketStatus } from "../utils/market";
 import { PortfolioData, Holding } from "../types";
 import { SECTOR_TOP_HOLDINGS, SectorHoldingsConfig, SectorTopHolding } from "../data/sp500SectorHoldings";
+import SectorHeatmap from "./SectorHeatmap";
+import CommodityCards from "./CommodityCards";
 
 interface IndexCardProps {
   key?: any;
@@ -40,20 +42,20 @@ interface IndexCardProps {
   theme?: "dark" | "light";
 }
 
-function IndexCard({ 
-  name, 
-  symbol, 
-  price, 
-  change, 
-  changePct, 
-  sparkline, 
-  theme 
+function IndexCard({
+  name,
+  symbol,
+  price,
+  change,
+  changePct,
+  sparkline,
+  theme
 }: IndexCardProps) {
   const isPositive = changePct >= 0;
-  const strokeColor = isPositive 
-    ? (theme === "light" ? "#0c5c3e" : "#10b981") 
+  const strokeColor = isPositive
+    ? (theme === "light" ? "#0c5c3e" : "#10b981")
     : (theme === "light" ? "#b82e2e" : "#f43f5e");
-  
+
   // Sanitize change string to avoid duplicate signs (e.g. '++' or '--')
   const rawChangeStr = String(change ?? "").trim();
   const cleanChange = rawChangeStr.replace(/^[+\-\s]+/, "");
@@ -63,8 +65,8 @@ function IndexCard({
   const displayPct = `${isPositive ? "+" : "-"}${absPct}%`;
 
   return (
-    <div 
-      id={`index-card-${symbol.replace(/[^a-zA-Z0-9]/g, "").toLowerCase()}`} 
+    <div
+      id={`index-card-${symbol.replace(/[^a-zA-Z0-9]/g, "").toLowerCase()}`}
       className="index-card bg-slate-900 border border-slate-800 p-5 rounded-2xl flex flex-col justify-between hover:border-slate-700 hover:shadow-xl transition-all shadow-md group"
     >
       <div className="flex justify-between items-start gap-1">
@@ -78,15 +80,15 @@ function IndexCard({
           <span className="text-lg sm:text-xl font-display font-bold text-white leading-none tracking-tight">{price}</span>
           <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
             <span className={`text-[11px] font-mono font-medium ${
-              isPositive 
-                ? (theme === "light" ? "text-[#0c5c3e]" : "text-emerald-400") 
+              isPositive
+                ? (theme === "light" ? "text-[#0c5c3e]" : "text-emerald-400")
                 : (theme === "light" ? "text-[#b82e2e]" : "text-rose-400")
             }`}>
               {displayChange}
             </span>
             <span className={`inline-flex items-center gap-0.5 text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 ${
-              isPositive 
-                ? "bg-emerald-500/10 text-emerald-400" 
+              isPositive
+                ? "bg-emerald-500/10 text-emerald-400"
                 : "bg-rose-500/10 text-rose-400"
             }`}>
               {isPositive ? <ArrowUpRight size={10} /> : <ArrowDownRight size={10} />}
@@ -148,7 +150,7 @@ function PortfolioIndexCard({
 
   if (!hasPortfolio) {
     return (
-      <div 
+      <div
         id="index-card-portfolio"
         onClick={() => {
           if (onOpenGetStarted) onOpenGetStarted();
@@ -192,8 +194,8 @@ function PortfolioIndexCard({
   const totals = portfolioData.totals;
   const changePct = totals.dailyPnLPercent || 0;
   const isPositive = changePct >= 0;
-  const strokeColor = isPositive 
-    ? (theme === "light" ? "#0c5c3e" : "#10b981") 
+  const strokeColor = isPositive
+    ? (theme === "light" ? "#0c5c3e" : "#10b981")
     : (theme === "light" ? "#b82e2e" : "#f43f5e");
 
   // Generate a clean mini sparkline curve representing portfolio momentum
@@ -218,7 +220,7 @@ function PortfolioIndexCard({
   const changeStr = `${changeSign}$${formatCompact(Math.abs(totals.dailyPnL))}`;
 
   return (
-    <div 
+    <div
       id="index-card-portfolio"
       onClick={onNavigate}
       className="index-card bg-slate-900 border border-slate-800 p-4 sm:p-5 rounded-2xl flex flex-col justify-between hover:border-emerald-500/50 hover:shadow-xl transition-all shadow-md group cursor-pointer"
@@ -241,15 +243,15 @@ function PortfolioIndexCard({
           </span>
           <div className="flex items-center gap-1.5 mt-1 flex-wrap">
             <span className={`text-[11px] font-mono font-medium whitespace-nowrap ${
-              isPositive 
-                ? (theme === "light" ? "text-[#0c5c3e]" : "text-emerald-400") 
+              isPositive
+                ? (theme === "light" ? "text-[#0c5c3e]" : "text-emerald-400")
                 : (theme === "light" ? "text-[#b82e2e]" : "text-rose-400")
             }`}>
               {changeStr}
             </span>
             <span className={`inline-flex items-center gap-0.5 text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 whitespace-nowrap ${
-              isPositive 
-                ? "bg-emerald-500/10 text-emerald-400" 
+              isPositive
+                ? "bg-emerald-500/10 text-emerald-400"
                 : "bg-rose-500/10 text-rose-400"
             }`}>
               {isPositive ? <ArrowUpRight size={10} /> : <ArrowDownRight size={10} />}
@@ -288,8 +290,8 @@ interface MarketDashboardProps {
   onSelectTicker?: (ticker: string) => void;
 }
 
-export default function MarketDashboard({ 
-  language, 
+export default function MarketDashboard({
+  language,
   theme,
   portfolioData,
   holdings,
@@ -322,6 +324,8 @@ export default function MarketDashboard({
   }
 
   const [sectorTimeframe, setSectorTimeframe] = useState<"1D" | "1W" | "1M" | "YTD" | "1Y">("1D");
+  // Vista de sectores: mapa de calor (por defecto) o barras ordenadas
+  const [sectorView, setSectorView] = useState<"heatmap" | "bars">("heatmap");
   const [expandedSectorTicker, setExpandedSectorTicker] = useState<string | null>(null);
   const [sectorHoldingsData, setSectorHoldingsData] = useState<Record<string, SectorHoldingsConfig>>(SECTOR_TOP_HOLDINGS);
   const [top10SortBy, setTop10SortBy] = useState<"weight" | "perf" | "upside">("weight");
@@ -381,53 +385,53 @@ export default function MarketDashboard({
   );
 
   const [indices, setIndices] = useState<any[]>([
-    { 
-      nameEN: "VIX", 
-      nameES: "VIX", 
-      symbol: "^VIX", 
-      price: "14.87", 
-      change: "-0.80", 
-      changePct: -5.11, 
+    {
+      nameEN: "VIX",
+      nameES: "VIX",
+      symbol: "^VIX",
+      price: "14.87",
+      change: "-0.80",
+      changePct: -5.11,
       highFormatted: "35.30",
       athScorePct: 42.1,
       distToHighPct: 57.9,
-      sparkline: [40, 38, 35, 30, 28, 32, 35, 38, 30, 25, 22] 
+      sparkline: [40, 38, 35, 30, 28, 32, 35, 38, 30, 25, 22]
     },
-    { 
-      nameEN: "S&P500", 
-      nameES: "S&P500", 
-      symbol: "^GSPC", 
-      price: "7,743.41", 
-      change: "+39.28", 
-      changePct: 0.51, 
+    {
+      nameEN: "S&P500",
+      nameES: "S&P500",
+      symbol: "^GSPC",
+      price: "7,743.41",
+      change: "+39.28",
+      changePct: 0.51,
       highFormatted: "7,816.70",
       athScorePct: 99.1,
       distToHighPct: 0.9,
-      sparkline: [10, 15, 12, 18, 25, 20, 30, 42, 38, 48, 50] 
+      sparkline: [10, 15, 12, 18, 25, 20, 30, 42, 38, 48, 50]
     },
-    { 
-      nameEN: "NASDAQ", 
-      nameES: "NASDAQ", 
-      symbol: "^IXIC", 
-      price: "27,068.72", 
-      change: "+129.34", 
-      changePct: 0.48, 
+    {
+      nameEN: "NASDAQ",
+      nameES: "NASDAQ",
+      symbol: "^IXIC",
+      price: "27,068.72",
+      change: "+129.34",
+      changePct: 0.48,
       highFormatted: "27,288.79",
       athScorePct: 99.2,
       distToHighPct: 0.8,
-      sparkline: [5, 12, 18, 15, 28, 24, 38, 42, 35, 52, 60] 
+      sparkline: [5, 12, 18, 15, 28, 24, 38, 42, 35, 52, 60]
     },
-    { 
-      nameEN: "DOW", 
-      nameES: "DOW", 
-      symbol: "^DJI", 
-      price: "51,828.62", 
-      change: "+478.64", 
-      changePct: 0.93, 
+    {
+      nameEN: "DOW",
+      nameES: "DOW",
+      symbol: "^DJI",
+      price: "51,828.62",
+      change: "+478.64",
+      changePct: 0.93,
       highFormatted: "54,744.33",
       athScorePct: 94.7,
       distToHighPct: 5.3,
-      sparkline: [20, 22, 18, 25, 22, 28, 24, 32, 28, 30, 35] 
+      sparkline: [20, 22, 18, 25, 22, 28, 24, 32, 28, 30, 35]
     },
   ]);
   const [indicesLoading, setIndicesLoading] = useState(false);
@@ -540,7 +544,7 @@ export default function MarketDashboard({
       clearInterval(dataInterval);
     };
   }, []);
-  
+
   // Translation dictionary
   const t = {
     EN: {
@@ -635,8 +639,8 @@ export default function MarketDashboard({
             onOpenGetStarted={onOpenGetStarted}
           />
           {indices.map((item, idx) => (
-            <IndexCard 
-              key={idx} 
+            <IndexCard
+              key={idx}
               name={getIndexDisplayName(item)}
               symbol={item.symbol}
               price={item.price}
@@ -673,15 +677,31 @@ export default function MarketDashboard({
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-400 mt-0.5">
-                    {language === "ES" 
-                      ? "Fuerza relativa, flujo de capital y niveles de sobrecompra/sobreventa (RSI 14D)" 
+                    {language === "ES"
+                      ? "Fuerza relativa, flujo de capital y niveles de sobrecompra/sobreventa (RSI 14D)"
                       : "Relative strength, capital flow rotation and RSI 14D overbought/oversold levels"}
                   </p>
                 </div>
               </div>
 
-              {/* Controls: Global Timeframe Selector */}
+              {/* Controls: vista (mapa de calor / barras) + escala temporal */}
               <div className="flex items-center gap-2.5 self-start md:self-auto flex-wrap">
+                <div className="flex items-center bg-slate-950/90 p-1 rounded-xl border border-slate-800 shadow-inner">
+                  {([
+                    { id: "heatmap", label: language === "ES" ? "Mapa" : "Heatmap" },
+                    { id: "bars", label: language === "ES" ? "Barras" : "Bars" },
+                  ] as const).map((v) => (
+                    <button
+                      key={v.id}
+                      onClick={() => setSectorView(v.id)}
+                      className={`px-3 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${
+                        sectorView === v.id ? "bg-slate-700 text-white shadow" : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
+                      }`}
+                    >
+                      {v.label}
+                    </button>
+                  ))}
+                </div>
                 <span className="text-[11px] font-mono text-slate-400 font-semibold flex items-center gap-1.5">
                   <Clock size={12} className="text-amber-400" />
                   {language === "ES" ? "Escala global:" : "Global timeframe:"}
@@ -948,8 +968,8 @@ export default function MarketDashboard({
                             const weightRatio = Math.min((h.weight / maxWeight) * 100, 100);
 
                             const high52 = h.fiftyTwoWeekHigh || Math.round(h.price * 1.08 * 100) / 100;
-                            const upsideToHighPct = h.upside52WHighPct !== undefined 
-                              ? h.upside52WHighPct 
+                            const upsideToHighPct = h.upside52WHighPct !== undefined
+                              ? h.upside52WHighPct
                               : (h.price > 0 && high52 > h.price ? Number((((high52 - h.price) / h.price) * 100).toFixed(1)) : 0);
                             const isAtAth = h.price >= high52 || upsideToHighPct <= 0;
 
@@ -1018,7 +1038,7 @@ export default function MarketDashboard({
                                       ${high52.toFixed(2)}
                                     </span>
                                     {!isAtAth && (
-                                      <span 
+                                      <span
                                         className="text-[10px] font-semibold text-emerald-400 mt-0.5"
                                         title={language === "ES" ? `Upside para alcanzar el 52wk High: +${upsideToHighPct.toFixed(1)}%` : `Upside to reach 52wk High: +${upsideToHighPct.toFixed(1)}%`}
                                       >
@@ -1181,6 +1201,24 @@ export default function MarketDashboard({
               const positiveSectors = displayed.filter((s) => getSectorPct(s) >= 0).sort((a, b) => getSectorPct(b) - getSectorPct(a));
               const negativeSectors = displayed.filter((s) => getSectorPct(s) < 0).sort((a, b) => getSectorPct(a) - getSectorPct(b));
 
+              // VIEW: MAPA DE CALOR (clic en un sector → su top 10 debajo)
+              if (sectorView === "heatmap") {
+                const sel = displayed.find((s) => s.ticker === expandedSectorTicker) ?? null;
+                return (
+                  <div className="space-y-3">
+                    <SectorHeatmap
+                      sectors={displayed}
+                      pctOf={(s) => getSectorPct(s as SectorItem)}
+                      timeframe={sectorTimeframe}
+                      selected={expandedSectorTicker}
+                      onSelect={setExpandedSectorTicker}
+                      language={language === "ES" ? "ES" : "EN"}
+                    />
+                    {sel && renderSectorTop10Box(sel)}
+                  </div>
+                );
+              }
+
               return (
                 <div className="space-y-5">
                   {/* Positive Sectors */}
@@ -1232,127 +1270,8 @@ export default function MarketDashboard({
                 </p>
               </div>
             </div>
-            
-            {/* Commodities Sub-group */}
-            <div className="mb-6">
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3 px-1 flex items-center justify-between font-mono">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                  <span className="text-slate-300">{language === "ES" ? "Materias Primas" : "Commodities"}</span>
-                </div>
-                <span className="text-[9px] text-slate-500 font-normal">
-                  {language === "ES" ? "% ATH / Máx 52S" : "% of ATH / 52W"}
-                </span>
-              </div>
-              <div className="space-y-1.5">
-                {marketData.commodities.map((item, idx) => {
-                  const isPos = item.pct >= 0;
-                  const athPct = item.athScorePct ?? 85;
-                  return (
-                    <div 
-                      key={`${item.symbol}-${idx}`} 
-                      className="py-2 px-2.5 bg-slate-950/30 hover:bg-slate-800/40 border border-slate-800/40 hover:border-slate-700/60 rounded-xl transition-all group"
-                    >
-                      <div className="flex items-center justify-between text-xs gap-2">
-                        <div className="min-w-0 flex-1 flex items-center gap-2">
-                          <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700 flex-shrink-0">
-                            {item.symbol}
-                          </span>
-                          <span className="text-slate-200 font-semibold block text-xs leading-tight truncate group-hover:text-white transition-colors">
-                            {language === "ES" ? item.nameES : item.nameEN}
-                          </span>
-                        </div>
-                        <div className="text-right font-mono flex items-center gap-2 flex-shrink-0">
-                          <span className="text-slate-200 font-bold block text-xs leading-none">${item.price}</span>
-                          <span className={`text-[11px] font-bold min-w-[52px] text-right ${isPos ? "text-emerald-400" : "text-rose-400"}`}>
-                            {isPos ? "+" : ""}{item.pct.toFixed(2)}%
-                          </span>
-                        </div>
-                      </div>
 
-                      {/* ATH Visual Progress Bar */}
-                      <div className="mt-1.5 pt-1 flex items-center justify-between gap-2.5 text-[10px] font-mono">
-                        <div className="flex-1 h-1.5 bg-slate-950 rounded-full overflow-hidden relative border border-slate-800/50 shadow-inner">
-                          <div
-                            className="h-full rounded-full transition-all duration-500 bg-gradient-to-r from-blue-500 via-indigo-500 to-emerald-400 shadow-sm"
-                            style={{ width: `${Math.max(4, Math.min(100, athPct))}%` }}
-                          />
-                        </div>
-                        <div className="flex items-center gap-1 text-[9px] text-slate-400 flex-shrink-0">
-                          <span className="text-slate-500 font-medium">ATH:</span>
-                          <span className="text-emerald-400 font-bold">{athPct}%</span>
-                          {item.highFormatted && (
-                            <span className="text-slate-500 hidden sm:inline">(${item.highFormatted})</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Crypto Sub-group */}
-            <div>
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3 pt-4 border-t border-slate-800/30 px-1 flex items-center justify-between font-mono">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
-                  <span className="text-slate-300">{language === "ES" ? "Criptomonedas" : "Cryptocurrencies"}</span>
-                </div>
-                <span className="text-[9px] text-slate-500 font-normal">
-                  {language === "ES" ? "% ATH / Máx 52S" : "% of ATH / 52W"}
-                </span>
-              </div>
-              <div className="space-y-1.5">
-                {marketData.cryptos.map((item, idx) => {
-                  const isPos = item.pct >= 0;
-                  const athPct = item.athScorePct ?? 80;
-                  return (
-                    <div 
-                      key={`${item.symbol}-${idx}`} 
-                      className="py-2 px-2.5 bg-slate-950/30 hover:bg-slate-800/40 border border-slate-800/40 hover:border-slate-700/60 rounded-xl transition-all group"
-                    >
-                      <div className="flex items-center justify-between text-xs gap-2">
-                        <div className="min-w-0 flex-1 flex items-center gap-2">
-                          <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20 flex-shrink-0">
-                            {item.symbol}
-                          </span>
-                          <span className="text-slate-200 font-semibold block text-xs leading-tight truncate group-hover:text-white transition-colors">
-                            {language === "ES" ? item.nameES : item.nameEN}
-                          </span>
-                        </div>
-                        <div className="text-right font-mono flex items-center gap-2 flex-shrink-0">
-                          <span className="text-slate-200 font-bold block text-xs leading-none">
-                            {item.symbol.includes("USD") ? "$" : ""}{item.price}
-                          </span>
-                          <span className={`text-[11px] font-bold min-w-[52px] text-right ${isPos ? "text-emerald-400" : "text-rose-400"}`}>
-                            {isPos ? "+" : ""}{item.pct.toFixed(2)}%
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* ATH Visual Progress Bar */}
-                      <div className="mt-1.5 pt-1 flex items-center justify-between gap-2.5 text-[10px] font-mono">
-                        <div className="flex-1 h-1.5 bg-slate-950 rounded-full overflow-hidden relative border border-slate-800/50 shadow-inner">
-                          <div
-                            className="h-full rounded-full transition-all duration-500 bg-gradient-to-r from-blue-500 via-indigo-500 to-emerald-400 shadow-sm"
-                            style={{ width: `${Math.max(4, Math.min(100, athPct))}%` }}
-                          />
-                        </div>
-                        <div className="flex items-center gap-1 text-[9px] text-slate-400 flex-shrink-0">
-                          <span className="text-slate-500 font-medium">ATH:</span>
-                          <span className="text-emerald-400 font-bold">{athPct}%</span>
-                          {item.highFormatted && (
-                            <span className="text-slate-500 hidden sm:inline">(${item.highFormatted})</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
+            <CommodityCards commodities={marketData.commodities} cryptos={marketData.cryptos} language={language === "ES" ? "ES" : "EN"} />
           </div>
 
           <div className="text-[10px] text-slate-500 font-mono border-t border-slate-800/40 pt-3 mt-6 text-center">
