@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import LandingShowcase from "./LandingShowcase";
 import { 
   LogIn, 
   UserPlus, 
@@ -25,9 +26,12 @@ import {
 interface LandingPageProps {
   onAuthSuccess: (user: { id: string; name: string; email: string }, token: string) => void;
   language: "EN" | "ES";
+  theme?: "light" | "dark";
+  onThemeChange?: (t: "light" | "dark") => void;
+  onLanguageChange?: (l: "EN" | "ES") => void;
 }
 
-export default function LandingPage({ onAuthSuccess, language }: LandingPageProps) {
+export default function LandingPage({ onAuthSuccess, language, theme = "dark", onThemeChange, onLanguageChange }: LandingPageProps) {
   const [mode, setMode] = useState<"hero" | "signin" | "signup" | "verify" | "forgot_request" | "forgot_reset">("hero");
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [name, setName] = useState("");
@@ -841,131 +845,16 @@ export default function LandingPage({ onAuthSuccess, language }: LandingPageProp
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between relative overflow-x-hidden overflow-y-auto w-full max-w-full font-sans">
-      
-      {/* Decorative ambient glow */}
-      <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-emerald-500/10 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-0 right-1/4 w-[500px] h-[500px] bg-emerald-500/5 rounded-full blur-[120px] pointer-events-none" />
-
-      {/* Header bar */}
-      <header className="px-4 sm:px-6 py-4 sm:py-5 flex items-center justify-between border-b border-slate-900/60 bg-[#0f111a]/40 backdrop-blur-md z-10">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center shadow-lg shadow-emerald-500/20 bg-slate-900 border border-emerald-500/30">
-            <img 
-              src="/mascot.png" 
-              onError={(e) => {
-                const target = e.currentTarget;
-                if (target.src.endsWith('/mascot.png')) {
-                  target.src = '/logo.png';
-                } else if (target.src.endsWith('/logo.png')) {
-                  target.src = '/image.png';
-                } else if (target.src.endsWith('/image.png')) {
-                  target.src = '/favicon.svg';
-                }
-              }}
-              alt="investiando.app" 
-              className="w-full h-full object-cover" 
-            />
-          </div>
-          <span className="text-sm sm:text-base font-bold tracking-tight text-white font-mono">investiando.app</span>
-        </div>
-
-        <div className="flex items-center gap-2.5 sm:gap-4">
-          <button 
-            onClick={() => openAuthModal("signin")}
-            className="text-xs font-semibold text-slate-300 hover:text-white px-2.5 py-1.5 rounded-lg hover:bg-slate-900/60 transition-colors cursor-pointer"
-          >
-            {language === "EN" ? "Sign In" : "Iniciar Sesión"}
-          </button>
-          <button 
-            onClick={() => openAuthModal("signup")}
-            className="px-3.5 sm:px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold rounded-xl text-xs transition-all shadow-md shadow-emerald-500/10 cursor-pointer active:scale-95"
-          >
-            {language === "EN" ? "Sign Up Free" : "Crear Cuenta"}
-          </button>
-        </div>
-      </header>
-
-      {/* Core Main Content Area */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-4 sm:py-12 flex flex-col lg:flex-row items-center justify-center gap-5 lg:gap-12 z-10">
-        
-        {/* Left column - Info / Marketing context */}
-        <div className="flex-1 space-y-4 sm:space-y-6 text-left max-w-xl">
-          <h1 className="text-2xl sm:text-4xl md:text-5xl font-display font-bold text-white tracking-tight leading-snug sm:leading-[1.1]">
-            {language === "EN" ? (
-              <>Simulate, Analyze & <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-emerald-200">Master Your Investments</span></>
-            ) : (
-              <>Simula, Analiza y <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-emerald-200">Domina tus Inversiones</span></>
-            )}
-          </h1>
-
-          {/* Quick CTAs for Mobile View */}
-          <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-3 lg:hidden">
-            <button 
-              onClick={() => openAuthModal("signup")}
-              className="w-full sm:w-auto px-5 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold rounded-xl text-xs uppercase tracking-wider transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98]"
-            >
-              <UserPlus size={15} />
-              <span>{language === "EN" ? "Get Started Free" : "Comenzar Gratis"}</span>
-              <ArrowRight size={14} />
-            </button>
-            <button 
-              onClick={() => openAuthModal("signin")}
-              className="w-full sm:w-auto px-5 py-3 bg-[#0f111a]/80 hover:bg-slate-900 text-white font-bold rounded-xl text-xs uppercase tracking-wider transition-all border border-slate-800 flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98]"
-            >
-              <LogIn size={14} />
-              <span>{language === "EN" ? "Sign In" : "Iniciar Sesión"}</span>
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 sm:gap-4 pt-2 sm:pt-4">
-            <div className="p-3.5 bg-[#0f111a]/60 border border-slate-900/60 rounded-xl flex items-start gap-2.5">
-              <Brain size={18} className="text-emerald-400 mt-0.5 shrink-0" />
-              <div>
-                <h4 className="text-xs font-bold text-white uppercase tracking-wider">{language === "EN" ? "AI Analyst" : "Analista IA"}</h4>
-                <p className="text-[11px] text-slate-500 mt-0.5 leading-normal">
-                  {language === "EN" ? "Interactive Gemini core portfolio advisory." : "Consultor inteligente con tecnología Gemini."}
-                </p>
-              </div>
-            </div>
-
-            <div className="p-3.5 bg-[#0f111a]/60 border border-slate-900/60 rounded-xl flex items-start gap-2.5">
-              <Sliders size={18} className="text-emerald-400 mt-0.5 shrink-0" />
-              <div>
-                <h4 className="text-xs font-bold text-white uppercase tracking-wider">{language === "EN" ? "What-If Simulation" : "Simulador What-If"}</h4>
-                <p className="text-[11px] text-slate-500 mt-0.5 leading-normal">
-                  {language === "EN" ? "Instantly simulate reallocations & futures." : "Simulaciones automáticas de reajustes."}
-                </p>
-              </div>
-            </div>
-
-            <div className="p-3.5 bg-[#0f111a]/60 border border-slate-900/60 rounded-xl flex items-start gap-2.5">
-              <TrendingUp size={18} className="text-emerald-400 mt-0.5 shrink-0" />
-              <div>
-                <h4 className="text-xs font-bold text-white uppercase tracking-wider">{language === "EN" ? "Analyst Targets" : "Precios Objetivo"}</h4>
-                <p className="text-[11px] text-slate-500 mt-0.5 leading-normal">
-                  {language === "EN" ? "Consensus high, average, and low targets." : "Comparación con metas de analistas."}
-                </p>
-              </div>
-            </div>
-
-            <div className="p-3.5 bg-[#0f111a]/60 border border-slate-900/60 rounded-xl flex items-start gap-2.5">
-              <Calendar size={18} className="text-emerald-400 mt-0.5 shrink-0" />
-              <div>
-                <h4 className="text-xs font-bold text-white uppercase tracking-wider">{language === "EN" ? "Earnings Calendar" : "Calendario de Reportes"}</h4>
-                <p className="text-[11px] text-slate-500 mt-0.5 leading-normal">
-                  {language === "EN" ? "Never miss critical reporting days." : "Mantén el control de reportes corporativos."}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Right column - Authentication Interactive Panel (Desktop Only, completely hidden on mobile) */}
-        <div className="hidden lg:block w-full max-w-md bg-[#0f111a]/80 border border-slate-900 p-6 rounded-2xl shadow-xl shadow-black/40 relative">
-          {renderAuthContent(false)}
-        </div>
-      </main>
+    <div className="w-full">
+      {/* Presentación por secciones (LandingShowcase); los botones abren el modal de acceso */}
+      <LandingShowcase
+        language={language}
+        theme={theme}
+        onThemeChange={(t) => onThemeChange?.(t)}
+        onLanguageChange={onLanguageChange}
+        onSignIn={() => openAuthModal("signin")}
+        onSignUp={() => openAuthModal("signup")}
+      />
 
       {/* AUTHENTICATION POP-UP MODAL (For Mobile & Header button clicks) */}
       {isAuthModalOpen && (
@@ -1009,11 +898,6 @@ export default function LandingPage({ onAuthSuccess, language }: LandingPageProp
         </div>
       )}
 
-      {/* Mini footer */}
-      <footer className="border-t border-slate-900/60 bg-[#0f111a]/20 py-4 px-6 flex flex-col sm:flex-row items-center justify-between text-[9px] text-slate-600 font-medium tracking-wide uppercase">
-        <div>investiando.ai v2.4.1 Terminal Auth Service</div>
-        <div className="mt-1 sm:mt-0 text-emerald-500 font-bold">● Secure SSL Encryption Active</div>
-      </footer>
 
     </div>
   );

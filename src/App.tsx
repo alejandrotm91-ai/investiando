@@ -1100,6 +1100,9 @@ export default function App() {
       <LandingPage 
         onAuthSuccess={handleAuthSuccess} 
         language={language} 
+        theme={theme}
+        onThemeChange={setTheme}
+        onLanguageChange={setLanguage}
       />
     );
   }
