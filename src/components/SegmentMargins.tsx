@@ -15,8 +15,16 @@ export interface MarginPeriod {
   costs?: Partial<Record<CostKey | "base", Record<string, number>>>;
 }
 
-/** Ingresos contra los que se miden costes y márgenes: los del mismo informe que los gastos. */
-const revOf = (p: MarginPeriod, m: string) => p.costs?.base?.[m] ?? p.revenue[m];
+/**
+ * Ingresos contra los que se miden costes y márgenes: los del mismo informe que los gastos. Un
+ * segmento con menos del 2 % de los ingresos del periodo ("All Other" de Caterpillar) no tiene un
+ * margen con sentido: 0.
+ */
+const revOf = (p: MarginPeriod, m: string) => {
+  const r = p.costs?.base?.[m] ?? p.revenue[m];
+  const total = Object.values(p.revenue).reduce((a, v) => a + Math.max(0, v), 0);
+  return r !== undefined && total > 0 && r < total * 0.02 ? 0 : r;
+};
 interface Series { id: string; label: string; color: string }
 
 interface Props {
