@@ -654,9 +654,9 @@ export default function MarketDashboard({
       </div>
 
       {/* Sectors and Sentiment */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 gap-6">
         {/* Sector Health (Col-span-2) - Redesigned Interactive Panel */}
-        <div id="sector-health-panel" className="market-panel-card lg:col-span-2 bg-slate-900 border border-slate-800 p-5 sm:p-6 rounded-3xl shadow-2xl flex flex-col justify-between">
+        <div id="sector-health-panel" className="market-panel-card bg-slate-900 border border-slate-800 p-5 sm:p-6 rounded-3xl shadow-2xl flex flex-col justify-between">
           <div>
             {/* Header with Title, Timeframe selector and View mode buttons */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3.5 pb-4 border-b border-slate-800/60">
@@ -1105,6 +1105,8 @@ export default function MarketDashboard({
                       ticker: sec.ticker,
                       nameEN: sec.nameEN,
                       nameES: sec.nameES,
+                      pct: getSectorPct(sec as SectorItem),
+                      rsi: sec.rsi14,
                       holdings: (sectorHoldingsData[sec.ticker] || SECTOR_TOP_HOLDINGS[sec.ticker])?.holdings ?? [],
                     }))}
                     timeframe={sectorTimeframe}
@@ -1134,8 +1136,8 @@ export default function MarketDashboard({
 
         {/* Commodities & Crypto */}
         <div className="market-panel-card bg-slate-900 border border-slate-800 p-6 rounded-3xl shadow-2xl flex flex-col justify-between hover:border-slate-800 transition-all">
-          <div>
-            <div className="flex items-center gap-2.5 mb-5 border-b border-slate-800/60 pb-4">
+          <div className="lg:grid lg:grid-cols-2 lg:gap-x-8">
+            <div className="flex items-center gap-2.5 mb-5 border-b border-slate-800/60 pb-4 lg:col-span-2">
               <div className="w-9 h-9 rounded-full bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
                 <Coins className="text-blue-400" size={18} />
               </div>
@@ -1150,7 +1152,7 @@ export default function MarketDashboard({
             </div>
 
             {/* Commodities Sub-group */}
-            <div className="mb-6">
+            <div className="mb-6 lg:mb-0">
               <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3 px-1 flex items-center justify-between font-mono">
                 <div className="flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
@@ -1210,7 +1212,7 @@ export default function MarketDashboard({
 
             {/* Crypto Sub-group */}
             <div>
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3 pt-4 border-t border-slate-800/30 px-1 flex items-center justify-between font-mono">
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3 pt-4 border-t border-slate-800/30 lg:pt-0 lg:border-t-0 px-1 flex items-center justify-between font-mono">
                 <div className="flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
                   <span className="text-slate-300">{language === "ES" ? "Criptomonedas" : "Cryptocurrencies"}</span>

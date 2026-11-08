@@ -12,6 +12,8 @@ export interface StockHeatmapSector {
   ticker: string; // ETF del sector
   nameEN: string;
   nameES: string;
+  pct?: number; // rentabilidad del ETF del sector en el periodo
+  rsi?: number; // RSI 14 días del ETF
   holdings: { symbol: string; name: string; weight: number; price: number; returns: Partial<Record<Timeframe, number>> }[];
 }
 
@@ -113,20 +115,51 @@ export default function StockHeatmap({ sectors, timeframe, language }: Props) {
 
   return (
     <div className="space-y-2">
-      <div ref={box} className="relative h-[560px] sm:h-[460px] select-none" onMouseLeave={() => setHover(null)}>
+      <div ref={box} className="relative h-[560px] sm:h-[540px] select-none" onMouseLeave={() => setHover(null)}>
         <svg width={size.w} height={size.h} className="block">
           {layout.map((b) => (
             <g key={b.item.ticker}>
               <rect x={b.x + 0.5} y={b.y + 0.5} width={Math.max(0, b.w - 1)} height={Math.max(0, b.h - 1)} rx={4} fill="#0f111a" stroke="#0b0d14" />
-              {b.w > 40 && (
-                <text x={b.x + 5} y={b.y + 11.5} fill="#cbd5e1" fontSize={9.5} fontWeight={800} style={{ textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                  {(() => {
-                    const n = isES ? b.item.nameES : b.item.nameEN;
-                    const max = Math.max(3, Math.floor((b.w - 10) / 6.2));
-                    return n.length > max ? `${n.slice(0, max - 1)}…` : n;
-                  })()}
-                </text>
-              )}
+              {b.w > 40 && (() => {
+                // Nombre del sector + rentabilidad + (RSI). Si no cabe: (RSI n) → (n) → sin RSI → nombre
+                // acortado → solo el nombre. Anchos aproximados a 9.5 px en negrita.
+                const avail = b.w - 10;
+                const name = (isES ? b.item.nameES : b.item.nameEN).toUpperCase();
+                const p = b.item.pct;
+                const pctFull = typeof p === "number" ? `${p >= 0 ? "+" : ""}${p.toFixed(2)}%` : "";
+                const rsiVal = typeof b.item.rsi === "number" ? b.item.rsi.toFixed(0) : "";
+                const wName = (t: string) => t.length * 7.1;
+                const wPct = (t: string) => (t ? t.length * 6.1 + 5 : 0);
+                const wRsi = (t: string) => (t ? t.length * 5.7 + 4 : 0);
+                const cut = (n: number) => (n >= name.length ? name : n >= 4 ? `${name.slice(0, n - 1)}…` : "");
+                let shown = name, pctTxt = pctFull, rsiTxt = "";
+                const opts = rsiVal ? [`(RSI ${rsiVal})`, `(${rsiVal})`, ""] : [""];
+                const fit = opts.find((r) => wName(name) + wPct(pctFull) + wRsi(r) <= avail);
+                if (fit !== undefined) rsiTxt = fit;
+                else {
+                  const n = Math.floor((avail - wPct(pctFull)) / 7.1);
+                  if (n >= 4) shown = cut(n);
+                  else {
+                    pctTxt = "";
+                    shown = cut(Math.floor(avail / 7.1));
+                  }
+                }
+                return (
+                  <text x={b.x + 5} y={b.y + 11.5} fontSize={9.5} fontWeight={800} style={{ letterSpacing: "0.04em" }}>
+                    {shown && <tspan fill="#cbd5e1">{shown}</tspan>}
+                    {pctTxt && (
+                      <tspan dx={shown ? 5 : 0} fill={(p ?? 0) >= 0 ? "#34d399" : "#fb7185"} style={{ fontVariantNumeric: "tabular-nums" }}>
+                        {pctTxt}
+                      </tspan>
+                    )}
+                    {rsiTxt && (
+                      <tspan dx={4} fill="#94a3b8" fontWeight={600}>
+                        {rsiTxt}
+                      </tspan>
+                    )}
+                  </text>
+                );
+              })()}
               {b.tiles.map((t) => {
                 const r = t.item.returns[timeframe] ?? 0;
                 const showTicker = t.w > 26 && t.h > 14;

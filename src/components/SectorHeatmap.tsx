@@ -133,7 +133,7 @@ export default function SectorHeatmap({ sectors, pctOf, timeframe, selected, onS
 
   return (
     <div className="space-y-2">
-      <div className="h-[340px] sm:h-[380px]">
+      <div className="h-[340px] sm:h-[420px]">
         <ResponsiveContainer width="100%" height="100%">
           <Treemap
             data={data}
