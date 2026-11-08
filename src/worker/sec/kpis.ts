@@ -33,8 +33,8 @@ export interface KpiChart {
   es: string;
   type: "bar" | "stack" | "line";
   keys: string[];
-  // KPIs calculados: viajes por usuario al mes, comisión sobre reservas (ingresos ÷ reservas) y
-  // márgenes brutos de cada par ingresos/coste (`series`)
+  // KPIs calculados: viajes por usuario al mes, cociente keys[0] ÷ keys[1] ("take_rate": comisión
+  // sobre reservas, TAC sobre ingresos publicitarios…) y márgenes brutos de cada par ingresos/coste (`series`)
   derived?: "per_user_month" | "take_rate" | "margins";
   series?: { key: string; en: string; es: string; rev: string; cost: string }[];
 }
@@ -175,6 +175,53 @@ export const KPI_DEFS: Record<string, CompanyKpis> = {
       { id: "sc", en: "Supercharger connectors", es: "Conectores Supercharger", type: "bar", keys: ["sc_connectors"] },
       { id: "fsd", en: "Active FSD subscriptions", es: "Suscripciones FSD activas", type: "bar", keys: ["fsd_subs"] },
       { id: "inv", en: "Inventory (days of supply)", es: "Inventario (días de suministro)", type: "line", keys: ["inventory_days"] },
+    ],
+  },
+  // Microsoft: casi todo en crecimientos; en dólares, Microsoft Cloud y la cartera contratada (RPO)
+  MSFT: {
+    from: "2023-01-01",
+    kpis: [
+      { key: "cloud_rev", en: "Microsoft Cloud revenue", es: "Ingresos de Microsoft Cloud", unit: "$M", kind: "flow", range: [10000, 600000], hint: "Microsoft Cloud revenue in the quarter, in millions of USD (e.g. $63.9 billion -> 63900)" },
+      { key: "rpo", en: "Commercial remaining performance obligation", es: "Cartera comercial contratada (RPO)", unit: "$M", kind: "stock", range: [50000, 5000000], hint: "Commercial remaining performance obligation (RPO) at end of quarter, in millions of USD (e.g. $677 billion -> 677000)" },
+      { key: "azure_growth", en: "Azure growth", es: "Crecimiento de Azure", unit: "%", kind: "avg", range: [-50, 300], hint: "Azure (and other cloud services) revenue year-over-year growth in the quarter, as reported (GAAP, not constant currency), in %" },
+      { key: "m365c_growth", en: "Microsoft 365 commercial cloud growth", es: "Crecimiento de Microsoft 365 comercial", unit: "%", kind: "avg", range: [-50, 200], hint: "Microsoft 365 commercial cloud (formerly Office 365 commercial) revenue year-over-year growth, as reported, in %" },
+      { key: "search_growth", en: "Search & ads ex-TAC growth", es: "Crecimiento de búsqueda sin TAC", unit: "%", kind: "avg", range: [-50, 200], hint: "Search and advertising revenue excluding traffic acquisition costs, year-over-year growth, as reported, in %" },
+      { key: "xbox_growth", en: "Xbox content & services growth", es: "Crecimiento de contenidos Xbox", unit: "%", kind: "avg", range: [-80, 300], hint: "Xbox content and services revenue year-over-year growth, as reported, in %" },
+    ],
+    charts: [
+      { id: "cloud", en: "Microsoft Cloud revenue", es: "Ingresos de Microsoft Cloud", type: "bar", keys: ["cloud_rev"] },
+      { id: "rpo", en: "Commercial remaining performance obligation", es: "Cartera comercial contratada (RPO)", type: "bar", keys: ["rpo"] },
+      { id: "growth", en: "Year-over-year growth", es: "Crecimiento interanual", type: "line", keys: ["azure_growth", "m365c_growth", "search_growth", "xbox_growth"] },
+    ],
+  },
+  // Alphabet: los ingresos por línea ya están en Segmentos; aquí TAC, empleados y YouTube
+  GOOGL: {
+    from: "2023-01-01",
+    kpis: [
+      { key: "tac", en: "Traffic acquisition costs (TAC)", es: "Costes de adquisición de tráfico (TAC)", unit: "$M", kind: "flow", range: [3000, 150000], hint: "Total traffic acquisition costs (TAC) in the quarter, in millions of USD" },
+      { key: "ads_rev", en: "Google advertising revenue", es: "Ingresos publicitarios de Google", unit: "$M", kind: "flow", range: [20000, 400000], hint: "Google advertising revenues (Search & other + YouTube ads + Google Network) in the quarter, in millions of USD" },
+      { key: "youtube", en: "YouTube ads revenue", es: "Ingresos publicitarios de YouTube", unit: "$M", kind: "flow", range: [2000, 80000], hint: "YouTube ads revenues in the quarter, in millions of USD" },
+      { key: "employees", en: "Employees", es: "Empleados", unit: "n", kind: "stock", range: [50000, 600000], hint: "Number of employees at end of quarter" },
+    ],
+    charts: [
+      { id: "tacrate", en: "TAC as % of advertising revenue", es: "TAC sobre ingresos publicitarios", type: "line", keys: ["tac", "ads_rev"], derived: "take_rate" },
+      { id: "youtube", en: "YouTube ads revenue", es: "Ingresos publicitarios de YouTube", type: "bar", keys: ["youtube"] },
+      { id: "tac", en: "Traffic acquisition costs (TAC)", es: "Costes de adquisición de tráfico (TAC)", type: "bar", keys: ["tac"] },
+      { id: "emp", en: "Employees", es: "Empleados", type: "bar", keys: ["employees"] },
+    ],
+  },
+  META: {
+    from: "2023-01-01",
+    kpis: [
+      { key: "dap", en: "Family daily active people (DAP)", es: "Usuarios activos diarios (DAP)", unit: "M", kind: "avg", range: [1000, 8000], hint: "Family daily active people (DAP), in millions (e.g. 3.64 billion -> 3640)" },
+      { key: "impressions_growth", en: "Ad impressions growth", es: "Crecimiento de impresiones", unit: "%", kind: "avg", range: [-50, 200], hint: "Ad impressions year-over-year growth across the Family of Apps, in %" },
+      { key: "price_growth", en: "Average price per ad growth", es: "Crecimiento del precio por anuncio", unit: "%", kind: "avg", range: [-80, 300], hint: "Average price per ad year-over-year growth, in % (negative if decrease)" },
+      { key: "headcount", en: "Headcount", es: "Plantilla", unit: "n", kind: "stock", range: [10000, 300000], hint: "Headcount at end of quarter" },
+    ],
+    charts: [
+      { id: "dap", en: "Family daily active people", es: "Usuarios activos diarios", type: "bar", keys: ["dap"] },
+      { id: "ads", en: "Ad impressions vs. price per ad (YoY)", es: "Impresiones frente a precio por anuncio (interanual)", type: "line", keys: ["impressions_growth", "price_growth"] },
+      { id: "hc", en: "Headcount", es: "Plantilla", type: "bar", keys: ["headcount"] },
     ],
   },
   NFLX: {
@@ -432,8 +479,11 @@ export async function runKpisCron(db: D1Database, env: ClaudeEnv & { SEC_USER_AG
 
 export interface KpiPoint { date: string; values: Record<string, number>; confirmed: Record<string, boolean> }
 
+// Otras clases de acciones de la misma empresa
+const KPI_ALIASES: Record<string, string> = { GOOG: "GOOGL" };
+
 export async function getKpis(db: D1Database, ticker: string) {
-  const t = normTicker(ticker);
+  const t = KPI_ALIASES[normTicker(ticker)] ?? normTicker(ticker);
   const def = KPI_DEFS[t];
   if (!def) return null;
   const { results } = await db

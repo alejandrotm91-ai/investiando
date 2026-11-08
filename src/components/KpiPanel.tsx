@@ -105,7 +105,8 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
             if (r !== undefined && k !== undefined && r > 0) row[s.key] = (r - k) / r;
           }
         } else if (c.derived === "take_rate") {
-          const r = p.values.revenue, g = p.values.gross_bookings;
+          // Cociente keys[0] ÷ keys[1] (comisión = ingresos ÷ reservas; TAC ÷ ingresos publicitarios)
+          const r = p.values[c.keys[0]], g = p.values[c.keys[1]];
           if (r !== undefined && g) row.value = r / g;
         } else {
           for (const k of c.keys) if (p.values[k] !== undefined) row[k] = p.values[k];
