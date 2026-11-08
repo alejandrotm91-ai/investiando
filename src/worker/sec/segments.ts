@@ -67,6 +67,7 @@ export function parseSegmentFacts(xml: string, filed: string, prefer?: "ops" | "
   const ctxRe = /<(?:[\w-]+:)?context\b([^>]*)>([\s\S]*?)<\/(?:[\w-]+:)?context>/g;
   const raw: { id: string; body: string; dims: string[][] }[] = [];
   const productMembers = new Set<string>();
+  const productWithSegment = new Set<string>(); // productos que aparecen junto a un segmento
   // Contextos con cifras de ingresos (para ver qué productos aparecen en ellas)
   const revCtx = new Set<string>();
   for (const m of xml.matchAll(/<us-gaap:(\w+)\b([^>]*?)>[^<]*<\/us-gaap:\1>/g)) {
@@ -77,13 +78,20 @@ export function parseSegmentFacts(xml: string, filed: string, prefer?: "ops" | "
     const body = m[2];
     if (!id || /typedMember/.test(body)) continue;
     const dims = [...body.matchAll(/<(?:[\w-]+:)?explicitMember[^>]*dimension="([^"]+)"[^>]*>\s*([^<\s]+)\s*</g)].map((x) => [x[1], x[2]]);
-    if (revCtx.has(id)) for (const [d, mem] of dims) if (AXES[d] === "product") productMembers.add(mem);
+    if (revCtx.has(id)) for (const [d, mem] of dims) if (AXES[d] === "product") {
+      productMembers.add(mem);
+      if (dims.some(([d2]) => AXES[d2] === "segment")) productWithSegment.add(mem);
+    }
     raw.push({ id, body, dims });
   }
   // Un solo producto en las cifras de ingresos (Chevron: "OilAndGas" en todas) no informa de nada: se ignora
   const soleProduct = productMembers.size === 1 ? [...productMembers][0] : null;
+  // Igual si es el único producto que acompaña a los segmentos (ExxonMobil 2020-2022: segmento ×
+  // "ventas y otros ingresos de explotación" × EE. UU./resto); entonces solo junto a un segmento
+  const segProduct = productWithSegment.size === 1 ? [...productWithSegment][0] : null;
   for (const { id, body, dims: all } of raw) {
-    const dims = soleProduct ? all.filter(([d, mem]) => !(AXES[d] === "product" && mem === soleProduct)) : all;
+    const withSeg = all.some(([d]) => AXES[d] === "segment");
+    const dims = all.filter(([d, mem]) => !(AXES[d] === "product" && (mem === soleProduct || (withSeg && mem === segProduct))));
     const main = dims.filter(([d]) => AXES[d]);
     // "Segmento declarado" (Caterpillar 2019-2022): junto al eje de segmentos no cambia la cifra y
     // se ignora; con geografía es la suma de los segmentos, no las ventas de la región.
