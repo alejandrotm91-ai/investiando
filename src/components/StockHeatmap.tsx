@@ -2,8 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { SP500_SECTOR_WEIGHT, tileColor } from "./SectorHeatmap";
 
 // Mapa de calor por acciones, al estilo Finviz: cada sector es un bloque (tamaño = su peso aproximado
-// en el S&P 500) con sus 10 mayores posiciones dentro (tamaño = su peso en el ETF del sector; color =
-// rentabilidad de la acción en el periodo). Distribución "squarified" propia: la de Recharts no deja
+// en el S&P 500) con sus mayores empresas dentro (tamaño = capitalización, o peso en el ETF si no la
+// hay; color = rentabilidad de la acción en el periodo). Cada bloque muestra tantas como caben
+// (unos 750 px² de media por baldosa, mínimo 10). Distribución "squarified" propia: la de Recharts no deja
 // sitio para el nombre del sector encima de su bloque.
 
 type Timeframe = "1D" | "1W" | "1M" | "YTD" | "1Y";
@@ -14,7 +15,8 @@ export interface StockHeatmapSector {
   nameES: string;
   pct?: number; // rentabilidad del ETF del sector en el periodo
   rsi?: number; // RSI 14 días del ETF
-  holdings: { symbol: string; name: string; weight: number; price: number; returns: Partial<Record<Timeframe, number>> }[];
+  // cap = capitalización (tamaño, como Finviz); sin ella se usa weight (peso en el ETF del sector)
+  holdings: { symbol: string; name: string; weight?: number; cap?: number | null; price: number | null; returns: Partial<Record<Timeframe, number>> }[];
 }
 
 interface Props {
@@ -73,6 +75,8 @@ function squarify<T>(items: { value: number; item: T }[], r: Rect): (Rect & { it
   return out;
 }
 
+const fmtCap = (v: number) => (v >= 1e12 ? `$${(v / 1e12).toFixed(2)}T` : v >= 1e9 ? `$${(v / 1e9).toFixed(1)}B` : `$${(v / 1e6).toFixed(0)}M`);
+
 const HEADER = 16; // alto de la franja con el nombre del sector
 const GAP = 2;
 
@@ -93,7 +97,7 @@ export default function StockHeatmap({ sectors, timeframe, language }: Props) {
 
   // Escala de color: el percentil 90 de los movimientos (unas pocas acciones extremas no apagan el resto)
   const scale = useMemo(() => {
-    const vals = sectors.flatMap((s) => s.holdings.map((h) => Math.abs(h.returns[timeframe] ?? 0))).sort((a, b) => a - b);
+    const vals = sectors.flatMap((s) => s.holdings.map((h) => h.returns[timeframe]).filter((v): v is number => typeof v === "number").map(Math.abs)).sort((a, b) => a - b);
     return Math.max(vals[Math.floor(vals.length * 0.9)] ?? 1, 0.5);
   }, [sectors, timeframe]);
 
@@ -105,10 +109,17 @@ export default function StockHeatmap({ sectors, timeframe, language }: Props) {
     );
     return blocks.map((b) => {
       const inner = { x: b.x + GAP, y: b.y + HEADER, w: Math.max(0, b.w - 2 * GAP), h: Math.max(0, b.h - HEADER - GAP) };
-      const tiles = squarify(
-        b.item.holdings.slice(0, 10).map((h) => ({ value: Math.max(h.weight, 0.1), item: h })),
-        inner
-      );
+      // Tamaño: capitalización si la tiene al menos la mitad (las que falten, la mediana); si no, el peso en el ETF
+      const hs = b.item.holdings;
+      const caps = hs.map((h) => h.cap).filter((v): v is number => typeof v === "number" && v > 0).sort((x, y) => x - y);
+      const useCap = caps.length >= hs.length / 2;
+      const medCap = caps[Math.floor(caps.length / 2)] ?? 1;
+      const sized = hs
+        .map((h) => ({ value: useCap ? (h.cap && h.cap > 0 ? h.cap : medCap) : Math.max(h.weight ?? 0, 0.1), item: h }))
+        .sort((x, y) => y.value - x.value);
+      const total = sized.reduce((a, x) => a + x.value, 0) || 1;
+      const n = Math.min(sized.length, Math.max(10, Math.floor((inner.w * inner.h) / 750)));
+      const tiles = squarify(sized.slice(0, n).map((x) => ({ value: x.value, item: { ...x.item, share: (x.value / total) * 100 } })), inner);
       return { ...b, tiles };
     });
   }, [sectors, size]);
@@ -161,16 +172,17 @@ export default function StockHeatmap({ sectors, timeframe, language }: Props) {
                 );
               })()}
               {b.tiles.map((t) => {
-                const r = t.item.returns[timeframe] ?? 0;
-                const showTicker = t.w > 26 && t.h > 14;
-                const showPct = t.w > 34 && t.h > 30;
+                const rv = t.item.returns[timeframe];
+                const r = typeof rv === "number" ? rv : 0;
+                const showTicker = t.w > 24 && t.h > 13;
+                const showPct = typeof rv === "number" && t.w > 34 && t.h > 30;
                 const fs = Math.max(8, Math.min(18, Math.min(t.w / 4.2, t.h / 2.8)));
                 return (
                   <g
                     key={t.item.symbol}
                     onMouseMove={(e) => {
                       const bb = box.current!.getBoundingClientRect();
-                      setHover({ x: e.clientX - bb.left, y: e.clientY - bb.top, d: { ...t.item, r, sector: isES ? b.item.nameES : b.item.nameEN } });
+                      setHover({ x: e.clientX - bb.left, y: e.clientY - bb.top, d: { ...t.item, r: rv, sector: isES ? b.item.nameES : b.item.nameEN } });
                     }}
                     style={{ cursor: "default" }}
                   >
@@ -203,18 +215,30 @@ export default function StockHeatmap({ sectors, timeframe, language }: Props) {
             <div className="text-[10px] text-theme-text-muted truncate max-w-[220px]">{hover.d.name}</div>
             <div className="flex justify-between gap-3 mt-1">
               <span className="text-theme-text-muted">{timeframe}</span>
-              <span className="font-mono font-bold" style={{ color: hover.d.r >= 0 ? "#34d399" : "#fb7185" }}>
-                {hover.d.r >= 0 ? "+" : ""}
-                {hover.d.r.toFixed(2)}%
-              </span>
+              {typeof hover.d.r === "number" ? (
+                <span className="font-mono font-bold" style={{ color: hover.d.r >= 0 ? "#34d399" : "#fb7185" }}>
+                  {hover.d.r >= 0 ? "+" : ""}
+                  {hover.d.r.toFixed(2)}%
+                </span>
+              ) : (
+                <span className="font-mono text-theme-text-muted">n/d</span>
+              )}
             </div>
-            <div className="flex justify-between gap-3">
-              <span className="text-theme-text-muted">{isES ? "Precio" : "Price"}</span>
-              <span className="font-mono text-theme-text-bright">${Number(hover.d.price).toFixed(2)}</span>
-            </div>
+            {typeof hover.d.price === "number" && (
+              <div className="flex justify-between gap-3">
+                <span className="text-theme-text-muted">{isES ? "Precio" : "Price"}</span>
+                <span className="font-mono text-theme-text-bright">${hover.d.price.toFixed(2)}</span>
+              </div>
+            )}
+            {typeof hover.d.cap === "number" && hover.d.cap > 0 && (
+              <div className="flex justify-between gap-3">
+                <span className="text-theme-text-muted">{isES ? "Capitalización" : "Market cap"}</span>
+                <span className="font-mono text-theme-text-bright">{fmtCap(hover.d.cap)}</span>
+              </div>
+            )}
             <div className="flex justify-between gap-3">
               <span className="text-theme-text-muted">{isES ? "Peso en su sector" : "Weight in sector"}</span>
-              <span className="font-mono text-theme-text-bright">{Number(hover.d.weight).toFixed(1)}%</span>
+              <span className="font-mono text-theme-text-bright">{Number(hover.d.share).toFixed(1)}%</span>
             </div>
           </div>
         )}
@@ -222,8 +246,8 @@ export default function StockHeatmap({ sectors, timeframe, language }: Props) {
       <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-theme-text-muted font-mono">
         <span>
           {isES
-            ? "Las 10 mayores acciones de cada sector · Tamaño: peso · Color: rentabilidad"
-            : "Top 10 stocks of each sector · Size: weight · Color: return"}{" "}
+            ? "Mayores empresas de cada sector · Tamaño: capitalización · Color: rentabilidad"
+            : "Largest stocks of each sector · Size: market cap · Color: return"}{" "}
           ({timeframe})
         </span>
         <span className="flex items-center gap-1.5">

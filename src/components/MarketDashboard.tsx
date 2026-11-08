@@ -325,7 +325,27 @@ export default function MarketDashboard({
 
   const [sectorTimeframe, setSectorTimeframe] = useState<"1D" | "1W" | "1M" | "YTD" | "1Y">("1D");
   // Mapa de calor por sectores (por defecto) o por acciones (top 10 de cada sector, al estilo Finviz)
+  // Mapa de calor por acciones: 25-30 empresas por sector con capitalización (se pide al abrir la
+  // vista Stocks y cada 3 minutos mientras está abierta)
+  const [sectorMapData, setSectorMapData] = useState<Record<string, { symbol: string; name: string; cap: number | null; price: number | null; returns: Record<string, number> }[]> | null>(null);
   const [sectorView, setSectorView] = useState<"sectors" | "stocks">("sectors");
+  useEffect(() => {
+    if (sectorView !== "stocks") return;
+    let alive = true;
+    const load = () =>
+      fetch("/api/market/sector-map")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (alive && d && typeof d === "object" && Object.keys(d).length) setSectorMapData(d);
+        })
+        .catch(() => {});
+    load();
+    const id = setInterval(load, 3 * 60 * 1000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [sectorView]);
   const [expandedSectorTicker, setExpandedSectorTicker] = useState<string | null>(null);
   const [sectorHoldingsData, setSectorHoldingsData] = useState<Record<string, SectorHoldingsConfig>>(SECTOR_TOP_HOLDINGS);
   const [top10SortBy, setTop10SortBy] = useState<"weight" | "perf" | "upside">("weight");
@@ -1107,7 +1127,9 @@ export default function MarketDashboard({
                       nameES: sec.nameES,
                       pct: getSectorPct(sec as SectorItem),
                       rsi: sec.rsi14,
-                      holdings: (sectorHoldingsData[sec.ticker] || SECTOR_TOP_HOLDINGS[sec.ticker])?.holdings ?? [],
+                      holdings: sectorMapData?.[sec.ticker]?.length
+                        ? sectorMapData[sec.ticker]
+                        : (sectorHoldingsData[sec.ticker] || SECTOR_TOP_HOLDINGS[sec.ticker])?.holdings ?? [],
                     }))}
                     timeframe={sectorTimeframe}
                     language={language === "ES" ? "ES" : "EN"}

@@ -6,6 +6,7 @@ import { authRoutes, userRoutes } from "./auth/routes";
 import { requireUser } from "./auth/session";
 import { adminRoutes, smtpRoutes } from "./admin/routes";
 import { secRoutes } from "./sec/routes";
+import { sectorMapRoutes } from "./sectorMap";
 import { runSecCron } from "./sec/sync";
 import { runSegmentsCron } from "./sec/segmentSync";
 import { runPreviewsCron } from "./sec/earnings";
@@ -35,6 +36,9 @@ app.route("/api/smtp", smtpRoutes);
 
 // Estados financieros oficiales de la SEC (10-K/10-Q), guardados en D1.
 app.route("/api/sec", secRoutes);
+
+// Mapa de calor por acciones de Market (unas 25-30 empresas por sector, tamaño = capitalización).
+app.route("/api/market/sector-map", sectorMapRoutes);
 
 // Fase 4: cada consulta a Claude cuesta dinero, así que las rutas de IA exigen sesión.
 const AI_ROUTES = [
