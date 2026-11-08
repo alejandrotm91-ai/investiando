@@ -165,8 +165,6 @@ export default function ValuationMultiples({ ticker, language, theme }: Props) {
 
   return (
     <div className="space-y-6">
-    {/* Valor razonable: cifra por acción × múltiplo mediano histórico (mismos datos) */}
-    <FairValueGraph ticker={ticker} points={data.points} forwardPE={data.forwardPE} currency={data.currency} language={language} theme={theme} />
     <div className={`${card} space-y-5`}>
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-sm font-black uppercase tracking-wider text-theme-text-bright flex items-center gap-2">
@@ -317,6 +315,8 @@ export default function ValuationMultiples({ ticker, language, theme }: Props) {
           : "Fundamentals of the last 4 quarters (TTM) from SEC 10-Q/10-K filings, each counted from the date the report was filed (no look-ahead). Split-adjusted. Gaps are periods with negative earnings, cash flow or equity."}
       </p>
     </div>
+    {/* Valor razonable: cifra por acción × múltiplo mediano histórico (mismos datos) */}
+    <FairValueGraph ticker={ticker} points={data.points} forwardPE={data.forwardPE} currency={data.currency} language={language} theme={theme} />
     </div>
   );
 }

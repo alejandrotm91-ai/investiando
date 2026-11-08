@@ -272,7 +272,9 @@ export default function StockSearchExplorer({
   const [loadingBenchmarkChart, setLoadingBenchmarkChart] = useState<boolean>(false);
 
   // Active sub-tab in Stock View
-  const [activeSubTab, setActiveSubTab] = useState<"overview" | "financials" | "valuation" | "threestatements" | "bogle">("overview");
+  const [activeSubTab, setActiveSubTab] = useState<"overview" | "financials" | "valuation">("overview");
+  // Dentro de Valuation: múltiplos (y valor razonable), modelo de 3 estados y DCF, o motores de retorno
+  const [valuationView, setValuationView] = useState<"multiples" | "threestatements" | "bogle">("multiples");
   // Dentro de Financials: estados financieros o segmentos (con los KPIs)
   const [financialsView, setFinancialsView] = useState<"statements" | "segments">("statements");
 
@@ -1174,8 +1176,6 @@ export default function StockSearchExplorer({
                 { id: "overview", label: language === "EN" ? "Fundamental Overview" : "Resumen Fundamental", icon: Layers },
                 { id: "financials", label: language === "EN" ? "Financials" : "Finanzas", icon: FileText },
                 { id: "valuation", label: language === "EN" ? "Valuation" : "Valoración", icon: Gauge },
-                { id: "threestatements", label: language === "EN" ? "3-Statement & DCF Model" : "Modelo 3 Estados & DCF", icon: FileSpreadsheet },
-                { id: "bogle", label: language === "EN" ? "Engines of Return" : "Motores de Retorno", icon: BarChart3 },
               ] as const).map((tab) => {
                 const IconComponent = tab.icon;
                 const isActive = activeSubTab === tab.id;
@@ -2386,30 +2386,41 @@ export default function StockSearchExplorer({
             </div>
           )}
 
+          {/* 8. VALUATION: múltiplos (y valor razonable), modelo de 3 estados y DCF, o motores de retorno */}
           {activeSubTab === "valuation" && stockData && (
-            <ValuationMultiples ticker={stockData.symbol} language={language} theme={theme} />
-          )}
-
-          {/* 8. TAB CONTENT: 3-STATEMENT MODEL & DCF VALUATION */}
-          {activeSubTab === "threestatements" && stockData && (
-            <div className="space-y-4">
-              <ThreeStatementModel 
-                initialTicker={stockData.symbol}
-                portfolioTickers={[stockData.symbol]}
-                language={language}
-                theme={theme}
-              />
-            </div>
-          )}
-
-          {/* 9. TAB CONTENT: BOGLE */}
-          {activeSubTab === "bogle" && stockData && (
-            <div className="bg-theme-card border border-theme-border rounded-3xl p-6">
-              <SingleStockBogleAnalysis 
-                ticker={stockData.symbol} 
-                language={language}
-                theme={theme}
-              />
+            <div className="space-y-6">
+              <div className="flex justify-center">
+                <div className="flex flex-wrap justify-center bg-theme-input border border-theme-border rounded-xl p-0.5">
+                  {([
+                    { id: "multiples", label: language === "EN" ? "Multiples" : "Múltiplos", icon: Gauge },
+                    { id: "threestatements", label: language === "EN" ? "3-Statement & DCF" : "3 Estados y DCF", icon: FileSpreadsheet },
+                    { id: "bogle", label: language === "EN" ? "Engines of Return" : "Motores de Retorno", icon: BarChart3 },
+                  ] as const).map((v) => {
+                    const Icon = v.icon;
+                    return (
+                      <button
+                        key={v.id}
+                        onClick={() => setValuationView(v.id)}
+                        className={`px-4 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all flex items-center gap-1.5 ${
+                          valuationView === v.id ? "bg-emerald-500 text-slate-950" : "text-theme-text-muted hover:text-theme-text-bright"
+                        }`}
+                      >
+                        <Icon size={13} />
+                        {v.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              {valuationView === "multiples" && <ValuationMultiples ticker={stockData.symbol} language={language} theme={theme} />}
+              {valuationView === "threestatements" && (
+                <ThreeStatementModel initialTicker={stockData.symbol} portfolioTickers={[stockData.symbol]} language={language} theme={theme} />
+              )}
+              {valuationView === "bogle" && (
+                <div className="bg-theme-card border border-theme-border rounded-3xl p-6">
+                  <SingleStockBogleAnalysis ticker={stockData.symbol} language={language} theme={theme} />
+                </div>
+              )}
             </div>
           )}
 
