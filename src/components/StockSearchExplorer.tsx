@@ -1350,255 +1350,255 @@ export default function StockSearchExplorer({
             </div>
           </div>
 
-          {/* 4. INTERACTIVE PRICE CHART SECTION & BENCHMARK COMPARISON */}
-          <div className="bg-theme-card border border-theme-border p-6 rounded-2xl shadow-md">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-5">
-              <div>
-                <div className="flex items-center gap-2">
-                  <BarChart3 size={18} className="text-emerald-400" />
-                  <h3 className="text-base font-bold text-theme-text-bright uppercase tracking-wider">
-                    {isComparing 
-                      ? (language === "EN" ? "Comparative Performance vs Benchmarks" : "Rendimiento Comparativo vs Índices") 
-                      : (language === "EN" ? "Price Performance Chart" : "Gráfico de Rendimiento Histórico")}
-                  </h3>
-                </div>
-                
-                {/* Performance & Alpha Pills */}
-                <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs font-mono">
-                  <div className="flex items-center gap-1">
-                    <span className="text-theme-text-muted">
-                      {stockData.symbol}:
-                    </span>
-                    <span className={`font-bold flex items-center gap-0.5 ${chartPerformance.isPositive ? "text-emerald-400" : "text-rose-400"}`}>
-                      {chartPerformance.isPositive ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                      {formatPercent(chartPerformance.changePct)}
-                    </span>
-                  </div>
-
-                  {compareSP500 && (
-                    <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400">
-                      <span className="font-bold">S&P 500:</span>
-                      <span>{formatPercent(benchmarkAlpha.sp500Return)}</span>
-                      <span className={`font-black text-[11px] ${benchmarkAlpha.alphaVsSP500 >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                        ({benchmarkAlpha.alphaVsSP500 >= 0 ? "+" : ""}{benchmarkAlpha.alphaVsSP500}% Alpha)
-                      </span>
-                    </div>
-                  )}
-
-                  {compareNasdaq && (
-                    <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-sky-500/10 border border-sky-500/30 text-sky-400">
-                      <span className="font-bold">NASDAQ-100:</span>
-                      <span>{formatPercent(benchmarkAlpha.nasdaqReturn)}</span>
-                      <span className={`font-black text-[11px] ${benchmarkAlpha.alphaVsNasdaq >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                        ({benchmarkAlpha.alphaVsNasdaq >= 0 ? "+" : ""}{benchmarkAlpha.alphaVsNasdaq}% Alpha)
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Controls: Range Toggles & Benchmark Overlays */}
-              <div className="flex flex-wrap items-center gap-3">
-                
-                {/* Benchmark Overlays Toggles */}
-                <div className="flex items-center gap-1.5 bg-theme-input p-1 rounded-xl border border-theme-border text-xs font-mono">
-                  <span className="text-[10px] text-theme-text-muted px-1.5 uppercase font-bold flex items-center gap-1">
-                    <Scale size={11} />
-                    {language === "EN" ? "Compare:" : "Comparar:"}
-                  </span>
-                  
-                  <button
-                    onClick={() => setCompareSP500(!compareSP500)}
-                    className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                      compareSP500
-                        ? "bg-amber-500 text-slate-950 font-black shadow-xs"
-                        : "text-amber-400 hover:bg-amber-500/10"
-                    }`}
-                  >
-                    <span>S&P 500</span>
-                  </button>
-
-                  <button
-                    onClick={() => setCompareNasdaq(!compareNasdaq)}
-                    className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                      compareNasdaq
-                        ? "bg-sky-500 text-slate-950 font-black shadow-xs"
-                        : "text-sky-400 hover:bg-sky-500/10"
-                    }`}
-                  >
-                    <span>NASDAQ-100</span>
-                  </button>
-                </div>
-
-                {/* Range Toggle Buttons */}
-                <div className="inline-flex bg-theme-input p-1 rounded-xl border border-theme-border text-xs font-mono font-bold">
-                  {(["1W", "1M", "6M", "YTD", "1Y", "5Y", "ALL"] as const).map((r) => (
-                    <button
-                      key={r}
-                      onClick={() => setChartRange(r)}
-                      className={`px-2.5 sm:px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-                        chartRange === r
-                          ? "bg-emerald-500 text-slate-950 font-black shadow-sm"
-                          : "text-theme-text-muted hover:text-theme-text-bright hover:bg-theme-card-hover"
-                      }`}
-                    >
-                      {r}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Chart Canvas */}
-            <div className="h-72 sm:h-80 w-full relative">
-              {(loadingChart || loadingBenchmarkChart) && (
-                <div className="absolute inset-0 bg-theme-card/60 backdrop-blur-xs flex items-center justify-center z-10">
-                  <RefreshCw size={24} className="animate-spin text-emerald-400" />
-                </div>
-              )}
-              
-              {combinedChartData.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={combinedChartData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="stockChartGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={chartPerformance.isPositive ? "#10b981" : "#f43f5e"} stopOpacity={isComparing ? 0.15 : 0.35} />
-                        <stop offset="95%" stopColor={chartPerformance.isPositive ? "#10b981" : "#f43f5e"} stopOpacity={0.0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke={theme === "light" ? "#e2e8f0" : "#1e293b"} vertical={false} />
-                    <XAxis 
-                      dataKey="date" 
-                      ticks={chartTicks}
-                      tickLine={false} 
-                      axisLine={false} 
-                      tick={{ fill: theme === "light" ? "#64748b" : "#94a3b8", fontSize: 10 }}
-                      tickFormatter={(d) => {
-                        try {
-                          const parts = typeof d === "string" && d.includes("-") ? d.split("-").map(Number) : null;
-                          const dateObj = parts && parts.length === 3 
-                            ? new Date(parts[0], parts[1] - 1, parts[2]) 
-                            : new Date(d);
-                          
-                          const isLongRange = ["6M", "YTD", "1Y", "5Y", "ALL"].includes(chartRange);
-                          
-                          if (isLongRange) {
-                            const esMonths = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
-                            const enMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-                            const m = language === "ES" ? esMonths[dateObj.getMonth()] : enMonths[dateObj.getMonth()];
-                            
-                            if (chartRange === "5Y" || chartRange === "ALL") {
-                              return `${m} '${dateObj.getFullYear().toString().slice(-2)}`;
-                            }
-                            return m;
-                          }
-                          
-                          return dateObj.toLocaleDateString(language === "EN" ? "en-US" : "es-ES", { month: "short", day: "numeric" });
-                        } catch (e) {
-                          return d;
-                        }
-                      }}
-                    />
-                    <YAxis 
-                      domain={["auto", "auto"]} 
-                      tickLine={false} 
-                      axisLine={false} 
-                      tick={{ fill: theme === "light" ? "#64748b" : "#94a3b8", fontSize: 10 }}
-                      tickFormatter={(v) => isComparing ? `${v >= 0 ? "+" : ""}${v.toFixed(0)}%` : `$${v.toFixed(0)}`}
-                    />
-                    <Tooltip 
-                      contentStyle={{
-                        backgroundColor: theme === "light" ? "#ffffff" : "#0f172a",
-                        borderColor: theme === "light" ? "#e2e8f0" : "#334155",
-                        borderRadius: "0.75rem",
-                        boxShadow: "0 10px 15px -3px rgba(0,0,0,0.2)",
-                        color: theme === "light" ? "#0f172a" : "#f8fafc",
-                        fontSize: "12px",
-                        fontWeight: "600",
-                        fontFamily: "monospace"
-                      }}
-                      formatter={(val: any, name: any) => {
-                        if (name === "stockReturn" || name === "close") {
-                          if (isComparing) {
-                            return [`${val >= 0 ? "+" : ""}${val}%`, stockData.symbol];
-                          }
-                          return [`$${Number(val).toFixed(2)}`, stockData.symbol];
-                        }
-                        if (name === "sp500Return") {
-                          return [`${val >= 0 ? "+" : ""}${val}%`, "S&P 500 (SPY)"];
-                        }
-                        if (name === "nasdaqReturn") {
-                          return [`${val >= 0 ? "+" : ""}${val}%`, "NASDAQ-100 (QQQ)"];
-                        }
-                        return [val, name];
-                      }}
-                      labelFormatter={(label) => {
-                        try {
-                          const parts = typeof label === "string" && label.includes("-") ? label.split("-").map(Number) : null;
-                          const dateObj = parts && parts.length === 3 
-                            ? new Date(parts[0], parts[1] - 1, parts[2]) 
-                            : new Date(label);
-                          const dateText = dateObj.toLocaleDateString(language === "EN" ? "en-US" : "es-ES", {
-                            day: "numeric",
-                            month: "short",
-                            year: "numeric"
-                          });
-                          return `${language === "EN" ? "Date:" : "Fecha:"} ${dateText}`;
-                        } catch {
-                          return `${language === "EN" ? "Date:" : "Fecha:"} ${label}`;
-                        }
-                      }}
-                    />
-                    {isComparing && (
-                      <ReferenceLine y={0} stroke={theme === "light" ? "#94a3b8" : "#475569"} strokeDasharray="3 3" />
-                    )}
-                    <Area 
-                      type="monotone" 
-                      dataKey={isComparing ? "stockReturn" : "close"} 
-                      name={isComparing ? "stockReturn" : "close"}
-                      stroke={chartPerformance.isPositive ? "#10b981" : "#f43f5e"} 
-                      strokeWidth={2.5} 
-                      fillOpacity={1} 
-                      fill="url(#stockChartGrad)" 
-                    />
-                    {compareSP500 && (
-                      <Line 
-                        type="monotone" 
-                        dataKey="sp500Return" 
-                        name="sp500Return"
-                        stroke="#f59e0b" 
-                        strokeWidth={2.2} 
-                        strokeDasharray="4 4"
-                        dot={false}
-                      />
-                    )}
-                    {compareNasdaq && (
-                      <Line 
-                        type="monotone" 
-                        dataKey="nasdaqReturn" 
-                        name="nasdaqReturn"
-                        stroke="#38bdf8" 
-                        strokeWidth={2.2} 
-                        strokeDasharray="4 4"
-                        dot={false}
-                      />
-                    )}
-                  </AreaChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="h-full flex items-center justify-center text-xs text-theme-text-muted">
-                  {language === "EN" ? "No historical chart points available" : "Sin datos de gráfico disponibles"}
-                </div>
-              )}
-            </div>
-          </div>
-
           {/* Avance de resultados del 8-K (capa 3 de la SEC): solo si hay uno pendiente del 10-Q */}
           {stockData && <EarningsPreviewCard ticker={stockData.symbol} language={language} theme={theme} />}
 
           {/* 6. TAB CONTENT: OVERVIEW */}
           {activeSubTab === "overview" && (
             <div className="space-y-6">
+              {/* 4. INTERACTIVE PRICE CHART SECTION & BENCHMARK COMPARISON */}
+              <div className="bg-theme-card border border-theme-border p-6 rounded-2xl shadow-md">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-5">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <BarChart3 size={18} className="text-emerald-400" />
+                      <h3 className="text-base font-bold text-theme-text-bright uppercase tracking-wider">
+                        {isComparing 
+                          ? (language === "EN" ? "Comparative Performance vs Benchmarks" : "Rendimiento Comparativo vs Índices") 
+                          : (language === "EN" ? "Price Performance Chart" : "Gráfico de Rendimiento Histórico")}
+                      </h3>
+                    </div>
+                    
+                    {/* Performance & Alpha Pills */}
+                    <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs font-mono">
+                      <div className="flex items-center gap-1">
+                        <span className="text-theme-text-muted">
+                          {stockData.symbol}:
+                        </span>
+                        <span className={`font-bold flex items-center gap-0.5 ${chartPerformance.isPositive ? "text-emerald-400" : "text-rose-400"}`}>
+                          {chartPerformance.isPositive ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                          {formatPercent(chartPerformance.changePct)}
+                        </span>
+                      </div>
+
+                      {compareSP500 && (
+                        <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400">
+                          <span className="font-bold">S&P 500:</span>
+                          <span>{formatPercent(benchmarkAlpha.sp500Return)}</span>
+                          <span className={`font-black text-[11px] ${benchmarkAlpha.alphaVsSP500 >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                            ({benchmarkAlpha.alphaVsSP500 >= 0 ? "+" : ""}{benchmarkAlpha.alphaVsSP500}% Alpha)
+                          </span>
+                        </div>
+                      )}
+
+                      {compareNasdaq && (
+                        <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-sky-500/10 border border-sky-500/30 text-sky-400">
+                          <span className="font-bold">NASDAQ-100:</span>
+                          <span>{formatPercent(benchmarkAlpha.nasdaqReturn)}</span>
+                          <span className={`font-black text-[11px] ${benchmarkAlpha.alphaVsNasdaq >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                            ({benchmarkAlpha.alphaVsNasdaq >= 0 ? "+" : ""}{benchmarkAlpha.alphaVsNasdaq}% Alpha)
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Controls: Range Toggles & Benchmark Overlays */}
+                  <div className="flex flex-wrap items-center gap-3">
+                    
+                    {/* Benchmark Overlays Toggles */}
+                    <div className="flex items-center gap-1.5 bg-theme-input p-1 rounded-xl border border-theme-border text-xs font-mono">
+                      <span className="text-[10px] text-theme-text-muted px-1.5 uppercase font-bold flex items-center gap-1">
+                        <Scale size={11} />
+                        {language === "EN" ? "Compare:" : "Comparar:"}
+                      </span>
+                      
+                      <button
+                        onClick={() => setCompareSP500(!compareSP500)}
+                        className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                          compareSP500
+                            ? "bg-amber-500 text-slate-950 font-black shadow-xs"
+                            : "text-amber-400 hover:bg-amber-500/10"
+                        }`}
+                      >
+                        <span>S&P 500</span>
+                      </button>
+
+                      <button
+                        onClick={() => setCompareNasdaq(!compareNasdaq)}
+                        className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                          compareNasdaq
+                            ? "bg-sky-500 text-slate-950 font-black shadow-xs"
+                            : "text-sky-400 hover:bg-sky-500/10"
+                        }`}
+                      >
+                        <span>NASDAQ-100</span>
+                      </button>
+                    </div>
+
+                    {/* Range Toggle Buttons */}
+                    <div className="inline-flex bg-theme-input p-1 rounded-xl border border-theme-border text-xs font-mono font-bold">
+                      {(["1W", "1M", "6M", "YTD", "1Y", "5Y", "ALL"] as const).map((r) => (
+                        <button
+                          key={r}
+                          onClick={() => setChartRange(r)}
+                          className={`px-2.5 sm:px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                            chartRange === r
+                              ? "bg-emerald-500 text-slate-950 font-black shadow-sm"
+                              : "text-theme-text-muted hover:text-theme-text-bright hover:bg-theme-card-hover"
+                          }`}
+                        >
+                          {r}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Chart Canvas */}
+                <div className="h-72 sm:h-80 w-full relative">
+                  {(loadingChart || loadingBenchmarkChart) && (
+                    <div className="absolute inset-0 bg-theme-card/60 backdrop-blur-xs flex items-center justify-center z-10">
+                      <RefreshCw size={24} className="animate-spin text-emerald-400" />
+                    </div>
+                  )}
+                  
+                  {combinedChartData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={combinedChartData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="stockChartGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor={chartPerformance.isPositive ? "#10b981" : "#f43f5e"} stopOpacity={isComparing ? 0.15 : 0.35} />
+                            <stop offset="95%" stopColor={chartPerformance.isPositive ? "#10b981" : "#f43f5e"} stopOpacity={0.0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke={theme === "light" ? "#e2e8f0" : "#1e293b"} vertical={false} />
+                        <XAxis 
+                          dataKey="date" 
+                          ticks={chartTicks}
+                          tickLine={false} 
+                          axisLine={false} 
+                          tick={{ fill: theme === "light" ? "#64748b" : "#94a3b8", fontSize: 10 }}
+                          tickFormatter={(d) => {
+                            try {
+                              const parts = typeof d === "string" && d.includes("-") ? d.split("-").map(Number) : null;
+                              const dateObj = parts && parts.length === 3 
+                                ? new Date(parts[0], parts[1] - 1, parts[2]) 
+                                : new Date(d);
+                              
+                              const isLongRange = ["6M", "YTD", "1Y", "5Y", "ALL"].includes(chartRange);
+                              
+                              if (isLongRange) {
+                                const esMonths = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+                                const enMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+                                const m = language === "ES" ? esMonths[dateObj.getMonth()] : enMonths[dateObj.getMonth()];
+                                
+                                if (chartRange === "5Y" || chartRange === "ALL") {
+                                  return `${m} '${dateObj.getFullYear().toString().slice(-2)}`;
+                                }
+                                return m;
+                              }
+                              
+                              return dateObj.toLocaleDateString(language === "EN" ? "en-US" : "es-ES", { month: "short", day: "numeric" });
+                            } catch (e) {
+                              return d;
+                            }
+                          }}
+                        />
+                        <YAxis 
+                          domain={["auto", "auto"]} 
+                          tickLine={false} 
+                          axisLine={false} 
+                          tick={{ fill: theme === "light" ? "#64748b" : "#94a3b8", fontSize: 10 }}
+                          tickFormatter={(v) => isComparing ? `${v >= 0 ? "+" : ""}${v.toFixed(0)}%` : `$${v.toFixed(0)}`}
+                        />
+                        <Tooltip 
+                          contentStyle={{
+                            backgroundColor: theme === "light" ? "#ffffff" : "#0f172a",
+                            borderColor: theme === "light" ? "#e2e8f0" : "#334155",
+                            borderRadius: "0.75rem",
+                            boxShadow: "0 10px 15px -3px rgba(0,0,0,0.2)",
+                            color: theme === "light" ? "#0f172a" : "#f8fafc",
+                            fontSize: "12px",
+                            fontWeight: "600",
+                            fontFamily: "monospace"
+                          }}
+                          formatter={(val: any, name: any) => {
+                            if (name === "stockReturn" || name === "close") {
+                              if (isComparing) {
+                                return [`${val >= 0 ? "+" : ""}${val}%`, stockData.symbol];
+                              }
+                              return [`$${Number(val).toFixed(2)}`, stockData.symbol];
+                            }
+                            if (name === "sp500Return") {
+                              return [`${val >= 0 ? "+" : ""}${val}%`, "S&P 500 (SPY)"];
+                            }
+                            if (name === "nasdaqReturn") {
+                              return [`${val >= 0 ? "+" : ""}${val}%`, "NASDAQ-100 (QQQ)"];
+                            }
+                            return [val, name];
+                          }}
+                          labelFormatter={(label) => {
+                            try {
+                              const parts = typeof label === "string" && label.includes("-") ? label.split("-").map(Number) : null;
+                              const dateObj = parts && parts.length === 3 
+                                ? new Date(parts[0], parts[1] - 1, parts[2]) 
+                                : new Date(label);
+                              const dateText = dateObj.toLocaleDateString(language === "EN" ? "en-US" : "es-ES", {
+                                day: "numeric",
+                                month: "short",
+                                year: "numeric"
+                              });
+                              return `${language === "EN" ? "Date:" : "Fecha:"} ${dateText}`;
+                            } catch {
+                              return `${language === "EN" ? "Date:" : "Fecha:"} ${label}`;
+                            }
+                          }}
+                        />
+                        {isComparing && (
+                          <ReferenceLine y={0} stroke={theme === "light" ? "#94a3b8" : "#475569"} strokeDasharray="3 3" />
+                        )}
+                        <Area 
+                          type="monotone" 
+                          dataKey={isComparing ? "stockReturn" : "close"} 
+                          name={isComparing ? "stockReturn" : "close"}
+                          stroke={chartPerformance.isPositive ? "#10b981" : "#f43f5e"} 
+                          strokeWidth={2.5} 
+                          fillOpacity={1} 
+                          fill="url(#stockChartGrad)" 
+                        />
+                        {compareSP500 && (
+                          <Line 
+                            type="monotone" 
+                            dataKey="sp500Return" 
+                            name="sp500Return"
+                            stroke="#f59e0b" 
+                            strokeWidth={2.2} 
+                            strokeDasharray="4 4"
+                            dot={false}
+                          />
+                        )}
+                        {compareNasdaq && (
+                          <Line 
+                            type="monotone" 
+                            dataKey="nasdaqReturn" 
+                            name="nasdaqReturn"
+                            stroke="#38bdf8" 
+                            strokeWidth={2.2} 
+                            strokeDasharray="4 4"
+                            dot={false}
+                          />
+                        )}
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-xs text-theme-text-muted">
+                      {language === "EN" ? "No historical chart points available" : "Sin datos de gráfico disponibles"}
+                    </div>
+                  )}
+                </div>
+              </div>
+
               
               {/* 4 THEMATIC KEY METRIC BLOCKS */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
