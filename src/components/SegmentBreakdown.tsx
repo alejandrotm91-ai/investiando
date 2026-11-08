@@ -318,6 +318,13 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
               <button
                 key={k}
                 disabled={k === "Q" ? !hasQuarterly : !hasAnnual}
+                title={
+                  k === "Q" && !hasQuarterly
+                    ? isES
+                      ? "La empresa solo publica este desglose en el informe anual (10-K)"
+                      : "The company only reports this breakdown in its annual report (10-K)"
+                    : undefined
+                }
                 onClick={() => setKind(k)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${activeKind === k ? "bg-theme-border text-theme-text-bright" : "text-theme-text-muted hover:text-theme-text-bright"}`}
               >
