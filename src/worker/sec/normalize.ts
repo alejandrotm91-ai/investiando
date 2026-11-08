@@ -87,7 +87,7 @@ const CONCEPTS: ConceptDef[] = [
 
   // Flujo de caja
   { key: "operatingCashFlow", kind: "duration", tags: ["NetCashProvidedByUsedInOperatingActivities", "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"] },
-  { key: "capitalExpenditure", kind: "duration", sign: -1, tags: ["PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets", "PaymentsForCapitalImprovements", "PaymentsToAcquireOtherPropertyPlantAndEquipment", "PaymentsToAcquireOtherProductiveAssets", EXT_CAPEX_TAG] },
+  { key: "capitalExpenditure", kind: "duration", sign: -1, tags: ["PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets", "PaymentsForCapitalImprovements", "PaymentsToAcquireOtherPropertyPlantAndEquipment", "PaymentsToAcquireOtherProductiveAssets", EXT_CAPEX_TAG, "PaymentsForProceedsFromProductiveAssets"] },
   // Software desarrollado o comprado (Mastercard…) y compras de intangibles (software de ADP,
   // activos de programas de RTX, espectro de T-Mobile): inversión recurrente, entra en capex como
   // hace Yahoo. No entran las adquisiciones de empresas ni los equipos para arrendar (CAT, DE).
