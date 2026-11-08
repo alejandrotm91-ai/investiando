@@ -552,6 +552,67 @@ export const KPI_DEFS: Record<string, CompanyKpis> = {
       { id: "margin", en: "Non-GAAP operating margin", es: "Margen operativo no GAAP", type: "line", keys: ["op_margin_ng"] },
     ],
   },
+  PFE: {
+    from: "2023-01-01",
+    minChars: 20000, // avisos de previsiones o de cargos sin trimestre
+    kpis: [
+      { key: "eliquis", en: "Eliquis", es: "Eliquis", unit: "$M", kind: "flow", range: [1, 100000], hint: "Eliquis revenue (Pfizer's reported revenue) in the quarter, in millions of USD" },
+      { key: "prevnar", en: "Prevnar family", es: "Prevnar family", unit: "$M", kind: "flow", range: [1, 100000], hint: "Prevnar family (Prevnar 13/20 and successors) worldwide revenue in the quarter, in millions of USD" },
+      { key: "vyndaqel", en: "Vyndaqel family", es: "Vyndaqel family", unit: "$M", kind: "flow", range: [1, 100000], hint: "Vyndaqel family worldwide revenue in the quarter, in millions of USD" },
+      { key: "paxlovid", en: "Paxlovid", es: "Paxlovid", unit: "$M", kind: "flow", range: [1, 100000], hint: "Paxlovid worldwide revenue in the quarter, in millions of USD" },
+      { key: "comirnaty", en: "Comirnaty", es: "Comirnaty", unit: "$M", kind: "flow", range: [1, 100000], hint: "Comirnaty (Pfizer's direct sales and alliance revenues) worldwide revenue in the quarter, in millions of USD" },
+      { key: "ibrance", en: "Ibrance", es: "Ibrance", unit: "$M", kind: "flow", range: [1, 100000], hint: "Ibrance worldwide revenue in the quarter, in millions of USD" },
+      { key: "padcev", en: "Padcev", es: "Padcev", unit: "$M", kind: "flow", range: [1, 100000], hint: "Padcev worldwide revenue in the quarter, in millions of USD" },
+      { key: "abrysvo", en: "Abrysvo", es: "Abrysvo", unit: "$M", kind: "flow", range: [1, 100000], hint: "Abrysvo worldwide revenue in the quarter, in millions of USD" },
+      { key: "nurtec", en: "Nurtec ODT/Vydura", es: "Nurtec ODT/Vydura", unit: "$M", kind: "flow", range: [1, 100000], hint: "Nurtec ODT/Vydura worldwide revenue in the quarter, in millions of USD" },
+    ],
+    charts: [
+      { id: "covid", en: "COVID products (Comirnaty / Paxlovid)", es: "Productos COVID (Comirnaty / Paxlovid)", type: "stack", keys: ["comirnaty", "paxlovid"] },
+      { id: "big", en: "Largest products", es: "Productos principales", type: "line", keys: ["eliquis", "prevnar", "vyndaqel", "ibrance"] },
+      { id: "new", en: "Newer growth products", es: "Productos nuevos en crecimiento", type: "line", keys: ["padcev", "nurtec", "abrysvo"] },
+    ],
+  },
+  MRK: {
+    from: "2023-01-01",
+    kpis: [
+      { key: "keytruda", en: "Keytruda", es: "Keytruda", unit: "$M", kind: "flow", range: [1, 200000], hint: "Keytruda worldwide revenue in the quarter, in millions of USD" },
+      { key: "gardasil", en: "Gardasil / Gardasil 9", es: "Gardasil / Gardasil 9", unit: "$M", kind: "flow", range: [1, 100000], hint: "Gardasil/Gardasil 9 worldwide revenue in the quarter, in millions of USD" },
+      { key: "winrevair", en: "Winrevair", es: "Winrevair", unit: "$M", kind: "flow", range: [1, 100000], hint: "Winrevair worldwide revenue in the quarter, in millions of USD" },
+      { key: "welireg", en: "Welireg", es: "Welireg", unit: "$M", kind: "flow", range: [1, 100000], hint: "Welireg worldwide revenue in the quarter, in millions of USD" },
+      { key: "bridion", en: "Bridion", es: "Bridion", unit: "$M", kind: "flow", range: [1, 100000], hint: "Bridion worldwide revenue in the quarter, in millions of USD" },
+      { key: "lynparza", en: "Lynparza (alliance revenue)", es: "Lynparza (alliance revenue)", unit: "$M", kind: "flow", range: [1, 100000], hint: "Lynparza alliance revenue recorded by Merck in the quarter, in millions of USD" },
+      { key: "capvaxive", en: "Capvaxive", es: "Capvaxive", unit: "$M", kind: "flow", range: [1, 100000], hint: "Capvaxive worldwide revenue in the quarter, in millions of USD" },
+      { key: "animal_health", en: "Animal Health", es: "Animal Health", unit: "$M", kind: "flow", range: [1, 100000], hint: "Animal Health segment sales in the quarter, in millions of USD" },
+    ],
+    charts: [
+      { id: "keytruda", en: "Keytruda", es: "Keytruda", type: "bar", keys: ["keytruda"] },
+      { id: "vax", en: "Vaccines (Gardasil / Capvaxive)", es: "Vacunas (Gardasil / Capvaxive)", type: "stack", keys: ["gardasil", "capvaxive"] },
+      { id: "new", en: "Growth products", es: "Productos en crecimiento", type: "line", keys: ["winrevair", "welireg", "bridion", "lynparza"] },
+      { id: "ah", en: "Animal Health", es: "Salud animal", type: "bar", keys: ["animal_health"] },
+    ],
+  },
+  ABBV: {
+    from: "2023-01-01",
+    minChars: 20000, // avisos de cargos de I+D adquirida (Item 2.02 cortos)
+    kpis: [
+      { key: "humira", en: "Humira", es: "Humira", unit: "$M", kind: "flow", range: [1, 100000], hint: "Humira worldwide revenue in the quarter, in millions of USD" },
+      { key: "skyrizi", en: "Skyrizi", es: "Skyrizi", unit: "$M", kind: "flow", range: [1, 100000], hint: "Skyrizi worldwide revenue in the quarter, in millions of USD" },
+      { key: "rinvoq", en: "Rinvoq", es: "Rinvoq", unit: "$M", kind: "flow", range: [1, 100000], hint: "Rinvoq worldwide revenue in the quarter, in millions of USD" },
+      { key: "botox_t", en: "Botox Therapeutic", es: "Botox Therapeutic", unit: "$M", kind: "flow", range: [1, 100000], hint: "Botox Therapeutic worldwide revenue in the quarter, in millions of USD" },
+      { key: "botox_c", en: "Botox Cosmetic", es: "Botox Cosmetic", unit: "$M", kind: "flow", range: [1, 100000], hint: "Botox Cosmetic worldwide revenue in the quarter, in millions of USD" },
+      { key: "vraylar", en: "Vraylar", es: "Vraylar", unit: "$M", kind: "flow", range: [1, 100000], hint: "Vraylar worldwide revenue in the quarter, in millions of USD" },
+      { key: "imbruvica", en: "Imbruvica", es: "Imbruvica", unit: "$M", kind: "flow", range: [1, 100000], hint: "Imbruvica total revenue (net revenues plus collaboration share) in the quarter, in millions of USD" },
+      { key: "venclexta", en: "Venclexta", es: "Venclexta", unit: "$M", kind: "flow", range: [1, 100000], hint: "Venclexta worldwide revenue in the quarter, in millions of USD" },
+      { key: "ubrelvy", en: "Ubrelvy", es: "Ubrelvy", unit: "$M", kind: "flow", range: [1, 100000], hint: "Ubrelvy worldwide revenue in the quarter, in millions of USD" },
+      { key: "qulipta", en: "Qulipta", es: "Qulipta", unit: "$M", kind: "flow", range: [1, 100000], hint: "Qulipta worldwide revenue in the quarter, in millions of USD" },
+    ],
+    charts: [
+      { id: "immu", en: "Immunology (Humira / Skyrizi / Rinvoq)", es: "Inmunología (Humira / Skyrizi / Rinvoq)", type: "stack", keys: ["humira", "skyrizi", "rinvoq"] },
+      { id: "neuro", en: "Neuroscience", es: "Neurociencia", type: "line", keys: ["botox_t", "vraylar", "ubrelvy", "qulipta"] },
+      { id: "onco", en: "Oncology", es: "Oncología", type: "line", keys: ["imbruvica", "venclexta"] },
+      { id: "aes", en: "Botox Cosmetic", es: "Botox Cosmetic", type: "bar", keys: ["botox_c"] },
+    ],
+  },
   NFLX: {
     from: "2020-01-01",
     until: "2025-02-28",
