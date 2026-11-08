@@ -46,8 +46,10 @@ export async function syncSegments(db: D1Database, ticker: string, ua?: string, 
   const row = await db.prepare("SELECT * FROM sec_segments WHERE ticker = ?").bind(t).first<SegRow>();
   let facts = parse<SegFact[]>(row?.facts ?? null, []);
   let labels = parse<Record<string, string>>(row?.labels ?? null, {});
-  // Los guardados antes de leer el total de cada informe (`labels.__totals`) se vuelven a leer una vez
+  // Los guardados antes de leer el total de cada informe se vuelven a leer una vez: `labels.__totals`
+  // vale "0" mientras dura la relectura (puede repartirse entre ejecuciones) y "1" al terminarla
   const done = new Set(labels.__totals ? parse<string[]>(row?.accns ?? null, []) : []);
+  if (!labels.__totals) labels.__totals = "0";
 
   try {
     const prevCiks = PREV_CIKS.get(t) ?? [];
