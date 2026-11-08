@@ -396,6 +396,54 @@ export const KPI_DEFS: Record<string, CompanyKpis> = {
       { id: "oh", en: "Optum Health consumers served", es: "Consumidores de Optum Health", type: "bar", keys: ["optum_health_consumers"] },
     ],
   },
+  AVGO: {
+    from: "2023-01-01",
+    kpis: [
+      { key: "ai_semis", en: "AI semiconductor revenue", es: "Ingresos de semiconductores para IA", unit: "$M", kind: "flow", range: [500, 1000000], hint: "AI semiconductor revenue in the quarter, in millions of USD (only if stated, e.g. '$16.7 billion' -> 16700)" },
+      { key: "fcf", en: "Free cash flow", es: "Flujo de caja libre", unit: "$M", kind: "flow", range: [-50000, 500000], hint: "Free cash flow in the quarter, in millions of USD" },
+      { key: "guidance_next", en: "Revenue outlook for next quarter", es: "Previsión de ingresos del trimestre siguiente", unit: "$M", kind: "flow", range: [1000, 2000000], hint: "Revenue guidance for the NEXT quarter given in this release (midpoint if a range), in millions of USD; attach it to the quarter being reported; omit if only full-year guidance is given" },
+    ],
+    charts: [
+      { id: "ai", en: "AI semiconductor revenue", es: "Semiconductores para IA", type: "bar", keys: ["ai_semis"] },
+      { id: "guide", en: "Revenue vs. prior-quarter outlook", es: "Ingresos frente a la previsión del trimestre anterior", type: "bar", keys: ["revenue", "guidance_next"], derived: "guidance" },
+      { id: "fcf", en: "Free cash flow", es: "Flujo de caja libre", type: "bar", keys: ["fcf"] },
+    ],
+  },
+  ORCL: {
+    from: "2023-01-01",
+    kpis: [
+      { key: "rpo", en: "Remaining performance obligations", es: "Cartera contratada (RPO)", unit: "$M", kind: "stock", range: [20000, 5000000], hint: "Remaining performance obligations (RPO) at quarter end, in millions of USD (e.g. $664 billion -> 664000)" },
+      { key: "cloud_rev", en: "Total cloud revenue", es: "Ingresos cloud totales", unit: "$M", kind: "flow", range: [1000, 500000], hint: "Total cloud revenue (IaaS plus SaaS) in the quarter, in millions of USD" },
+      { key: "oci_rev", en: "Cloud infrastructure (OCI) revenue", es: "Infraestructura cloud (OCI)", unit: "$M", kind: "flow", range: [300, 400000], hint: "Cloud infrastructure (IaaS / OCI) revenue in the quarter, in millions of USD (only if stated)" },
+      { key: "oci_growth", en: "Cloud infrastructure growth", es: "Crecimiento de OCI", unit: "%", kind: "avg", range: [-50, 500], hint: "Cloud infrastructure (IaaS / OCI) revenue year-over-year growth in USD, in %" },
+      { key: "fcf", en: "Free cash flow", es: "Flujo de caja libre", unit: "$M", kind: "flow", range: [-100000, 100000], hint: "Free cash flow for the quarter (not trailing four quarters), in millions of USD (negative if outflow); omit if only a trailing figure is given" },
+    ],
+    charts: [
+      { id: "rpo", en: "Remaining performance obligations", es: "Cartera contratada (RPO)", type: "bar", keys: ["rpo"] },
+      { id: "cloud", en: "Total cloud vs. infrastructure (OCI) revenue", es: "Cloud total frente a infraestructura (OCI)", type: "line", keys: ["cloud_rev", "oci_rev"] },
+      { id: "oci", en: "Cloud infrastructure growth", es: "Crecimiento de la infraestructura cloud", type: "line", keys: ["oci_growth"] },
+      { id: "fcf", en: "Free cash flow", es: "Flujo de caja libre", type: "bar", keys: ["fcf"] },
+    ],
+  },
+  CRM: {
+    from: "2023-01-01",
+    kpis: [
+      { key: "crpo", en: "Current remaining performance obligation", es: "Cartera contratada a 12 meses (cRPO)", unit: "$M", kind: "stock", range: [5000, 500000], hint: "Current remaining performance obligation (cRPO) at quarter end, in millions of USD" },
+      { key: "rpo", en: "Remaining performance obligation", es: "Cartera contratada total (RPO)", unit: "$M", kind: "stock", range: [10000, 1000000], hint: "Total remaining performance obligation (RPO) at quarter end, in millions of USD" },
+      { key: "subscription", en: "Subscription and support revenue", es: "Ingresos por suscripción y soporte", unit: "$M", kind: "flow", range: [3000, 300000], hint: "Subscription and support revenue in the quarter, in millions of USD" },
+      { key: "ai_data_arr", en: "Agentforce + Data ARR", es: "ARR de Agentforce + Data", unit: "$M", kind: "stock", range: [10, 200000], hint: "Agentforce and Data Cloud / Data 360 annual recurring revenue (ARR) at quarter end, in millions of USD (only if stated)" },
+      { key: "agentforce_arr", en: "Agentforce ARR", es: "ARR de Agentforce", unit: "$M", kind: "stock", range: [1, 200000], hint: "Agentforce annual recurring revenue (ARR) at quarter end, in millions of USD (only if stated)" },
+      { key: "fcf", en: "Free cash flow", es: "Flujo de caja libre", unit: "$M", kind: "flow", range: [-20000, 100000], hint: "Free cash flow in the quarter, in millions of USD" },
+      { key: "guidance_next", en: "Revenue outlook for next quarter", es: "Previsión de ingresos del trimestre siguiente", unit: "$M", kind: "flow", range: [1000, 2000000], hint: "Revenue guidance for the NEXT quarter given in this release (midpoint if a range), in millions of USD; attach it to the quarter being reported; omit if only full-year guidance is given" },
+    ],
+    charts: [
+      { id: "rpo", en: "Remaining performance obligation (current / total)", es: "Cartera contratada (12 meses / total)", type: "line", keys: ["crpo", "rpo"] },
+      { id: "arr", en: "Agentforce and Data ARR", es: "ARR de Agentforce y Data", type: "bar", keys: ["ai_data_arr", "agentforce_arr"] },
+      { id: "sub", en: "Subscription and support revenue", es: "Suscripción y soporte", type: "bar", keys: ["subscription"] },
+      { id: "guide", en: "Revenue vs. prior-quarter outlook", es: "Ingresos frente a la previsión del trimestre anterior", type: "bar", keys: ["revenue", "guidance_next"], derived: "guidance" },
+      { id: "fcf", en: "Free cash flow", es: "Flujo de caja libre", type: "bar", keys: ["fcf"] },
+    ],
+  },
   NFLX: {
     from: "2020-01-01",
     until: "2025-02-28",
