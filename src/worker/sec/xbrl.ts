@@ -12,7 +12,8 @@ interface Ctx {
 
 const attr = (s: string, name: string) => s.match(new RegExp(`\\b${name}="([^"]*)"`))?.[1];
 
-export function parseXbrlInstance(xml: string, meta: { accn: string; form: string; filed: string }): CompanyFacts["facts"] {
+/** Contextos sin dimensiones y unidades (USD, USD/shares, shares) de una instancia XBRL. */
+function contextsAndUnits(xml: string): { ctx: Map<string, Ctx>; units: Map<string, string> } {
   // Contextos sin dimensiones
   const ctx = new Map<string, Ctx>();
   const ctxRe = /<(?:[\w-]+:)?context\b([^>]*)>([\s\S]*?)<\/(?:[\w-]+:)?context>/g;
@@ -36,6 +37,11 @@ export function parseXbrlInstance(xml: string, meta: { accn: string; form: strin
     if (/divide/.test(m[2]) && measures.length === 2) units.set(id, `${measures[0]}/${measures[1]}`);
     else if (measures.length === 1) units.set(id, measures[0]);
   }
+  return { ctx, units };
+}
+
+export function parseXbrlInstance(xml: string, meta: { accn: string; form: string; filed: string }): CompanyFacts["facts"] {
+  const { ctx, units } = contextsAndUnits(xml);
   // Cifras us-gaap
   const facts: CompanyFacts["facts"] = { "us-gaap": {} };
   const gaap = facts["us-gaap"];
@@ -54,4 +60,29 @@ export function parseXbrlInstance(xml: string, meta: { accn: string; form: strin
     if (!list.some((x) => x.start === f.start && x.end === f.end)) list.push(f);
   }
   return facts;
+}
+
+// Prefijos estándar: lo demás es una etiqueta propia de la empresa (nvda:, cop:…)
+const STD_PREFIX = new Set(["us-gaap", "dei", "srt", "xbrli", "xbrldi", "link", "xlink", "ix", "iso4217", "country", "ecd", "cyd", "stpr", "naics", "sic", "exch", "currency", "invest", "utr", "xsi", "xs"]);
+
+/**
+ * Cifras en dólares, sin dimensiones y con duración, de las etiquetas propias de la empresa cuyo
+ * nombre cumple `test`. Devuelve las cifras por etiqueta.
+ */
+export function parseExtensionFacts(xml: string, meta: { accn: string; form: string; filed: string }, test: (tag: string) => boolean): Map<string, SecFact[]> {
+  const { ctx, units } = contextsAndUnits(xml);
+  const out = new Map<string, SecFact[]>();
+  const factRe = /<([A-Za-z][\w-]*):(\w+)\b([^>]*?)(?:\/>|>([^<]*)<\/\1:\2>)/g;
+  for (const m of xml.matchAll(factRe)) {
+    const [, prefix, tag, attrs, raw] = m;
+    if (raw === undefined || STD_PREFIX.has(prefix) || !test(tag) || /xsi:nil="true"/.test(attrs)) continue;
+    const c = ctx.get(attr(attrs, "contextRef") ?? "");
+    if (!c?.start || units.get(attr(attrs, "unitRef") ?? "") !== "USD") continue;
+    const val = Number(raw.trim());
+    if (!Number.isFinite(val)) continue;
+    const list = out.get(tag) ?? [];
+    if (!list.some((x) => x.start === c.start && x.end === c.end)) list.push({ start: c.start, end: c.end, val, accn: meta.accn, form: meta.form, filed: meta.filed });
+    out.set(tag, list);
+  }
+  return out;
 }

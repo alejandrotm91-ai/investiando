@@ -11,6 +11,7 @@
 import { secFetch, cik10, fetchBudgetLeft, BudgetExhausted } from "./client";
 import { mergeCompanyFacts, normalizeCompanyFacts, type CompanyFacts, type SecPeriod } from "./normalize";
 import { parseXbrlInstance } from "./xbrl";
+import { fillExtensionCapex } from "./capex";
 import { SEC_UNIVERSE } from "./universe";
 
 export interface SecFinancials {
@@ -214,7 +215,13 @@ export async function syncCompany(db: D1Database, ticker: string, ua?: string): 
     }
 
     const merged = mergeCompanyFacts(all);
-    const { annual, quarterly } = normalizeCompanyFacts(merged);
+    let { annual, quarterly } = normalizeCompanyFacts(merged);
+    // Capex con etiqueta propia de la empresa en los periodos sin él (capex.ts)
+    const withCapex = await fillExtensionCapex(db, t, merged, { annual, quarterly }, (f) => fetchFilingText(id.cik, f, "instance", ua)).catch((e) => {
+      if (isBudgetError(e)) throw e;
+      return null;
+    });
+    if (withCapex) ({ annual, quarterly } = withCapex);
     if (annual.length === 0 && quarterly.length === 0) throw new Error(`${t}: sin 10-K/10-Q normalizables`);
     const latest = [...annual, ...quarterly].sort((a, b) => (b.filed || "").localeCompare(a.filed || ""))[0];
     const lastPeriod = [quarterly[0]?.date, annual[0]?.date].filter(Boolean).sort().pop() ?? null;
