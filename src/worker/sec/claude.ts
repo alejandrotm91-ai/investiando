@@ -4,6 +4,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import { fetchBudgetLeft, useFetchBudget } from "./client";
 
 export const SEC_MODEL = "claude-opus-5-5";
+// KPIs de los comunicados (capa 5): leer cifras de tablas es sencillo y la validación con los ingresos
+// de la SEC descarta errores; Sonnet cuesta varias veces menos
+export const KPI_MODEL = "claude-sonnet-5-5";
 
 export interface ClaudeEnv { ANTHROPIC_API_KEY?: string; ANTHROPIC_WORKSPACE_ID?: string; CLAUDE_PROXY?: Fetcher }
 
@@ -18,7 +21,7 @@ export function claudeFetch(proxy?: Fetcher): typeof fetch | undefined {
 
 export async function askClaudeJson<T>(
   env: ClaudeEnv,
-  opts: { system: string; user: string; schema: object; maxTokens: number; effort: "low" | "medium" | "high" }
+  opts: { system: string; user: string; schema: object; maxTokens: number; effort: "low" | "medium" | "high"; model?: string }
 ): Promise<{ data: T; usage: { input: number; output: number } }> {
   const apiKey = env.ANTHROPIC_API_KEY?.trim();
   if (!apiKey) throw new Error("Falta ANTHROPIC_API_KEY");
@@ -33,7 +36,7 @@ export async function askClaudeJson<T>(
     ...(workspaceId ? { defaultHeaders: { "anthropic-workspace-id": workspaceId } } : {}),
   });
   const msg = await client.beta.messages.create({
-    model: SEC_MODEL,
+    model: opts.model ?? SEC_MODEL,
     max_tokens: opts.maxTokens,
     system: opts.system,
     output_config: { effort: opts.effort, format: { type: "json_schema", schema: opts.schema } },

@@ -12,7 +12,7 @@
 // - Al leer: por trimestre y KPI manda el comunicado más reciente; "confirmado" si dos coinciden.
 
 import { cik10, fetchBudgetLeft, secFetch } from "./client";
-import { askClaudeJson, SEC_MODEL, type ClaudeEnv } from "./claude";
+import { askClaudeJson, KPI_MODEL, type ClaudeEnv } from "./claude";
 import { fetchPressRelease } from "./earnings";
 import { getSecFinancials, isBudgetError, normTicker } from "./sync";
 import { SEC_UNIVERSE } from "./universe";
@@ -819,12 +819,13 @@ export async function processKpiRelease(db: D1Database, env: ClaudeEnv & { SEC_U
       schema: schemaFor(def.kpis),
       maxTokens: 6000,
       effort: "low",
+      model: KPI_MODEL,
     });
     const fin = await getSecFinancials(db, row.ticker, { syncIfMissing: false });
     const v = validateKpis(r.data, def.kpis, fin?.quarterly ?? [], def.anchor);
     await set({
       status: v.ok ? "done" : "rejected",
-      data: JSON.stringify({ quarters: v.quarters, model: SEC_MODEL }),
+      data: JSON.stringify({ quarters: v.quarters, model: KPI_MODEL }),
       checks: JSON.stringify(v.checks),
       doc_url: pr.url,
       usage: JSON.stringify({ ...r.usage, chars: Math.min(pr.text.length, MAX_TEXT) }),
