@@ -42,6 +42,7 @@ const PALETTE = {
 const OTHER_COLOR = { light: "#8f8b82", dark: "#6b6a63" };
 const MAX_SERIES = 7;
 const OTHER = "__other__";
+const POS = "__pos__"; // barra transparente con la altura de la pila positiva (ancla del crecimiento)
 
 const fmtMoney = (v: number | undefined | null) => {
   if (v === undefined || v === null || !Number.isFinite(v)) return "—";
@@ -60,9 +61,10 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [axis, setAxis] = useState<AxisKey>("segment");
   const [kind, setKind] = useState<"Q" | "FY">("Q");
-  // Líneas ocultas en las barras (clic en la leyenda). Se reinicia al cambiar de empresa o de eje.
-  const [hidden, setHidden] = useState<Set<string>>(new Set());
-  useEffect(() => setHidden(new Set()), [ticker, axis]);
+  // Líneas seleccionadas en la leyenda: las barras muestran solo esas (vacío = todas).
+  // Se reinicia al cambiar de empresa o de eje.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  useEffect(() => setSelected(new Set()), [ticker, axis]);
 
   useEffect(() => {
     let alive = true;
@@ -116,7 +118,8 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
     const label = (p: SegPeriod) =>
       p.kind === "Q" ? `${isES ? "T" : "Q"}${p.fiscalQuarter} FY${String(p.fiscalYear).slice(2)}` : `FY${p.fiscalYear}`;
     // Crecimiento de lo visible: trimestral frente al trimestre anterior (QoQ), anual frente al año anterior (YoY)
-    const visible = series.filter((s) => !hidden.has(s.id));
+    const visible = selected.size ? series.filter((s) => selected.has(s.id)) : series;
+    const isVisible = (id: string) => !selected.size || selected.has(id);
     const all = axisData.periods.filter((p) => p.kind === activeKind).sort((a, b) => a.date.localeCompare(b.date));
     const previousOf = (p: SegPeriod) =>
       all.find((q) =>
@@ -137,13 +140,13 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
     };
     const rows = periods.map((p) => {
       const row: Record<string, any> = { name: `${label(p)}${p.recast ? " †" : ""}`, date: p.date, total: p.total, matched: p.matched, recast: !!p.recast };
-      for (const s of series) row[s.id] = hidden.has(s.id) ? undefined : valueOf(p, s.id, "revenue");
+      for (const s of series) row[s.id] = isVisible(s.id) ? valueOf(p, s.id, "revenue") : undefined;
       const prev = previousOf(p);
       const cur = visibleSum(p), before = prev ? visibleSum(prev) : null;
       row.visibleSum = cur;
       row.growth = cur !== null && before !== null && before > 0 && cur >= 0 ? cur / before - 1 : null;
-      // Línea más alta de la parte positiva de la pila: sobre ella va la etiqueta de crecimiento
-      row.topId = [...visible].reverse().find((s) => (row[s.id] ?? 0) > 0)?.id ?? null;
+      // Altura de la parte positiva de la pila: ahí va la etiqueta de crecimiento
+      row[POS] = visible.reduce((a, s) => a + Math.max(0, row[s.id] ?? 0), 0);
       return row;
     });
     // Mismo periodo del año anterior (para el crecimiento de la tabla)
@@ -169,14 +172,15 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
     const hasOI = table.some((r) => r.oi !== undefined);
     const anyRecast = periods.some((p) => p.recast) || !!prior?.recast;
     return { periods, latest, prior, series, visible, rows, table, gap, hasOI, label, anyRecast };
-  }, [axisData, activeKind, theme, isES, hidden]);
+  }, [axisData, activeKind, theme, isES, selected]);
 
   const toggleSeries = (id: string) =>
-    setHidden((h) => {
-      const next = new Set(h);
+    setSelected((cur) => {
+      const next = new Set(cur);
       if (next.has(id)) next.delete(id);
-      else if (view && view.series.length - next.size > 1) next.add(id); // siempre queda al menos una
-      return next;
+      else next.add(id);
+      // Todas seleccionadas = sin filtro
+      return view && next.size === view.series.length ? new Set() : next;
     });
   const growthName = activeKind === "Q" ? "QoQ" : "YoY";
 
@@ -212,11 +216,10 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
   // Muchas barras o pantalla estrecha: etiquetas sin decimales para que no se pisen
   const narrow = view.rows.length > 8 || (typeof window !== "undefined" && window.innerWidth < 640);
   // Recharts 3: la posición de la barra llega en viewBox
-  const growthLabel = (id: string) => ({ viewBox, index }: any) => {
+  const GrowthLabel = ({ viewBox, index }: any) => {
     const { x, y, width } = viewBox ?? {};
-    const row = view.rows[index];
-    const g = row?.growth;
-    if (row?.topId !== id || g === null || g === undefined || x === undefined || y === undefined) return null;
+    const g = view.rows[index]?.growth;
+    if (g === null || g === undefined || x === undefined || y === undefined) return null;
     return (
       <text x={x + width / 2} y={y - 6} textAnchor="middle" fontSize={narrow ? 9.5 : 10.5} fontWeight={700} fill={growthColor(g)} style={{ fontVariantNumeric: "tabular-nums" }}>
         {fmtPct(g, Math.abs(g) >= 0.995 || narrow ? 0 : 1)}
@@ -227,7 +230,7 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
   const TooltipBox = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null;
     const row = payload[0].payload;
-    const items = [...payload].filter((p: any) => p.value !== undefined && p.value !== null).reverse();
+    const items = [...payload].filter((p: any) => p.dataKey !== POS && p.value !== undefined && p.value !== null).reverse();
     return (
       <div className="bg-theme-sidebar border border-theme-border rounded-xl px-3 py-2 shadow-xl text-xs min-w-[190px]">
         <div className="font-bold text-theme-text-bright mb-1.5">{label}</div>
@@ -245,7 +248,7 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
             {isES ? "† Rehecho con la estructura actual (8-K)" : "† Recast to the current structure (8-K)"}
           </div>
         )}
-        {hidden.size > 0 && row.visibleSum !== null && (
+        {selected.size > 0 && row.visibleSum !== null && (
           <div className="flex justify-between gap-3 pt-1.5 mt-1 border-t border-theme-border text-theme-text-bright">
             <span>{isES ? "Suma de lo seleccionado" : "Selected total"}</span>
             <span className="font-mono">{fmtMoney(row.visibleSum)}</span>
@@ -307,31 +310,40 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
         </div>
       </div>
 
-      {/* Leyenda: cada línea se muestra u oculta en las barras (identidad nunca solo por color: la tabla repite los nombres) */}
+      {/* Leyenda = filtro: al seleccionar líneas, las barras muestran solo esas (la tabla repite los nombres) */}
       <div className="flex flex-wrap items-center gap-1.5">
         {view.series.map((s) => {
-          const off = hidden.has(s.id);
+          const on = selected.has(s.id);
+          const dim = selected.size > 0 && !on;
           return (
             <button
               key={s.id}
               type="button"
               onClick={() => toggleSeries(s.id)}
-              aria-pressed={!off}
-              title={off ? (isES ? "Mostrar en las barras" : "Show in the bars") : isES ? "Ocultar de las barras" : "Hide from the bars"}
-              className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[11px] cursor-pointer transition-all ${off ? "border-theme-border text-theme-text-muted opacity-50 line-through" : "border-theme-border bg-theme-input text-theme-text-bright"}`}
+              aria-pressed={on}
+              title={on ? (isES ? "Quitar del filtro" : "Remove from the filter") : isES ? "Ver solo lo seleccionado" : "Show only the selection"}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[11px] cursor-pointer transition-all ${
+                on
+                  ? "border-emerald-500 bg-theme-input text-theme-text-bright font-semibold"
+                  : dim
+                    ? "border-theme-border text-theme-text-muted opacity-60 hover:opacity-100"
+                    : "border-theme-border bg-theme-input text-theme-text-bright hover:border-emerald-500/60"
+              }`}
             >
-              <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: off ? "transparent" : s.color, boxShadow: `inset 0 0 0 1.5px ${s.color}` }} />
+              <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: s.color }} />
               {s.label}
             </button>
           );
         })}
-        {hidden.size > 0 && (
-          <button type="button" onClick={() => setHidden(new Set())} className="flex items-center gap-1 px-2 py-1 text-[11px] text-theme-text-muted hover:text-theme-text-bright cursor-pointer">
+        {selected.size > 0 && (
+          <button type="button" onClick={() => setSelected(new Set())} className="flex items-center gap-1 px-2 py-1 text-[11px] text-theme-text-muted hover:text-theme-text-bright cursor-pointer">
             <RotateCcw size={11} /> {isES ? "Ver todo" : "Show all"}
           </button>
         )}
         <span className="ml-auto text-[10px] text-theme-text-muted">
-          {isES ? `Sobre cada barra: crecimiento ${growthName} de lo seleccionado` : `Above each bar: ${growthName} growth of the selection`}
+          {isES
+            ? `Clic para filtrar · sobre cada barra: crecimiento ${growthName}`
+            : `Click to filter · above each bar: ${growthName} growth`}
         </span>
       </div>
 
@@ -343,7 +355,9 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
             <YAxis tickFormatter={(v) => fmtMoney(v)} tick={{ fill: axisColor, fontSize: 11 }} axisLine={false} tickLine={false} width={62} />
             <ReferenceLine y={0} stroke={axisColor} strokeOpacity={0.5} />
             <Tooltip content={<TooltipBox />} cursor={{ fill: theme === "light" ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.04)" }} />
-            {view.visible.map((s, i) => (
+            {/* Todas las barras siempre montadas (las no seleccionadas sin datos): Recharts apila en orden
+                de alta, y volver a montar una la pondría arriba del todo */}
+            {view.series.map((s) => (
               <Bar
                 key={s.id}
                 dataKey={s.id}
@@ -351,12 +365,16 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
                 fill={s.color}
                 stroke={theme === "light" ? "#ffffff" : "#0f111a"}
                 strokeWidth={1}
-                radius={i === view.visible.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                radius={s.id === view.visible[view.visible.length - 1]?.id ? [4, 4, 0, 0] : [0, 0, 0, 0]}
                 isAnimationActive={false}
-              >
-                <LabelList dataKey={s.id} content={growthLabel(s.id)} />
-              </Bar>
+              />
             ))}
+            {/* Etiquetas de crecimiento: barra transparente con la altura de la pila positiva, en un eje X
+                propio (oculto) para que no ocupe sitio junto a las de verdad ni dependa del orden de apilado */}
+            <XAxis xAxisId="growth" dataKey="name" hide />
+            <Bar xAxisId="growth" dataKey={POS} fill="transparent" isAnimationActive={false} legendType="none" activeBar={false}>
+              <LabelList dataKey={POS} content={<GrowthLabel />} />
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>
