@@ -60,7 +60,7 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [axis, setAxis] = useState<AxisKey>("segment");
-  const [kind, setKind] = useState<"Q" | "FY">("Q");
+  const [kind, setKind] = useState<"Q" | "FY">("FY");
   // Líneas seleccionadas en la leyenda: las barras muestran solo esas (vacío = todas).
   // Se reinicia al cambiar de empresa o de eje.
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -92,7 +92,9 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
 
   const axisData = data?.axes[axis];
   const hasQuarterly = !!axisData?.periods.some((p) => p.kind === "Q");
-  const activeKind: "Q" | "FY" = kind === "Q" && !hasQuarterly ? "FY" : kind;
+  const hasAnnual = !!axisData?.periods.some((p) => p.kind === "FY");
+  // Anual por defecto; si el eje no tiene ejercicios completos, trimestral (y al revés)
+  const activeKind: "Q" | "FY" = kind === "Q" && !hasQuarterly ? "FY" : kind === "FY" && !hasAnnual && hasQuarterly ? "Q" : kind;
 
   const view = useMemo(() => {
     if (!axisData) return null;
@@ -315,7 +317,7 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
             {(["Q", "FY"] as const).map((k) => (
               <button
                 key={k}
-                disabled={k === "Q" && !hasQuarterly}
+                disabled={k === "Q" ? !hasQuarterly : !hasAnnual}
                 onClick={() => setKind(k)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${activeKind === k ? "bg-theme-border text-theme-text-bright" : "text-theme-text-muted hover:text-theme-text-bright"}`}
               >
@@ -396,8 +398,8 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
       </div>
 
       {/* Bajo el eje X: cada línea visible con su crecimiento anual compuesto (CAGR) en lo que muestra el gráfico */}
-      <div className="flex flex-wrap gap-x-6 gap-y-2 sm:pl-[60px] -mt-1">
-        <span className="w-full text-[10px] uppercase tracking-wider text-theme-text-muted font-bold">
+      <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 -mt-1">
+        <span className="w-full text-center text-[10px] uppercase tracking-wider text-theme-text-muted font-bold">
           {isES ? "Crecimiento anual compuesto (CAGR)" : "Compound annual growth (CAGR)"}{view.cagrRange ? ` · ${view.cagrRange}` : ""}
         </span>
         {view.cagr.filter((c) => c.points > 0).map((c) => (
