@@ -48,6 +48,7 @@ export interface CompanyKpis {
   until?: string; // y hasta esta (Netflix dejó de publicar suscriptores en 2025)
   minChars?: number; // comunicados más cortos se saltan sin llamar a Claude (avisos de entregas de Tesla)
   revenueHint?: string; // qué cifra de ingresos usar para validar, si el comunicado trae varias (ExxonMobil)
+  anchor?: "revenue" | "net_income"; // cifra para validar (Berkshire no da ingresos: beneficio neto)
   note?: { en: string; es: string };
 }
 
@@ -341,6 +342,60 @@ export const KPI_DEFS: Record<string, CompanyKpis> = {
       { id: "earn", en: "Earnings excluding identified items", es: "Beneficio sin partidas identificadas", type: "bar", keys: ["earnings_ex"] },
     ],
   },
+  // Berkshire: el comunicado solo trae beneficios (sin ingresos); se valida con el beneficio neto
+  "BRK-B": {
+    from: "2023-01-01",
+    anchor: "net_income",
+    kpis: [
+      { key: "operating_earnings", en: "Operating earnings", es: "Beneficio operativo", unit: "$M", kind: "flow", range: [-10000, 60000], hint: "Operating earnings (after tax, excluding investment gains/losses) in the quarter, in millions of USD" },
+      { key: "underwriting", en: "Insurance underwriting", es: "Suscripción de seguros", unit: "$M", kind: "flow", range: [-20000, 20000], hint: "Insurance-underwriting earnings (after tax) in the quarter, in millions of USD (negative if loss)" },
+      { key: "insurance_investment", en: "Insurance investment income", es: "Inversiones de seguros", unit: "$M", kind: "flow", range: [0, 30000], hint: "Insurance-investment income earnings (after tax) in the quarter, in millions of USD" },
+      { key: "bnsf", en: "BNSF", es: "BNSF", unit: "$M", kind: "flow", range: [-2000, 10000], hint: "BNSF earnings (after tax) in the quarter, in millions of USD" },
+      { key: "bhe", en: "Berkshire Hathaway Energy", es: "Berkshire Hathaway Energy", unit: "$M", kind: "flow", range: [-5000, 10000], hint: "Berkshire Hathaway Energy earnings (after tax) in the quarter, in millions of USD" },
+      { key: "other_businesses", en: "Manufacturing, service, retailing and other", es: "Industria, servicios, comercio y otros", unit: "$M", kind: "flow", range: [-10000, 20000], hint: "Sum of all remaining operating earnings lines (manufacturing, service and retailing, plus other/corporate) in the quarter, in millions of USD, so that underwriting + investment income + BNSF + BHE + this = operating earnings" },
+      { key: "investment_gains", en: "Investment gains (losses)", es: "Plusvalías de inversiones", unit: "$M", kind: "flow", range: [-100000, 100000], hint: "Investment gains (losses), after tax, in the quarter, in millions of USD" },
+    ],
+    charts: [
+      { id: "op", en: "Operating earnings by business", es: "Beneficio operativo por negocio", type: "stack", keys: ["underwriting", "insurance_investment", "bnsf", "bhe", "other_businesses"] },
+      { id: "gains", en: "Investment gains (losses)", es: "Plusvalías (minusvalías) de inversiones", type: "bar", keys: ["investment_gains"] },
+    ],
+  },
+  LLY: {
+    from: "2023-01-01",
+    kpis: [
+      { key: "mounjaro", en: "Mounjaro", es: "Mounjaro", unit: "$M", kind: "flow", range: [10, 200000], hint: "Mounjaro worldwide revenue in the quarter, in millions of USD" },
+      { key: "zepbound", en: "Zepbound", es: "Zepbound", unit: "$M", kind: "flow", range: [10, 200000], hint: "Zepbound worldwide revenue in the quarter, in millions of USD" },
+      { key: "verzenio", en: "Verzenio", es: "Verzenio", unit: "$M", kind: "flow", range: [100, 20000], hint: "Verzenio worldwide revenue in the quarter, in millions of USD" },
+      { key: "trulicity", en: "Trulicity", es: "Trulicity", unit: "$M", kind: "flow", range: [10, 20000], hint: "Trulicity worldwide revenue in the quarter, in millions of USD" },
+      { key: "taltz", en: "Taltz", es: "Taltz", unit: "$M", kind: "flow", range: [50, 10000], hint: "Taltz worldwide revenue in the quarter, in millions of USD" },
+      { key: "kisunla", en: "Kisunla", es: "Kisunla", unit: "$M", kind: "flow", range: [1, 20000], hint: "Kisunla worldwide revenue in the quarter, in millions of USD" },
+      { key: "volume_effect", en: "Volume effect on revenue growth", es: "Efecto volumen en el crecimiento", unit: "%", kind: "avg", range: [-60, 300], hint: "Worldwide revenue change due to volume, year-over-year, in %" },
+      { key: "price_effect", en: "Price effect on revenue growth", es: "Efecto precio en el crecimiento", unit: "%", kind: "avg", range: [-60, 60], hint: "Worldwide revenue change due to realized prices, year-over-year, in % (negative if decrease)" },
+    ],
+    charts: [
+      { id: "tirz", en: "Tirzepatide: Mounjaro + Zepbound", es: "Tirzepatida: Mounjaro + Zepbound", type: "stack", keys: ["mounjaro", "zepbound"] },
+      { id: "others", en: "Other key products", es: "Otros productos clave", type: "line", keys: ["verzenio", "trulicity", "taltz", "kisunla"] },
+      { id: "pv", en: "Revenue growth: volume vs. price", es: "Crecimiento: volumen frente a precio", type: "line", keys: ["volume_effect", "price_effect"] },
+    ],
+  },
+  UNH: {
+    from: "2023-01-01",
+    kpis: [
+      { key: "mcr", en: "Medical care ratio", es: "Ratio de costes médicos", unit: "share", kind: "avg", range: [60, 100], hint: "Medical care ratio (medical costs as a percent of premiums) for the quarter, in % (e.g. 89.4)" },
+      { key: "people_medical", en: "UnitedHealthcare people served (medical)", es: "Personas atendidas UnitedHealthcare (médico)", unit: "M", kind: "stock", range: [20, 100], hint: "Total UnitedHealthcare - Medical people served at quarter end, in millions (table is in thousands: 48,300 -> 48.3)" },
+      { key: "people_commercial", en: "Commercial", es: "Comercial", unit: "M", kind: "stock", range: [10, 60], hint: "Total Commercial people served at quarter end, in millions" },
+      { key: "people_ma", en: "Medicare Advantage", es: "Medicare Advantage", unit: "M", kind: "stock", range: [2, 20], hint: "Medicare Advantage people served at quarter end, in millions" },
+      { key: "people_medicaid", en: "Medicaid", es: "Medicaid", unit: "M", kind: "stock", range: [2, 20], hint: "Medicaid people served at quarter end, in millions" },
+      { key: "optum_health_consumers", en: "Optum Health consumers served", es: "Consumidores de Optum Health", unit: "M", kind: "stock", range: [10, 300], hint: "Optum Health consumers served at quarter end, in millions" },
+      { key: "optum_rx_scripts", en: "Optum Rx adjusted scripts", es: "Recetas ajustadas de Optum Rx", unit: "M", kind: "flow", range: [100, 1500], hint: "Optum Rx quarterly adjusted scripts, in millions" },
+    ],
+    charts: [
+      { id: "mcr", en: "Medical care ratio", es: "Ratio de costes médicos", type: "line", keys: ["mcr"] },
+      { id: "people", en: "People served by plan type", es: "Personas atendidas por tipo de plan", type: "stack", keys: ["people_commercial", "people_ma", "people_medicaid"] },
+      { id: "rx", en: "Optum Rx adjusted scripts", es: "Recetas ajustadas de Optum Rx", type: "bar", keys: ["optum_rx_scripts"] },
+      { id: "oh", en: "Optum Health consumers served", es: "Consumidores de Optum Health", type: "bar", keys: ["optum_health_consumers"] },
+    ],
+  },
   NFLX: {
     from: "2020-01-01",
     until: "2025-02-28",
@@ -374,7 +429,7 @@ const DAY = 86400000;
 
 // ---------------------------------------------------------------- extracción
 
-interface Extract { quarters: { period_end: string; revenue?: number; values: Record<string, number> }[] }
+interface Extract { quarters: { period_end: string; revenue?: number; net_income?: number; values: Record<string, number> }[] }
 
 function schemaFor(defs: KpiDef[]) {
   return {
@@ -391,6 +446,7 @@ function schemaFor(defs: KpiDef[]) {
           properties: {
             period_end: { type: "string", description: "Cierre del trimestre, AAAA-MM-DD (último día del mes)" },
             revenue: { type: "number", description: "Ingresos totales del trimestre, en millones de USD" },
+            net_income: { type: "number", description: "Beneficio neto atribuible a los accionistas del trimestre (GAAP), en millones de USD" },
             values: {
               type: "object",
               additionalProperties: false,
@@ -410,6 +466,7 @@ Reglas:
 - period_end: último día del último mes del trimestre (p. ej. Q4'23 → 2023-12-31; "three months ended September 30, 2026" → 2026-09-30).
 - Respeta la unidad indicada en cada campo: si la tabla está en miles o en miles de millones, conviértelo.
 - revenue: ingresos totales GAAP del trimestre en millones de USD (para comprobar las unidades).
+- net_income: beneficio neto GAAP atribuible a los accionistas del trimestre, en millones de USD, si aparece.
 - Si un KPI no aparece para ese trimestre, omítelo. No calcules ni estimes cifras que no estén en el texto.`;
 
 // ---------------------------------------------------------------- cola y proceso
@@ -472,20 +529,23 @@ function matchQuarter(date: string, quarterly: { date: string }[]): string | nul
 export interface KpiCheck { name: string; ok: boolean; detail: string }
 
 /** Valida lo extraído: ingresos frente a la SEC y rangos plausibles. Devuelve los trimestres limpios. */
-export function validateKpis(x: Extract, defs: KpiDef[], quarterly: { date: string; totalRevenue?: number | null }[]) {
+export function validateKpis(x: Extract, defs: KpiDef[], quarterly: { date: string; totalRevenue?: number | null; netIncome?: number | null }[], anchor: "revenue" | "net_income" = "revenue") {
   const checks: KpiCheck[] = [];
   const out: { date: string; revenue?: number; values: Record<string, number> }[] = [];
   let matched = 0, mismatched = 0;
   for (const q of x.quarters ?? []) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(q.period_end)) continue;
     const date = matchQuarter(q.period_end, quarterly) ?? q.period_end;
-    const sec = quarterly.find((p) => p.date === date)?.totalRevenue;
-    if (typeof q.revenue === "number" && typeof sec === "number" && sec > 0) {
+    const qp = quarterly.find((p) => p.date === date);
+    const sec = anchor === "net_income" ? qp?.netIncome : qp?.totalRevenue;
+    const mine = anchor === "net_income" ? q.net_income : q.revenue;
+    if (typeof mine === "number" && typeof sec === "number" && (anchor === "net_income" ? sec !== 0 : sec > 0)) {
       // Ingresos redondeados en el comunicado (Booking da los trimestres anteriores en miles de millones
       // con un decimal): se admite el medio paso del redondeo
-      const rounding = q.revenue % 100 === 0 ? 50e6 : q.revenue % 10 === 0 ? 5e6 : 0;
-      const ok = Math.abs(q.revenue * 1e6 - sec) <= sec * 0.005 + 1e6 + rounding;
-      checks.push({ name: `ingresos ${date}`, ok, detail: `comunicado ${q.revenue} M; SEC ${(sec / 1e6).toFixed(0)} M${ok ? "" : ": trimestre descartado"}` });
+      const rounding = mine % 100 === 0 ? 50e6 : mine % 10 === 0 ? 5e6 : 0;
+      const ok = Math.abs(mine * 1e6 - sec) <= Math.abs(sec) * 0.005 + 1e6 + rounding;
+      const what = anchor === "net_income" ? "beneficio" : "ingresos";
+      checks.push({ name: `${what} ${date}`, ok, detail: `comunicado ${mine} M; SEC ${(sec / 1e6).toFixed(0)} M${ok ? "" : ": trimestre descartado"}` });
       if (!ok) {
         mismatched++;
         continue;
@@ -506,7 +566,7 @@ export function validateKpis(x: Extract, defs: KpiDef[], quarterly: { date: stri
   }
   // Rechazo: ningún trimestre comprobable, o no cuadra la mayoría
   const ok = matched > 0 && matched > mismatched && out.length > 0;
-  if (matched + mismatched === 0) checks.push({ name: "ingresos", ok: false, detail: "ningún trimestre con ingresos comparables con la SEC" });
+  if (matched + mismatched === 0) checks.push({ name: anchor === "net_income" ? "beneficio" : "ingresos", ok: false, detail: "ningún trimestre comparable con la SEC" });
   return { ok, checks, quarters: out };
 }
 
@@ -540,7 +600,7 @@ export async function processKpiRelease(db: D1Database, env: ClaudeEnv & { SEC_U
       effort: "low",
     });
     const fin = await getSecFinancials(db, row.ticker, { syncIfMissing: false });
-    const v = validateKpis(r.data, def.kpis, fin?.quarterly ?? []);
+    const v = validateKpis(r.data, def.kpis, fin?.quarterly ?? [], def.anchor);
     await set({
       status: v.ok ? "done" : "rejected",
       data: JSON.stringify({ quarters: v.quarters, model: SEC_MODEL }),
@@ -600,7 +660,7 @@ export async function runKpisCron(db: D1Database, env: ClaudeEnv & { SEC_USER_AG
 export interface KpiPoint { date: string; values: Record<string, number>; confirmed: Record<string, boolean> }
 
 // Otras clases de acciones de la misma empresa
-const KPI_ALIASES: Record<string, string> = { GOOG: "GOOGL" };
+const KPI_ALIASES: Record<string, string> = { GOOG: "GOOGL", "BRK-A": "BRK-B" };
 
 export async function getKpis(db: D1Database, ticker: string) {
   const t = KPI_ALIASES[normTicker(ticker)] ?? normTicker(ticker);
