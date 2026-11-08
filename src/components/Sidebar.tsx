@@ -124,6 +124,13 @@ export default function Sidebar({
       onClick: () => handleItemClick("market")
     },
     {
+      id: "stocks",
+      label: t.stocks,
+      icon: Search,
+      isActive: activeTab === "stocks",
+      onClick: () => handleItemClick("stocks")
+    },
+    {
       id: "userPortfolio",
       label: t.yourPortfolio,
       icon: Briefcase,
@@ -142,13 +149,6 @@ export default function Sidebar({
         if (onPortfolioSelect) onPortfolioSelect("superinvestors");
         handleItemClick("portfolios");
       }
-    },
-    {
-      id: "stocks",
-      label: t.stocks,
-      icon: Search,
-      isActive: activeTab === "stocks",
-      onClick: () => handleItemClick("stocks")
     },
     {
       id: "watchlist",

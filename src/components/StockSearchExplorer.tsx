@@ -1158,6 +1158,47 @@ export default function StockSearchExplorer({
         </div>
       ) : stockData ? (
         <>
+          {/* 3. PESTAÑAS (mismo estilo que Your Portfolio: Summary/Holdings/Simulation/Analysis) */}
+          <div className={`pb-2 border-b ${theme === "light" ? "border-[#ded9cb]/80" : "border-slate-900/60"} flex justify-center w-full`}>
+            <div
+              className={`${
+                theme === "light"
+                  ? "bg-[#eae6db]/90 border-[#ded9cb] shadow-sm"
+                  : "bg-[#0b0d13]/90 border-slate-800/80 shadow-xl"
+              } backdrop-blur-md p-1.5 rounded-2xl flex items-center gap-1 border w-fit max-w-full overflow-x-auto scrollbar-none`}
+            >
+              {([
+                { id: "overview", label: language === "EN" ? "Fundamental Overview" : "Resumen Fundamental", icon: Layers },
+                { id: "financials", label: language === "EN" ? "Financial Statements" : "Estados Financieros", icon: FileText },
+                { id: "segments", label: language === "EN" ? "Segments" : "Segmentos", icon: PieChartIcon },
+                { id: "valuation", label: language === "EN" ? "Valuation" : "Valoración", icon: Gauge },
+                { id: "threestatements", label: language === "EN" ? "3-Statement & DCF Model" : "Modelo 3 Estados & DCF", icon: FileSpreadsheet },
+                { id: "bogle", label: language === "EN" ? "Engines of Return" : "Motores de Retorno", icon: BarChart3 },
+              ] as const).map((tab) => {
+                const IconComponent = tab.icon;
+                const isActive = activeSubTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveSubTab(tab.id)}
+                    className={`px-3 xl:px-4 py-2 sm:py-2.5 rounded-xl flex items-center justify-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs font-bold uppercase tracking-wider whitespace-nowrap transition-all duration-300 cursor-pointer shrink-0 border ${
+                      isActive
+                        ? theme === "light"
+                          ? "bg-white text-[#1b1917] border-[#ded9cb] shadow-sm"
+                          : "bg-[#1e2230] text-white border-slate-700/50 shadow-md"
+                        : theme === "light"
+                          ? "bg-transparent text-[#787366] border-transparent hover:bg-black/5 hover:text-[#1b1917]"
+                          : "bg-transparent text-slate-400 border-transparent hover:bg-white/5 hover:text-white"
+                    }`}
+                  >
+                    <IconComponent size={14} className={`shrink-0 transition-colors ${isActive ? (theme === "light" ? "text-emerald-600" : "text-emerald-400") : "opacity-80"}`} />
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* 3. STOCK HEADER BANNER (Price, Info & Watchlist Action) */}
           <div className="bg-theme-card border border-theme-border p-6 rounded-2xl shadow-md">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
@@ -1554,81 +1595,6 @@ export default function StockSearchExplorer({
 
           {/* Avance de resultados del 8-K (capa 3 de la SEC): solo si hay uno pendiente del 10-Q */}
           {stockData && <EarningsPreviewCard ticker={stockData.symbol} language={language} theme={theme} />}
-
-          {/* 5. SUB-TABS NAVIGATION (Overview / Financials / Bogle) */}
-          <div className="flex border-b border-theme-border gap-2 overflow-x-auto pb-1">
-            <button
-              onClick={() => setActiveSubTab("overview")}
-              className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 cursor-pointer transition-all shrink-0 border ${
-                activeSubTab === "overview"
-                  ? "bg-emerald-500 text-slate-950 border-emerald-400 font-extrabold shadow-md"
-                  : "text-theme-text-muted border-transparent hover:text-theme-text-bright hover:bg-theme-card-hover"
-              }`}
-            >
-              <Layers size={14} />
-              <span>{language === "EN" ? "Fundamental Overview" : "Resumen Fundamental"}</span>
-            </button>
-
-            <button
-              onClick={() => setActiveSubTab("financials")}
-              className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 cursor-pointer transition-all shrink-0 border ${
-                activeSubTab === "financials"
-                  ? "bg-emerald-500 text-slate-950 border-emerald-400 font-extrabold shadow-md"
-                  : "text-theme-text-muted border-transparent hover:text-theme-text-bright hover:bg-theme-card-hover"
-              }`}
-            >
-              <FileText size={14} />
-              <span>{language === "EN" ? "Financial Statements" : "Estados Financieros"}</span>
-            </button>
-
-            <button
-              onClick={() => setActiveSubTab("segments")}
-              className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 cursor-pointer transition-all shrink-0 border ${
-                activeSubTab === "segments"
-                  ? "bg-emerald-500 text-slate-950 border-emerald-400 font-extrabold shadow-md"
-                  : "text-theme-text-muted border-transparent hover:text-theme-text-bright hover:bg-theme-card-hover"
-              }`}
-            >
-              <PieChartIcon size={14} />
-              <span>{language === "EN" ? "Segments" : "Segmentos"}</span>
-            </button>
-
-            <button
-              onClick={() => setActiveSubTab("valuation")}
-              className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 cursor-pointer transition-all shrink-0 border ${
-                activeSubTab === "valuation"
-                  ? "bg-emerald-500 text-slate-950 border-emerald-400 font-extrabold shadow-md"
-                  : "text-theme-text-muted border-transparent hover:text-theme-text-bright hover:bg-theme-card-hover"
-              }`}
-            >
-              <Gauge size={14} />
-              <span>{language === "EN" ? "Valuation" : "Valoración"}</span>
-            </button>
-
-            <button
-              onClick={() => setActiveSubTab("threestatements")}
-              className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 cursor-pointer transition-all shrink-0 border ${
-                activeSubTab === "threestatements"
-                  ? "bg-emerald-500 text-slate-950 border-emerald-400 font-extrabold shadow-md"
-                  : "text-theme-text-muted border-transparent hover:text-theme-text-bright hover:bg-theme-card-hover"
-              }`}
-            >
-              <FileSpreadsheet size={14} />
-              <span>{language === "EN" ? "3-Statement & DCF Model" : "Modelo 3 Estados & DCF"}</span>
-            </button>
-
-            <button
-              onClick={() => setActiveSubTab("bogle")}
-              className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 cursor-pointer transition-all shrink-0 border ${
-                activeSubTab === "bogle"
-                  ? "bg-emerald-500 text-slate-950 border-emerald-400 font-extrabold shadow-md"
-                  : "text-theme-text-muted border-transparent hover:text-theme-text-bright hover:bg-theme-card-hover"
-              }`}
-            >
-              <BarChart3 size={14} />
-              <span>{language === "EN" ? "Engines of Return" : "Motores de Retorno"}</span>
-            </button>
-          </div>
 
           {/* 6. TAB CONTENT: OVERVIEW */}
           {activeSubTab === "overview" && (
