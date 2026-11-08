@@ -9,7 +9,7 @@ import { Activity, Info, ExternalLink, Loader2 } from "lucide-react";
 interface KpiMeta { key: string; en: string; es: string; unit: "M" | "$M" | "$" | "%" | "share" | "n" | "GWh" | "d"; kind: "flow" | "stock" | "avg" }
 interface KpiChart {
   id: string; en: string; es: string; type: "bar" | "stack" | "line"; keys: string[];
-  derived?: "per_user_month" | "take_rate" | "margins";
+  derived?: "per_user_month" | "take_rate" | "margins" | "guidance";
   series?: { key: string; en: string; es: string; rev: string; cost: string }[];
 }
 interface KpiPoint { date: string; values: Record<string, number>; confirmed: Record<string, boolean> }
@@ -88,15 +88,21 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
     for (const c of data.charts) for (const x of c.series ?? []) if (x.key === k) return isES ? x.es : x.en;
     return null;
   };
-  const name = (k: string) => seriesName(k) ?? (!meta[k] ? k : /·/.test(meta[k].en) ? (isES ? meta[k].es : meta[k].en).replace(/^.*· /, "") : c0(k));
+  const name = (k: string) => (k === "actual" ? (isES ? "Real" : "Actual") : k === "guided" ? (isES ? "Previsión" : "Outlook") : null) ?? seriesName(k) ?? (!meta[k] ? k : /·/.test(meta[k].en) ? (isES ? meta[k].es : meta[k].en).replace(/^.*· /, "") : c0(k));
   const c0 = (k: string): string => (k === "arm" || k === "memberships" ? "Global" : isES ? meta[k].es : meta[k].en);
 
   // Serie de un gráfico: valores por trimestre (con los calculados)
   const seriesOf = (c: KpiChart) =>
     points
-      .map((p) => {
+      .map((p, i) => {
         const row: Record<string, any> = { name: quarterLabel(p.date), date: p.date, confirmed: p.confirmed };
-        if (c.derived === "per_user_month") {
+        if (c.derived === "guidance") {
+          // Real del trimestre frente a la previsión dada en el trimestre anterior (si es el inmediato)
+          const prev = points[i - 1];
+          const gap = prev ? (new Date(p.date).getTime() - new Date(prev.date).getTime()) / 86400000 : Infinity;
+          if (p.values[c.keys[0]] !== undefined) row.actual = p.values[c.keys[0]];
+          if (prev && gap < 120 && prev.values[c.keys[1]] !== undefined) row.guided = prev.values[c.keys[1]];
+        } else if (c.derived === "per_user_month") {
           const t = p.values.trips, m = p.values.mapcs;
           if (t !== undefined && m) row.value = t / (m * 3);
         } else if (c.derived === "margins") {
@@ -117,9 +123,15 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
         }
         return row;
       })
-      .filter((r) => r.value !== undefined || c.keys.some((k) => r[k] !== undefined) || (c.series ?? []).some((s) => r[s.key] !== undefined));
+      .filter((r) => r.value !== undefined || r.actual !== undefined || c.keys.some((k) => r[k] !== undefined) || (c.series ?? []).some((s) => r[s.key] !== undefined));
 
   const headline = (c: KpiChart, rows: Record<string, any>[]) => {
+    if (c.derived === "guidance") {
+      const last = [...rows].reverse().find((r) => r.actual !== undefined && r.guided !== undefined);
+      if (!last) return null;
+      const beat = last.actual / last.guided - 1;
+      return { label: last.name, value: fmt(last.actual, "$M"), change: { text: `${beat >= 0 ? "+" : ""}${(beat * 100).toFixed(1)}% ${isES ? "vs. previsión" : "vs. outlook"}`, up: beat >= 0 }, noYoY: true };
+    }
     const unit: any = c.derived === "per_user_month" ? "x" : c.derived === "take_rate" || c.derived === "margins" ? "frac" : meta[c.keys[0]]?.unit ?? "M";
     const val = (r: Record<string, any>) => (c.derived ? r.value : c.type === "stack" ? r.total : c.type === "bar" ? r[c.keys[0]] : undefined);
     const last = [...rows].reverse().find((r) => val(r) !== undefined);
@@ -128,7 +140,7 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
     const v = val(last), pv = prevYear ? val(prevYear) : undefined;
     // Comisión y frecuencia: diferencia en puntos/unidades; el resto, crecimiento %
     const change = pv === undefined || v === undefined ? null : c.derived === "take_rate" ? { text: `${((v - pv) * 100).toFixed(1)} pp`, up: v >= pv } : pv > 0 && v >= 0 ? { text: `${v >= pv ? "+" : ""}${((v / pv - 1) * 100).toFixed(1)}%`, up: v >= pv } : null;
-    return { label: last.name, value: fmt(v, unit), change };
+    return { label: last.name, value: fmt(v, unit), change, noYoY: false };
   };
 
   const growthColor = (up: boolean) => (up ? (theme === "light" ? "#15803d" : "#34d399") : theme === "light" ? "#b91c1c" : "#fb7185");
@@ -137,7 +149,7 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
     if (!active || !payload?.length) return null;
     const row = payload[0].payload;
     const c: KpiChart = chart;
-    const unit: any = c.derived === "per_user_month" ? "x" : c.derived === "take_rate" || c.derived === "margins" ? "frac" : null;
+    const unit: any = c.derived === "guidance" ? "$M" : c.derived === "per_user_month" ? "x" : c.derived === "take_rate" || c.derived === "margins" ? "frac" : null;
     const items = [...payload].filter((p: any) => p.value !== undefined && p.value !== null).reverse();
     const allConfirmed = c.keys.every((k) => row.confirmed?.[k] !== false);
     return (
@@ -206,8 +218,8 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
             const rows = seriesOf(c);
             if (!rows.length) return null;
             const h = headline(c, rows);
-            const unit: any = c.derived === "per_user_month" ? "x" : c.derived === "take_rate" || c.derived === "margins" ? "frac" : meta[c.keys[0]]?.unit ?? "M";
-            const keys = c.derived === "margins" ? (c.series ?? []).map((x) => x.key).filter((k) => rows.some((r) => r[k] !== undefined)) : c.derived ? ["value"] : c.keys.filter((k) => rows.some((r) => r[k] !== undefined));
+            const unit: any = c.derived === "guidance" ? "$M" : c.derived === "per_user_month" ? "x" : c.derived === "take_rate" || c.derived === "margins" ? "frac" : meta[c.keys[0]]?.unit ?? "M";
+            const keys = c.derived === "guidance" ? ["actual", "guided"] : c.derived === "margins" ? (c.series ?? []).map((x) => x.key).filter((k) => rows.some((r) => r[k] !== undefined)) : c.derived ? ["value"] : c.keys.filter((k) => rows.some((r) => r[k] !== undefined));
             return (
               <div key={c.id} className="border border-theme-border rounded-2xl p-4 space-y-2">
                 <div className="flex items-start justify-between gap-2">
@@ -217,7 +229,7 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
                       <span className="font-mono font-bold text-theme-text-bright text-sm">{h.value}</span>
                       {h.change && (
                         <span className="block text-[10px] font-mono" style={{ color: growthColor(h.change.up) }}>
-                          {h.change.text} {isES ? "interanual" : "YoY"} · {h.label}
+                          {h.change.text}{h.noYoY ? "" : ` ${isES ? "interanual" : "YoY"}`} · {h.label}
                         </span>
                       )}
                     </span>

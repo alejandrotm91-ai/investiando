@@ -35,7 +35,9 @@ export interface KpiChart {
   keys: string[];
   // KPIs calculados: viajes por usuario al mes, cociente keys[0] ÷ keys[1] ("take_rate": comisión
   // sobre reservas, TAC sobre ingresos publicitarios…) y márgenes brutos de cada par ingresos/coste (`series`)
-  derived?: "per_user_month" | "take_rate" | "margins";
+  // "guidance": ingresos reales de cada trimestre (keys[0]) frente a la previsión que la empresa dio
+  // para él en el trimestre anterior (keys[1] de ese trimestre)
+  derived?: "per_user_month" | "take_rate" | "margins" | "guidance";
   series?: { key: string; en: string; es: string; rev: string; cost: string }[];
 }
 export interface CompanyKpis {
@@ -222,6 +224,67 @@ export const KPI_DEFS: Record<string, CompanyKpis> = {
       { id: "dap", en: "Family daily active people", es: "Usuarios activos diarios", type: "bar", keys: ["dap"] },
       { id: "ads", en: "Ad impressions vs. price per ad (YoY)", es: "Impresiones frente a precio por anuncio (interanual)", type: "line", keys: ["impressions_growth", "price_growth"] },
       { id: "hc", en: "Headcount", es: "Plantilla", type: "bar", keys: ["headcount"] },
+    ],
+  },
+  // Nvidia: ingresos frente a su propia previsión del trimestre anterior, márgenes brutos y el
+  // desglose de Data Center en cómputo y redes (solo en los comunicados que lo dan)
+  NVDA: {
+    from: "2023-01-01",
+    kpis: [
+      { key: "guidance_next", en: "Revenue outlook for next quarter", es: "Previsión de ingresos del trimestre siguiente", unit: "$M", kind: "flow", range: [1000, 2000000], hint: "Revenue outlook for the NEXT quarter given in this release (midpoint), in millions of USD (e.g. 'expected to be $108.0 billion, plus or minus 2%' -> 108000); attach it to the quarter being reported" },
+      { key: "gm_gaap", en: "GAAP gross margin", es: "Margen bruto GAAP", unit: "share", kind: "avg", range: [20, 95], hint: "GAAP gross margin of the quarter, in % (e.g. 75.1)" },
+      { key: "gm_nongaap", en: "Non-GAAP gross margin", es: "Margen bruto no GAAP", unit: "share", kind: "avg", range: [20, 95], hint: "Non-GAAP gross margin of the quarter, in %" },
+      { key: "dc_compute", en: "Data Center · Compute", es: "Data Center · Cómputo", unit: "$M", kind: "flow", range: [500, 1000000], hint: "Data Center compute revenue in the quarter, in millions of USD (only if stated)" },
+      { key: "dc_networking", en: "Data Center · Networking", es: "Data Center · Redes", unit: "$M", kind: "flow", range: [200, 500000], hint: "Data Center networking revenue in the quarter, in millions of USD (only if stated)" },
+    ],
+    charts: [
+      { id: "guide", en: "Revenue vs. prior-quarter outlook", es: "Ingresos frente a la previsión del trimestre anterior", type: "bar", keys: ["revenue", "guidance_next"], derived: "guidance" },
+      { id: "gm", en: "Gross margin", es: "Margen bruto", type: "line", keys: ["gm_gaap", "gm_nongaap"] },
+      { id: "dc", en: "Data Center: compute / networking", es: "Data Center: cómputo / redes", type: "stack", keys: ["dc_compute", "dc_networking"] },
+    ],
+  },
+  COST: {
+    from: "2023-01-01",
+    kpis: [
+      { key: "comp_sales", en: "Comparable sales growth", es: "Crecimiento de ventas comparables", unit: "%", kind: "avg", range: [-30, 60], hint: "Total company comparable sales growth for the fiscal quarter (not the 4-5 week month, not year-to-date), as reported, in %" },
+      { key: "comp_sales_adj", en: "Comparable sales growth (ex gas & FX)", es: "Ventas comparables (sin gasolina ni divisas)", unit: "%", kind: "avg", range: [-30, 60], hint: "Total company comparable sales growth for the fiscal quarter excluding the impacts of gasoline prices and foreign exchange (adjusted), in %" },
+      { key: "traffic", en: "Comparable traffic growth", es: "Crecimiento de tráfico comparable", unit: "%", kind: "avg", range: [-30, 60], hint: "Worldwide comparable traffic (shopping frequency) growth in the quarter, in %" },
+      { key: "digital_comp", en: "Digitally-enabled comparable sales growth", es: "Ventas digitales comparables", unit: "%", kind: "avg", range: [-50, 200], hint: "Digitally-enabled (e-commerce) comparable sales growth in the quarter, as reported, in %" },
+      { key: "renewal_ww", en: "Membership renewal rate (worldwide)", es: "Tasa de renovación (mundial)", unit: "share", kind: "avg", range: [70, 100], hint: "Worldwide membership renewal rate at quarter end, in %" },
+      { key: "renewal_uscn", en: "Membership renewal rate (US & Canada)", es: "Tasa de renovación (EE. UU. y Canadá)", unit: "share", kind: "avg", range: [70, 100], hint: "US and Canada membership renewal rate at quarter end, in %" },
+      { key: "cardholders", en: "Total cardholders", es: "Titulares de tarjeta", unit: "M", kind: "stock", range: [50, 500], hint: "Total cardholders at quarter end, in millions" },
+      { key: "exec_members", en: "Paid executive members", es: "Socios Executive", unit: "M", kind: "stock", range: [10, 200], hint: "Paid executive memberships at quarter end, in millions" },
+      { key: "warehouses", en: "Warehouses", es: "Almacenes", unit: "n", kind: "stock", range: [500, 3000], hint: "Number of warehouses in operation at quarter end (total)" },
+      { key: "membership_fees", en: "Membership fees", es: "Cuotas de socio", unit: "$M", kind: "flow", range: [500, 20000], hint: "Membership fees revenue in the fiscal quarter, in millions of USD" },
+    ],
+    charts: [
+      { id: "comp", en: "Comparable sales, traffic and digital (YoY)", es: "Ventas comparables, tráfico y digital (interanual)", type: "line", keys: ["comp_sales", "comp_sales_adj", "traffic", "digital_comp"] },
+      { id: "renew", en: "Membership renewal rate", es: "Tasa de renovación de socios", type: "line", keys: ["renewal_uscn", "renewal_ww"] },
+      { id: "fees", en: "Membership fees", es: "Cuotas de socio", type: "bar", keys: ["membership_fees"] },
+      { id: "card", en: "Total cardholders", es: "Titulares de tarjeta", type: "bar", keys: ["cardholders"] },
+      { id: "exec", en: "Paid executive members", es: "Socios Executive", type: "bar", keys: ["exec_members"] },
+      { id: "wh", en: "Warehouses", es: "Almacenes", type: "bar", keys: ["warehouses"] },
+    ],
+  },
+  JPM: {
+    from: "2023-01-01",
+    kpis: [
+      { key: "nii", en: "Net interest income", es: "Margen de intereses", unit: "$M", kind: "flow", range: [5000, 150000], hint: "Firmwide net interest income (reported) in the quarter, in millions of USD" },
+      { key: "rotce", en: "ROTCE", es: "ROTCE", unit: "share", kind: "avg", range: [-20, 60], hint: "Return on tangible common equity (ROTCE) for the quarter as reported, in %" },
+      { key: "cet1", en: "CET1 ratio (Standardized)", es: "Ratio CET1 (estándar)", unit: "share", kind: "stock", range: [5, 25], hint: "Standardized CET1 capital ratio at quarter end, in %" },
+      { key: "avg_loans", en: "Average loans", es: "Préstamos medios", unit: "$M", kind: "avg", range: [300000, 6000000], hint: "Firmwide average loans in the quarter, in millions of USD (e.g. $1.6 trillion -> 1600000)" },
+      { key: "avg_deposits", en: "Average deposits", es: "Depósitos medios", unit: "$M", kind: "avg", range: [500000, 8000000], hint: "Firmwide average deposits in the quarter, in millions of USD" },
+      { key: "nco", en: "Net charge-offs", es: "Fallidos netos", unit: "$M", kind: "flow", range: [50, 50000], hint: "Firmwide net charge-offs in the quarter, in millions of USD" },
+      { key: "card_nco_rate", en: "Card net charge-off rate", es: "Tasa de fallidos en tarjetas", unit: "share", kind: "avg", range: [0.1, 20], hint: "Card Services net charge-off rate in the quarter, in %" },
+      { key: "tbvps", en: "Tangible book value per share", es: "Valor contable tangible por acción", unit: "$", kind: "stock", range: [20, 1000], hint: "Tangible book value per share at quarter end, in USD" },
+    ],
+    charts: [
+      { id: "nii", en: "Net interest income", es: "Margen de intereses", type: "bar", keys: ["nii"] },
+      { id: "ret", en: "ROTCE and CET1 ratio", es: "ROTCE y ratio CET1", type: "line", keys: ["rotce", "cet1"] },
+      { id: "bal", en: "Average loans and deposits", es: "Préstamos y depósitos medios", type: "line", keys: ["avg_loans", "avg_deposits"] },
+      { id: "nco", en: "Net charge-offs", es: "Fallidos netos", type: "bar", keys: ["nco"] },
+      { id: "card", en: "Card net charge-off rate", es: "Tasa de fallidos en tarjetas", type: "line", keys: ["card_nco_rate"] },
+      { id: "tbv", en: "Tangible book value per share", es: "Valor contable tangible por acción", type: "line", keys: ["tbvps"] },
     ],
   },
   NFLX: {
