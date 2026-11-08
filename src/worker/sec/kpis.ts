@@ -497,6 +497,61 @@ export const KPI_DEFS: Record<string, CompanyKpis> = {
       { id: "fcf", en: "Adjusted free cash flow", es: "Flujo de caja libre ajustado", type: "bar", keys: ["adj_fcf"] },
     ],
   },
+  KO: {
+    from: "2023-01-01",
+    kpis: [
+      { key: "unit_case_growth", en: "Unit case volume growth", es: "Crecimiento del volumen (cajas unidad)", unit: "%", kind: "avg", range: [-30, 40], hint: "Global unit case volume growth in the quarter, in %" },
+      { key: "organic_growth", en: "Organic revenue growth", es: "Crecimiento orgánico de ingresos", unit: "%", kind: "avg", range: [-30, 60], hint: "Organic revenues (non-GAAP) growth in the quarter, in %" },
+      { key: "price_mix", en: "Price/mix", es: "Precio/mix", unit: "%", kind: "avg", range: [-30, 60], hint: "Price/mix contribution to revenue growth in the quarter (consolidated), in %" },
+      { key: "concentrate", en: "Concentrate sales growth", es: "Crecimiento de ventas de concentrado", unit: "%", kind: "avg", range: [-30, 40], hint: "Concentrate sales growth in the quarter (consolidated), in %" },
+      { key: "op_margin", en: "Operating margin", es: "Margen operativo", unit: "share", kind: "avg", range: [0, 60], hint: "GAAP operating margin of the quarter, in %" },
+      { key: "comp_op_margin", en: "Comparable operating margin", es: "Margen operativo comparable", unit: "share", kind: "avg", range: [0, 60], hint: "Comparable operating margin (non-GAAP) of the quarter, in %" },
+    ],
+    charts: [
+      { id: "growth", en: "Volume, price/mix and organic growth", es: "Volumen, precio/mix y crecimiento orgánico", type: "line", keys: ["organic_growth", "unit_case_growth", "price_mix", "concentrate"] },
+      { id: "margin", en: "Operating margin", es: "Margen operativo", type: "line", keys: ["op_margin", "comp_op_margin"] },
+    ],
+  },
+  // Disney dejó de publicar suscriptores de streaming en el ejercicio 2026
+  DIS: {
+    from: "2023-01-01",
+    note: {
+      en: "Disney stopped reporting streaming subscribers and ARPU in fiscal 2026.",
+      es: "Disney dejó de publicar los suscriptores de streaming y el ARPU en el ejercicio 2026.",
+    },
+    kpis: [
+      { key: "dplus_subs", en: "Disney+ subscribers", es: "Suscriptores de Disney+", unit: "M", kind: "stock", range: [50, 400], hint: "Disney+ (Core, excluding Hotstar if split; total Disney+ if not) paid subscribers at quarter end, in millions (only if stated)" },
+      { key: "hulu_subs", en: "Hulu subscribers", es: "Suscriptores de Hulu", unit: "M", kind: "stock", range: [20, 200], hint: "Total Hulu subscribers at quarter end, in millions (only if stated)" },
+      { key: "dplus_arpu", en: "Disney+ domestic ARPU", es: "ARPU de Disney+ en EE. UU. y Canadá", unit: "$", kind: "avg", range: [2, 40], hint: "Disney+ domestic (U.S. and Canada) average monthly revenue per paid subscriber, in USD (only if stated)" },
+      { key: "guests_growth", en: "Global guests growth", es: "Crecimiento de visitantes globales", unit: "%", kind: "avg", range: [-80, 300], hint: "Experiences global guests (parks attendance plus cruise passenger days) year-over-year growth, in % (only if stated)" },
+      { key: "attendance_growth", en: "Domestic parks attendance growth", es: "Crecimiento de asistencia en parques de EE. UU.", unit: "%", kind: "avg", range: [-80, 300], hint: "Attendance growth at domestic (U.S.) parks year-over-year, in %" },
+      { key: "per_capita_growth", en: "Domestic per capita spending growth", es: "Crecimiento del gasto por visitante en EE. UU.", unit: "%", kind: "avg", range: [-50, 100], hint: "Per capita guest spending growth at domestic parks year-over-year, in %" },
+    ],
+    charts: [
+      { id: "subs", en: "Streaming subscribers (Disney+ / Hulu)", es: "Suscriptores de streaming (Disney+ / Hulu)", type: "stack", keys: ["dplus_subs", "hulu_subs"] },
+      { id: "arpu", en: "Disney+ domestic ARPU", es: "ARPU de Disney+ en EE. UU. y Canadá", type: "line", keys: ["dplus_arpu"] },
+      { id: "parks", en: "Parks: guests, attendance and spending per guest (YoY)", es: "Parques: visitantes, asistencia y gasto por visitante (interanual)", type: "line", keys: ["guests_growth", "attendance_growth", "per_capita_growth"] },
+    ],
+  },
+  SBUX: {
+    from: "2023-01-01",
+    kpis: [
+      { key: "comp_global", en: "Global comparable sales", es: "Ventas comparables globales", unit: "%", kind: "avg", range: [-40, 60], hint: "Global comparable store / coffeehouse sales growth in the quarter, in %" },
+      { key: "comp_na", en: "North America comparable sales", es: "Ventas comparables Norteamérica", unit: "%", kind: "avg", range: [-40, 60], hint: "North America comparable sales growth in the quarter, in %" },
+      { key: "comp_us", en: "U.S. comparable sales", es: "Ventas comparables EE. UU.", unit: "%", kind: "avg", range: [-40, 60], hint: "U.S. comparable sales growth in the quarter, in %" },
+      { key: "comp_intl", en: "International comparable sales", es: "Ventas comparables internacionales", unit: "%", kind: "avg", range: [-60, 100], hint: "International comparable sales growth in the quarter, in %" },
+      { key: "ticket", en: "Average ticket (global)", es: "Ticket medio (global)", unit: "%", kind: "avg", range: [-40, 60], hint: "Global average ticket change in the quarter, in %" },
+      { key: "transactions", en: "Comparable transactions (global)", es: "Transacciones comparables (global)", unit: "%", kind: "avg", range: [-60, 100], hint: "Global comparable transactions change in the quarter, in % (negative if decline)" },
+      { key: "stores", en: "Coffeehouses", es: "Cafeterías", unit: "n", kind: "stock", range: [20000, 80000], hint: "Total stores / coffeehouses at quarter end" },
+      { key: "op_margin_ng", en: "Non-GAAP operating margin", es: "Margen operativo no GAAP", unit: "share", kind: "avg", range: [-10, 40], hint: "Non-GAAP operating margin of the quarter (consolidated), in %" },
+    ],
+    charts: [
+      { id: "comp", en: "Comparable sales by region", es: "Ventas comparables por región", type: "line", keys: ["comp_global", "comp_us", "comp_intl"] },
+      { id: "tt", en: "Ticket vs. transactions (global)", es: "Ticket frente a transacciones (global)", type: "line", keys: ["ticket", "transactions"] },
+      { id: "stores", en: "Coffeehouses", es: "Cafeterías", type: "bar", keys: ["stores"] },
+      { id: "margin", en: "Non-GAAP operating margin", es: "Margen operativo no GAAP", type: "line", keys: ["op_margin_ng"] },
+    ],
+  },
   NFLX: {
     from: "2020-01-01",
     until: "2025-02-28",
