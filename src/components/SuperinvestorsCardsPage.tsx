@@ -277,8 +277,8 @@ export default function SuperinvestorsCardsPage({ onSelect, language, theme }: S
 
         </div>
 
-        <div className="flex bg-slate-950/80 p-1 rounded-xl border border-slate-900/60 shadow-inner self-end sm:self-auto">
-          <button
+        <div data-toggle className="flex bg-slate-950/80 p-1 rounded-xl border border-slate-900/60 shadow-inner self-end sm:self-auto">
+          <button aria-pressed={!!(viewMode === "cards")}
             onClick={() => setViewMode("cards")}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
               viewMode === "cards"
@@ -289,7 +289,7 @@ export default function SuperinvestorsCardsPage({ onSelect, language, theme }: S
             <LayoutGrid size={14} />
             <span>{language === "EN" ? "Cards" : "Tarjetas"}</span>
           </button>
-          <button
+          <button aria-pressed={!!(viewMode === "table")}
             onClick={() => setViewMode("table")}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
               viewMode === "table"

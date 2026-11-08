@@ -1162,8 +1162,8 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
             </span>
 
             {/* GAAP vs Normalized vs Price & EPS Toggle */}
-            <div className="flex bg-[#0f111a] border border-slate-800 rounded-full p-0.5">
-              <button
+            <div data-toggle className="flex bg-[#0f111a] border border-slate-800 rounded-full p-0.5">
+              <button aria-pressed={!!(epsType === "GAAP")}
                 onClick={(e) => { e.stopPropagation(); setEpsType("GAAP"); }}
                 className={`text-[10px] font-bold px-3 py-1 rounded-full transition-all cursor-pointer ${
                   epsType === "GAAP" ? "bg-slate-800 text-white font-extrabold" : "text-slate-400 hover:text-slate-200"
@@ -1171,7 +1171,7 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
               >
                 GAAP
               </button>
-              <button
+              <button aria-pressed={!!(epsType === "Normalized")}
                 onClick={(e) => { e.stopPropagation(); setEpsType("Normalized"); }}
                 className={`text-[10px] font-bold px-3 py-1 rounded-full transition-all cursor-pointer ${
                   epsType === "Normalized" ? "bg-slate-800 text-white font-extrabold" : "text-slate-400 hover:text-slate-200"
@@ -1179,7 +1179,7 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
               >
                 Normalized
               </button>
-              <button
+              <button aria-pressed={!!(epsType === "Fundamentals")}
                 onClick={(e) => { e.stopPropagation(); setEpsType("Fundamentals"); }}
                 className={`text-[10px] font-bold px-3 py-1 rounded-full transition-all cursor-pointer ${
                   epsType === "Fundamentals" ? "bg-slate-800 text-white font-extrabold" : "text-slate-400 hover:text-slate-200"
@@ -2631,8 +2631,8 @@ export default function HoldingsTable({
 
         <div className="flex items-center flex-wrap gap-2.5 sm:gap-3 w-full md:w-auto">
           {/* Basis vs Valuation vs Health Toggle */}
-          <div className="w-full sm:w-auto grid grid-cols-4 sm:inline-flex bg-[#0a0c14] border border-slate-900 rounded-full px-1 py-0.5 sm:px-1.5 sm:py-1 gap-0.5 sm:gap-0 font-bold shadow-inner" id="holdings-mode-toggle">
-            <button
+          <div data-toggle className="w-full sm:w-auto grid grid-cols-4 sm:inline-flex bg-[#0a0c14] border border-slate-900 rounded-full px-1 py-0.5 sm:px-1.5 sm:py-1 gap-0.5 sm:gap-0 font-bold shadow-inner" id="holdings-mode-toggle">
+            <button aria-pressed={!!(holdingsTabMode === "basis")}
               id="holdings-tab-basis"
               onClick={() => handleTabModeChange("basis")}
               className={`px-1 min-[360px]:px-1.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full transition-all duration-300 cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 uppercase font-bold text-[9px] min-[380px]:text-[10px] sm:text-[11px] tracking-tight sm:tracking-wider ${
@@ -2644,7 +2644,7 @@ export default function HoldingsTable({
               <Briefcase size={11} className="shrink-0 sm:w-3 sm:h-3" />
               <span>Basis</span>
             </button>
-            <button
+            <button aria-pressed={!!(holdingsTabMode === "valuation")}
               id="holdings-tab-valuation"
               onClick={() => handleTabModeChange("valuation")}
               className={`px-1 min-[360px]:px-1.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full transition-all duration-300 cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 uppercase font-bold text-[9px] min-[380px]:text-[10px] sm:text-[11px] tracking-tight sm:tracking-wider ${
@@ -2656,7 +2656,7 @@ export default function HoldingsTable({
               <Sparkles size={11} className="shrink-0 sm:w-3 sm:h-3" />
               <span>Valuation</span>
             </button>
-            <button
+            <button aria-pressed={!!(holdingsTabMode === "health")}
               id="holdings-tab-health"
               onClick={() => handleTabModeChange("health")}
               className={`px-1 min-[360px]:px-1.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full transition-all duration-300 cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 uppercase font-bold text-[9px] min-[380px]:text-[10px] sm:text-[11px] tracking-tight sm:tracking-wider ${
@@ -2668,7 +2668,7 @@ export default function HoldingsTable({
               <Award size={11} className="shrink-0 sm:w-3 sm:h-3" />
               <span>{language === "EN" ? "Health" : "Salud"}</span>
             </button>
-            <button
+            <button aria-pressed={!!(holdingsTabMode === "financials")}
               id="holdings-tab-financials"
               onClick={() => handleTabModeChange("financials")}
               className={`px-1 min-[360px]:px-1.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full transition-all duration-300 cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 uppercase font-bold text-[9px] min-[380px]:text-[10px] sm:text-[11px] tracking-tight sm:tracking-wider ${
@@ -2684,8 +2684,8 @@ export default function HoldingsTable({
 
           {/* View Toggles */}
           {holdingsTabMode === "financials" ? (
-            <div id="holdings-view-toggle" className="holdings-view-toggle flex bg-[#121420] p-1 rounded-xl border border-slate-800/60 text-[11px] font-bold">
-              <button
+            <div data-toggle id="holdings-view-toggle" className="holdings-view-toggle flex bg-[#121420] p-1 rounded-xl border border-slate-800/60 text-[11px] font-bold">
+              <button aria-pressed={!!(financialsViewMode === "cards")}
                 onClick={() => setFinancialsViewMode("cards")}
                 className={`px-3 py-1.5 rounded-lg transition-all duration-150 cursor-pointer flex items-center gap-1.5 ${
                   financialsViewMode === "cards"
@@ -2696,7 +2696,7 @@ export default function HoldingsTable({
                 <LayoutGrid size={13} />
                 {language === "EN" ? "Cards" : "Tarjetas"}
               </button>
-              <button
+              <button aria-pressed={!!(financialsViewMode === "table")}
                 onClick={() => setFinancialsViewMode("table")}
                 className={`px-3 py-1.5 rounded-lg transition-all duration-150 cursor-pointer flex items-center gap-1.5 ${
                   financialsViewMode === "table"
@@ -2709,8 +2709,8 @@ export default function HoldingsTable({
               </button>
             </div>
           ) : (
-            <div id="holdings-view-toggle" className="holdings-view-toggle flex bg-[#121420] p-1 rounded-xl border border-slate-800/60 text-[11px] font-bold">
-              <button
+            <div data-toggle id="holdings-view-toggle" className="holdings-view-toggle flex bg-[#121420] p-1 rounded-xl border border-slate-800/60 text-[11px] font-bold">
+              <button aria-pressed={!!(viewMode === "cards")}
                 onClick={() => setViewMode("cards")}
                 className={`px-3 py-1.5 rounded-lg transition-all duration-150 cursor-pointer flex items-center gap-1.5 ${
                   viewMode === "cards"
@@ -2721,7 +2721,7 @@ export default function HoldingsTable({
                 <LayoutGrid size={13} />
                 {language === "EN" ? "Cards" : "Tarjetas"}
               </button>
-              <button
+              <button aria-pressed={!!(viewMode === "table")}
                 onClick={() => setViewMode("table")}
                 className={`px-3 py-1.5 rounded-lg transition-all duration-150 cursor-pointer flex items-center gap-1.5 ${
                   viewMode === "table"
@@ -2752,8 +2752,8 @@ export default function HoldingsTable({
         <div className="space-y-4" id="portfolio-projections-section">
           {/* Tabs Selector: Portfolio / Margin / Total (only show selector if margin positions exist) */}
           {marginActivePositions.length > 0 && (
-            <div className="flex bg-[#121420] p-1 rounded-2xl border border-slate-800/80 w-fit text-xs font-bold font-mono">
-              <button
+            <div data-toggle className="flex bg-[#121420] p-1 rounded-2xl border border-slate-800/80 w-fit text-xs font-bold font-mono">
+              <button aria-pressed={!!(projectionTab === "portfolio")}
                 type="button"
                 onClick={() => setProjectionTab("portfolio")}
                 className={`px-4 py-1.5 rounded-xl transition-all cursor-pointer ${
@@ -2764,7 +2764,7 @@ export default function HoldingsTable({
               >
                 {language === "EN" ? "Portfolio" : "Portafolio"}
               </button>
-              <button
+              <button aria-pressed={!!(projectionTab === "margin")}
                 type="button"
                 onClick={() => setProjectionTab("margin")}
                 className={`px-4 py-1.5 rounded-xl transition-all cursor-pointer ${
@@ -2775,7 +2775,7 @@ export default function HoldingsTable({
               >
                 {language === "EN" ? "Margin" : "Margen"}
               </button>
-              <button
+              <button aria-pressed={!!(projectionTab === "total")}
                 type="button"
                 onClick={() => setProjectionTab("total")}
                 className={`px-4 py-1.5 rounded-xl transition-all cursor-pointer ${
@@ -2809,8 +2809,8 @@ export default function HoldingsTable({
                   </div>
 
                   {/* Year Selectors */}
-                  <div className="flex bg-[#121420] p-1 rounded-xl border border-slate-800/60 text-[10px] font-bold">
-                    <button
+                  <div data-toggle className="flex bg-[#121420] p-1 rounded-xl border border-slate-800/60 text-[10px] font-bold">
+                    <button aria-pressed={!!(years === 5)}
                       type="button"
                       onClick={() => setYears(5)}
                       className={`px-3 py-1.5 rounded-lg transition-all duration-150 cursor-pointer ${
@@ -2821,7 +2821,7 @@ export default function HoldingsTable({
                     >
                       5Y
                     </button>
-                    <button
+                    <button aria-pressed={!!(years === 10)}
                       type="button"
                       onClick={() => setYears(10)}
                       className={`px-3 py-1.5 rounded-lg transition-all duration-150 cursor-pointer ${
@@ -4530,7 +4530,7 @@ export default function HoldingsTable({
             <div className="mt-6 pt-6 border-t border-slate-900/60 animate-in fade-in slide-in-from-top-2 duration-200">
               <div className="flex flex-col md:flex-row md:items-center justify-end gap-4 mb-6">
                 {/* Timeframe Selectors */}
-                <div className="flex bg-[#121420] p-1 rounded-xl border border-slate-800/60 text-[10px] font-bold">
+                <div data-toggle className="flex bg-[#121420] p-1 rounded-xl border border-slate-800/60 text-[10px] font-bold">
                   {[
                     { key: "day", label: "1d" },
                     { key: "week", label: "1W" },
@@ -4540,7 +4540,7 @@ export default function HoldingsTable({
                     { key: "1y", label: "1y" },
                     { key: "ath", label: "ATH" },
                   ].map((tf) => (
-                    <button
+                    <button aria-pressed={!!(performanceTimeframe === tf.key)}
                       key={tf.key}
                       type="button"
                       onClick={(e) => {

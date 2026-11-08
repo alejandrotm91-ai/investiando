@@ -1508,3 +1508,40 @@ html.light #root #holdings-section #portfolio-projections-section > .grid {
   border-color: transparent !important;
   box-shadow: none !important;
 }
+
+/* Modo claro: barras de botones segmentados (data-toggle en el contenedor, aria-pressed en cada
+   botón) con el mismo estilo que las pestañas de Your Portfolio: barra blanca y opción activa en
+   crema. Los :not(#_t) solo suben la especificidad (equivalen a 4 id) para ganar a las reglas
+   posicionales antiguas de Holdings/Simulación, que llevan hasta 3 id. */
+html.light [data-toggle]:not(#_t):not(#_t):not(#_t):not(#_t) {
+  background-color: #ffffff !important;
+  background-image: none !important;
+  border-color: #ded9cb !important;
+  box-shadow: 0 1px 2px rgba(27, 25, 23, 0.06) !important;
+  backdrop-filter: none !important;
+}
+html.light [data-toggle]:not(#_t):not(#_t):not(#_t):not(#_t) button[aria-pressed="true"] {
+  background-color: #eae6db !important;
+  background-image: none !important;
+  color: #1b1917 !important;
+  border-color: #d6cfbd !important;
+  box-shadow: inset 0 0 0 1px #d6cfbd, 0 1px 2px rgba(27, 25, 23, 0.08) !important;
+}
+html.light [data-toggle]:not(#_t):not(#_t):not(#_t):not(#_t) button[aria-pressed="true"] span,
+html.light [data-toggle]:not(#_t):not(#_t):not(#_t):not(#_t) button[aria-pressed="true"] svg:not([class*="text-"]) {
+  color: #1b1917 !important;
+}
+html.light [data-toggle]:not(#_t):not(#_t):not(#_t):not(#_t) button[aria-pressed="false"] {
+  background-color: transparent !important;
+  background-image: none !important;
+  color: #787366 !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+html.light [data-toggle]:not(#_t):not(#_t):not(#_t):not(#_t) button[aria-pressed="false"] span {
+  color: inherit !important;
+}
+html.light [data-toggle]:not(#_t):not(#_t):not(#_t):not(#_t) button[aria-pressed="false"]:hover {
+  background-color: rgba(27, 25, 23, 0.05) !important;
+  color: #1b1917 !important;
+}

@@ -316,9 +316,9 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex bg-theme-input border border-theme-border rounded-xl p-0.5">
+          <div data-toggle className="flex bg-theme-input border border-theme-border rounded-xl p-0.5">
             {(["segment", "product", "geography"] as AxisKey[]).filter((a) => data.axes[a]).map((a) => (
-              <button
+              <button aria-pressed={!!(axis === a)}
                 key={a}
                 onClick={() => setAxis(a)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${axis === a ? "bg-emerald-500 text-slate-950" : "text-theme-text-muted hover:text-theme-text-bright"}`}
@@ -327,9 +327,9 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
               </button>
             ))}
           </div>
-          <div className="flex bg-theme-input border border-theme-border rounded-xl p-0.5">
+          <div data-toggle className="flex bg-theme-input border border-theme-border rounded-xl p-0.5">
             {(["Q", "FY"] as const).map((k) => (
-              <button
+              <button aria-pressed={!!(activeKind === k)}
                 key={k}
                 disabled={k === "Q" ? !hasQuarterly : !hasAnnual}
                 title={

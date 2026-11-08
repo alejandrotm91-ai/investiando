@@ -1409,13 +1409,13 @@ export default function StockSearchExplorer({
                   <div className="flex flex-wrap items-center gap-3">
                     
                     {/* Benchmark Overlays Toggles */}
-                    <div className="flex items-center gap-1.5 bg-theme-input p-1 rounded-xl border border-theme-border text-xs font-mono">
+                    <div data-toggle className="flex items-center gap-1.5 bg-theme-input p-1 rounded-xl border border-theme-border text-xs font-mono">
                       <span className="text-[10px] text-theme-text-muted px-1.5 uppercase font-bold flex items-center gap-1">
                         <Scale size={11} />
                         {language === "EN" ? "Compare:" : "Comparar:"}
                       </span>
                       
-                      <button
+                      <button aria-pressed={!!(compareSP500)}
                         onClick={() => setCompareSP500(!compareSP500)}
                         className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                           compareSP500
@@ -1426,7 +1426,7 @@ export default function StockSearchExplorer({
                         <span>S&P 500</span>
                       </button>
 
-                      <button
+                      <button aria-pressed={!!(compareNasdaq)}
                         onClick={() => setCompareNasdaq(!compareNasdaq)}
                         className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                           compareNasdaq
@@ -1439,9 +1439,9 @@ export default function StockSearchExplorer({
                     </div>
 
                     {/* Range Toggle Buttons */}
-                    <div className="inline-flex bg-theme-input p-1 rounded-xl border border-theme-border text-xs font-mono font-bold">
+                    <div data-toggle className="inline-flex bg-theme-input p-1 rounded-xl border border-theme-border text-xs font-mono font-bold">
                       {(["1W", "1M", "6M", "YTD", "1Y", "5Y", "ALL"] as const).map((r) => (
-                        <button
+                        <button aria-pressed={!!(chartRange === r)}
                           key={r}
                           onClick={() => setChartRange(r)}
                           className={`px-2.5 sm:px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
@@ -2353,14 +2353,14 @@ export default function StockSearchExplorer({
           {activeSubTab === "financials" && (
             <div className="space-y-6">
               <div className="flex justify-center">
-                <div className="flex bg-theme-input border border-theme-border rounded-xl p-0.5">
+                <div data-toggle className="flex bg-theme-input border border-theme-border rounded-xl p-0.5">
                   {([
                     { id: "statements", label: language === "EN" ? "Financial Statements" : "Estados financieros", icon: FileText },
                     { id: "segments", label: language === "EN" ? "Segments" : "Segmentos", icon: PieChartIcon },
                   ] as const).map((v) => {
                     const Icon = v.icon;
                     return (
-                      <button
+                      <button aria-pressed={!!(financialsView === v.id)}
                         key={v.id}
                         onClick={() => setFinancialsView(v.id)}
                         className={`px-4 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all flex items-center gap-1.5 ${
@@ -2390,7 +2390,7 @@ export default function StockSearchExplorer({
           {activeSubTab === "valuation" && stockData && (
             <div className="space-y-6">
               <div className="flex justify-center">
-                <div className="flex flex-wrap justify-center bg-theme-input border border-theme-border rounded-xl p-0.5">
+                <div data-toggle className="flex flex-wrap justify-center bg-theme-input border border-theme-border rounded-xl p-0.5">
                   {([
                     { id: "multiples", label: language === "EN" ? "Multiples" : "Múltiplos", icon: Gauge },
                     { id: "threestatements", label: language === "EN" ? "3-Statement & DCF" : "3 Estados y DCF", icon: FileSpreadsheet },
@@ -2398,7 +2398,7 @@ export default function StockSearchExplorer({
                   ] as const).map((v) => {
                     const Icon = v.icon;
                     return (
-                      <button
+                      <button aria-pressed={!!(valuationView === v.id)}
                         key={v.id}
                         onClick={() => setValuationView(v.id)}
                         className={`px-4 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all flex items-center gap-1.5 ${

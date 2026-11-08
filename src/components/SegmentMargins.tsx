@@ -216,9 +216,9 @@ export default function SegmentMargins({ periods, series, label, theme, isES }: 
                 : "% of each segment's revenue"}
           </p>
         </div>
-        <div className="flex flex-wrap bg-theme-input border border-theme-border rounded-xl p-0.5 self-start">
+        <div data-toggle className="flex flex-wrap bg-theme-input border border-theme-border rounded-xl p-0.5 self-start">
           {available.map((m) => (
-            <button
+            <button aria-pressed={!!(active === m.id)}
               key={m.id}
               onClick={() => setMetric(m.id)}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${active === m.id ? "bg-theme-border text-theme-text-bright" : "text-theme-text-muted hover:text-theme-text-bright"}`}

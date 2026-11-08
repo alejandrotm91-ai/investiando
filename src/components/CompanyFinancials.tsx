@@ -671,8 +671,8 @@ export function CompanyFinancials({
 
           {/* View Mode Toggle (Cards vs Table) - Only show internally if not provided externally */}
           {externalViewMode === undefined && (
-            <div className="flex bg-theme-sidebar p-1 rounded-xl border border-theme-border/70 text-[11px] font-bold">
-              <button
+            <div data-toggle className="flex bg-theme-sidebar p-1 rounded-xl border border-theme-border/70 text-[11px] font-bold">
+              <button aria-pressed={!!(viewMode === "cards")}
                 onClick={() => setViewMode("cards")}
                 className={`px-3 py-1.5 rounded-lg transition-all duration-150 cursor-pointer flex items-center gap-1.5 ${
                   viewMode === "cards" ? "bg-theme-card text-theme-text-bright shadow-sm border border-theme-border/40" : "text-theme-text-muted hover:text-theme-text"
@@ -681,7 +681,7 @@ export function CompanyFinancials({
                 <LayoutGrid size={13} />
                 {language === "EN" ? "Cards" : "Tarjetas"}
               </button>
-              <button
+              <button aria-pressed={!!(viewMode === "table")}
                 onClick={() => setViewMode("table")}
                 className={`px-3 py-1.5 rounded-lg transition-all duration-150 cursor-pointer flex items-center gap-1.5 ${
                   viewMode === "table" ? "bg-theme-card text-theme-text-bright shadow-sm border border-theme-border/40" : "text-theme-text-muted hover:text-theme-text"
@@ -695,7 +695,7 @@ export function CompanyFinancials({
 
           {/* Años anteriores: ventana de columnas de la tabla (las más antiguas, a la derecha) */}
           {viewMode === "table" && statementType !== "dcf" && tableData.length > TABLE_COLS && (
-            <div className="flex items-center bg-theme-sidebar p-1 rounded-xl border border-theme-border/70 text-[11px] font-bold">
+            <div data-toggle className="flex items-center bg-theme-sidebar p-1 rounded-xl border border-theme-border/70 text-[11px] font-bold">
               <button
                 onClick={() => setColOffset(Math.max(0, offset - 1))}
                 disabled={offset === 0}
@@ -721,8 +721,8 @@ export function CompanyFinancials({
           )}
 
           {/* Period Toggle */}
-          <div className="flex bg-theme-sidebar p-1 rounded-xl border border-theme-border/70 text-[11px] font-bold">
-            <button
+          <div data-toggle className="flex bg-theme-sidebar p-1 rounded-xl border border-theme-border/70 text-[11px] font-bold">
+            <button aria-pressed={!!(periodMode === "annual")}
               onClick={() => setPeriodMode("annual")}
               className={`px-3 py-1.5 rounded-lg transition-all duration-150 cursor-pointer flex items-center gap-1.5 ${
                 periodMode === "annual" ? "bg-theme-card text-theme-text-bright shadow-sm border border-theme-border/40" : "text-theme-text-muted hover:text-theme-text"
@@ -730,7 +730,7 @@ export function CompanyFinancials({
             >
               {language === "EN" ? "Annual" : "Anual"}
             </button>
-            <button
+            <button aria-pressed={!!(periodMode === "quarterly")}
               onClick={() => setPeriodMode("quarterly")}
               className={`px-3 py-1.5 rounded-lg transition-all duration-150 cursor-pointer flex items-center gap-1.5 ${
                 periodMode === "quarterly" ? "bg-theme-card text-theme-text-bright shadow-sm border border-theme-border/40" : "text-theme-text-muted hover:text-theme-text"

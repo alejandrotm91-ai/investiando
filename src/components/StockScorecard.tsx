@@ -353,8 +353,8 @@ export default function StockScorecard({ positions }: StockScorecardProps) {
             </div>
 
             {/* Mode Selector Toggle (Swapped here) */}
-            <div className="inline-flex bg-[#0a0c14] border border-slate-800 rounded-full p-1 text-[11px] font-bold shadow-inner" id="scorecard-mode-toggle">
-              <button
+            <div data-toggle className="inline-flex bg-[#0a0c14] border border-slate-800 rounded-full p-1 text-[11px] font-bold shadow-inner" id="scorecard-mode-toggle">
+              <button aria-pressed={!!(selectedMode === "percentile")}
                 onClick={() => setSelectedMode("percentile")}
                 className={`px-3.5 py-1.5 rounded-full transition-all duration-300 cursor-pointer flex items-center gap-1.5 uppercase font-bold text-[10px] tracking-wider ${
                   selectedMode === "percentile"
@@ -365,7 +365,7 @@ export default function StockScorecard({ positions }: StockScorecardProps) {
                 <Layers size={10} />
                 Percentiles
               </button>
-              <button
+              <button aria-pressed={!!(selectedMode === "zscore")}
                 onClick={() => setSelectedMode("zscore")}
                 className={`px-3.5 py-1.5 rounded-full transition-all duration-300 cursor-pointer flex items-center gap-1.5 uppercase font-bold text-[10px] tracking-wider ${
                   selectedMode === "zscore"

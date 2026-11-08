@@ -442,8 +442,8 @@ No constituye asesoría de inversión.`;
         </div>
 
         {/* View Mode Switcher: 3-Statement vs. Single Stock Bogle vs. Portfolio Rollup */}
-        <div className="flex items-center flex-wrap bg-[#0f111a]/90 backdrop-blur-md p-1.5 rounded-2xl border border-slate-800/90 shadow-lg shrink-0 self-start md:self-center gap-1">
-          <button
+        <div data-toggle className="flex items-center flex-wrap bg-[#0f111a]/90 backdrop-blur-md p-1.5 rounded-2xl border border-slate-800/90 shadow-lg shrink-0 self-start md:self-center gap-1">
+          <button aria-pressed={!!(viewMode === "three-statement")}
             onClick={() => setViewMode("three-statement")}
             className={`px-3.5 py-2 rounded-xl text-xs uppercase tracking-wider transition-all duration-200 flex items-center gap-2 cursor-pointer border ${
               viewMode === "three-statement"
@@ -454,7 +454,7 @@ No constituye asesoría de inversión.`;
             <FileSpreadsheet size={14} />
             <span>{language === "EN" ? "3-Statement & DCF Model" : "Modelo 3 Estados & DCF"}</span>
           </button>
-          <button
+          <button aria-pressed={!!(viewMode === "single")}
             onClick={() => setViewMode("single")}
             className={`px-3.5 py-2 rounded-xl text-xs uppercase tracking-wider transition-all duration-200 flex items-center gap-2 cursor-pointer border ${
               viewMode === "single"
@@ -465,7 +465,7 @@ No constituye asesoría de inversión.`;
             <BarChart3 size={14} />
             <span>{language === "EN" ? "Bogle 3 Engines" : "Motores de Bogle"}</span>
           </button>
-          <button
+          <button aria-pressed={!!(viewMode === "portfolio")}
             onClick={() => setViewMode("portfolio")}
             className={`px-3.5 py-2 rounded-xl text-xs uppercase tracking-wider transition-all duration-200 flex items-center gap-2 cursor-pointer border ${
               viewMode === "portfolio"
@@ -568,9 +568,9 @@ No constituye asesoría de inversión.`;
               
               {/* Scenario Toggle */}
               <div className="flex items-center justify-end">
-                <div className="flex bg-[#0f111a]/80 border border-slate-800 rounded-xl p-1 shadow-inner backdrop-blur-sm">
+                <div data-toggle className="flex bg-[#0f111a]/80 border border-slate-800 rounded-xl p-1 shadow-inner backdrop-blur-sm">
                   {(["bear", "base", "bull"] as const).map((scenario) => (
-                    <button
+                    <button aria-pressed={!!(activeScenario === scenario)}
                       key={scenario}
                       onClick={() => setActiveScenario(scenario)}
                       className={`px-4 py-1.5 rounded-lg text-[10px] sm:text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer ${
@@ -1060,9 +1060,9 @@ No constituye asesoría de inversión.`;
           
           {/* Scenario Toggle */}
           <div className="flex items-center justify-end">
-            <div className="flex bg-[#0f111a]/80 border border-slate-800 rounded-xl p-1 shadow-inner backdrop-blur-sm">
+            <div data-toggle className="flex bg-[#0f111a]/80 border border-slate-800 rounded-xl p-1 shadow-inner backdrop-blur-sm">
               {(["bear", "base", "bull"] as const).map((scenario) => (
-                <button
+                <button aria-pressed={!!(activeScenario === scenario)}
                   key={scenario}
                   onClick={() => setActiveScenario(scenario)}
                   className={`px-4 py-1.5 rounded-lg text-[10px] sm:text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer ${

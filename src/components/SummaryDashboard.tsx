@@ -1228,8 +1228,8 @@ export default function SummaryDashboard({
             </div>
             
             {/* Benchmark Toggle */}
-            <div className="bg-slate-950/80 p-0.5 border border-slate-800/60 rounded-xl flex items-center justify-between w-full mb-2">
-              <button
+            <div data-toggle className="bg-slate-950/80 p-0.5 border border-slate-800/60 rounded-xl flex items-center justify-between w-full mb-2">
+              <button aria-pressed={!!(benchmarkToggle === "SP500")}
                 onClick={() => setBenchmarkToggle("SP500")}
                 className={`flex-1 py-0.5 text-[10px] font-bold rounded-lg transition-all cursor-pointer text-center ${
                   benchmarkToggle === "SP500"
@@ -1239,7 +1239,7 @@ export default function SummaryDashboard({
               >
                 S&P 500
               </button>
-              <button
+              <button aria-pressed={!!(benchmarkToggle === "QQQ")}
                 onClick={() => setBenchmarkToggle("QQQ")}
                 className={`flex-1 py-0.5 text-[10px] font-bold rounded-lg transition-all cursor-pointer text-center ${
                   benchmarkToggle === "QQQ"
@@ -1456,9 +1456,9 @@ export default function SummaryDashboard({
                     ))}
                   </select>
 
-                  <div className="bg-slate-800 p-0.5 rounded-lg flex items-center border border-slate-700 shrink-0">
+                  <div data-toggle className="bg-slate-800 p-0.5 rounded-lg flex items-center border border-slate-700 shrink-0">
                     {["1W", "1M", "3M", "YTD", "1Y", "5Y", "10Y", "ALL"].map((tf) => (
-                      <button
+                      <button aria-pressed={!!(timeframe === tf)}
                         key={tf}
                         onClick={() => setTimeframe(tf)}
                         className={`px-1.5 py-0.5 rounded-md text-[8.5px] font-bold transition-all cursor-pointer shrink-0 leading-tight ${

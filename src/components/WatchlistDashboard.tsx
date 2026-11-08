@@ -577,8 +577,8 @@ export default function WatchlistDashboard({
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
                 {viewMode === "prices" ? t.tabPrices : viewMode === "financials" ? t.tabFinancials : viewMode === "health" ? (language === "EN" ? "Health" : "Salud") : t.tabValuation}
               </span>
-              <div className="inline-flex bg-transparent border border-slate-900 rounded-full p-1 text-[11px] font-bold shadow-inner" id="watchlist-mode-toggle">
-                <button
+              <div data-toggle className="inline-flex bg-transparent border border-slate-900 rounded-full p-1 text-[11px] font-bold shadow-inner" id="watchlist-mode-toggle">
+                <button aria-pressed={!!(viewMode === "prices")}
                   onClick={() => setViewMode("prices")}
                   className={`px-3.5 py-1.5 rounded-full transition-all duration-300 cursor-pointer flex items-center gap-1.5 uppercase font-bold text-[10px] tracking-wider ${
                     viewMode === "prices"
@@ -589,7 +589,7 @@ export default function WatchlistDashboard({
                   <DollarSign size={11} />
                   {t.tabPrices}
                 </button>
-                <button
+                <button aria-pressed={!!(viewMode === "valuation")}
                   onClick={() => setViewMode("valuation")}
                   className={`px-3.5 py-1.5 rounded-full transition-all duration-300 cursor-pointer flex items-center gap-1.5 uppercase font-bold text-[10px] tracking-wider ${
                     viewMode === "valuation"
@@ -600,7 +600,7 @@ export default function WatchlistDashboard({
                   <Scale size={11} />
                   {t.tabValuation}
                 </button>
-                <button
+                <button aria-pressed={!!(viewMode === "health")}
                   onClick={() => setViewMode("health")}
                   className={`px-3.5 py-1.5 rounded-full transition-all duration-300 cursor-pointer flex items-center gap-1.5 uppercase font-bold text-[10px] tracking-wider ${
                     viewMode === "health"
@@ -611,7 +611,7 @@ export default function WatchlistDashboard({
                   <HeartPulse size={11} />
                   {language === "EN" ? "Health" : "Salud"}
                 </button>
-                <button
+                <button aria-pressed={!!(viewMode === "financials")}
                   onClick={() => setViewMode("financials")}
                   className={`px-3.5 py-1.5 rounded-full transition-all duration-300 cursor-pointer flex items-center gap-1.5 uppercase font-bold text-[10px] tracking-wider ${
                     viewMode === "financials"
@@ -865,7 +865,7 @@ export default function WatchlistDashboard({
             </div>
 
             {/* Timeframe Selectors */}
-            <div className="flex bg-[#121420] p-1 rounded-xl border border-slate-800/60 text-[10px] font-bold">
+            <div data-toggle className="flex bg-[#121420] p-1 rounded-xl border border-slate-800/60 text-[10px] font-bold">
               {[
                 { key: "day", label: "1d" },
                 { key: "month", label: "1M" },
@@ -874,7 +874,7 @@ export default function WatchlistDashboard({
                 { key: "1y", label: "1y" },
                 { key: "ath", label: "ATH" },
               ].map((tf) => (
-                <button
+                <button aria-pressed={!!(performanceTimeframe === tf.key)}
                   key={tf.key}
                   type="button"
                   onClick={() => setPerformanceTimeframe(tf.key as any)}

@@ -746,8 +746,8 @@ No constituye asesoría de inversión.`;
                 <Calendar size={13} className="text-emerald-400" />
                 <span>{language === "EN" ? "Periodicity:" : "Periodicidad:"}</span>
               </span>
-              <div className="flex items-center gap-1 bg-[#090a10]/95 p-1 rounded-xl border border-slate-800 shadow-inner">
-                <button
+              <div data-toggle className="flex items-center gap-1 bg-[#090a10]/95 p-1 rounded-xl border border-slate-800 shadow-inner">
+                <button aria-pressed={!!(periodicity === "annual")}
                   onClick={() => setPeriodicity("annual")}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border ${
                     periodicity === "annual"
@@ -758,7 +758,7 @@ No constituye asesoría de inversión.`;
                   <Calendar size={13} />
                   <span>{language === "EN" ? "Annual (5Y + TTM)" : "Anual (5 Años + TTM)"}</span>
                 </button>
-                <button
+                <button aria-pressed={!!(periodicity === "quarterly")}
                   onClick={() => setPeriodicity("quarterly")}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border ${
                     periodicity === "quarterly"
@@ -778,7 +778,7 @@ No constituye asesoría de inversión.`;
                 <Sliders size={13} className="text-emerald-400" />
                 <span>{language === "EN" ? "Scenario:" : "Escenario:"}</span>
               </span>
-              <div className="flex items-center gap-1 bg-[#090a10]/95 p-1 rounded-xl border border-slate-800 shadow-inner">
+              <div data-toggle className="flex items-center gap-1 bg-[#090a10]/95 p-1 rounded-xl border border-slate-800 shadow-inner">
                 {(["base", "bull", "bear", "custom"] as const).map(s => {
                   const active = scenario === s;
                   const labels = {
@@ -788,7 +788,7 @@ No constituye asesoría de inversión.`;
                     custom: language === "EN" ? "Custom ⚙️" : "Personalizado ⚙️"
                   };
                   return (
-                    <button
+                    <button aria-pressed={!!(active)}
                       key={s}
                       onClick={() => setScenario(s)}
                       className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer border ${

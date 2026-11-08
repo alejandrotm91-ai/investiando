@@ -703,11 +703,11 @@ export default function MarketDashboard({
 
               {/* Escala temporal */}
               <div className="flex items-center gap-2 self-start md:self-auto flex-wrap md:flex-nowrap shrink-0">
-                <div className="flex items-center bg-slate-950/90 p-1 rounded-xl border border-slate-800 shadow-inner">
+                <div data-toggle className="flex items-center bg-slate-950/90 p-1 rounded-xl border border-slate-800 shadow-inner">
                   {(["1D", "1W", "1M", "YTD", "1Y"] as const).map((tf) => {
                     const active = sectorTimeframe === tf;
                     return (
-                      <button
+                      <button aria-pressed={!!(active)}
                         key={tf}
                         onClick={() => setSectorTimeframe(tf)}
                         className={`px-3 py-1 text-[11px] font-mono font-bold rounded-lg transition-all cursor-pointer ${

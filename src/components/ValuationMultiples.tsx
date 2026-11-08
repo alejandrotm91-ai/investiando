@@ -235,9 +235,9 @@ export default function ValuationMultiples({ ticker, language, theme }: Props) {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {metric === "pe" && (
-            <div className="flex bg-theme-input border border-theme-border rounded-xl p-0.5">
+            <div data-toggle className="flex bg-theme-input border border-theme-border rounded-xl p-0.5">
               {(["TTM", "FWD"] as const).map((b) => (
-                <button
+                <button aria-pressed={!!(basis === b)}
                   key={b}
                   onClick={() => setBasis(b)}
                   disabled={b === "FWD" && data.forwardPE === null}
@@ -251,9 +251,9 @@ export default function ValuationMultiples({ ticker, language, theme }: Props) {
               ))}
             </div>
           )}
-          <div className="flex bg-theme-input border border-theme-border rounded-xl p-0.5">
+          <div data-toggle className="flex bg-theme-input border border-theme-border rounded-xl p-0.5">
             {RANGES.map((r) => (
-              <button
+              <button aria-pressed={!!(range === r)}
                 key={r}
                 onClick={() => setRange(r)}
                 className={`px-2.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${

@@ -20,8 +20,8 @@ export default function EducationalDisclaimerModal({
   const renderLanguageToggle = () => {
     if (!onLanguageChange) return null;
     return (
-      <div className="flex items-center bg-slate-950/90 border border-slate-800/90 rounded-lg p-0.5 font-mono text-[11px] shrink-0 shadow-inner">
-        <button
+      <div data-toggle className="flex items-center bg-slate-950/90 border border-slate-800/90 rounded-lg p-0.5 font-mono text-[11px] shrink-0 shadow-inner">
+        <button aria-pressed={!!(language === "EN")}
           type="button"
           onClick={() => onLanguageChange("EN")}
           className={`px-2 py-0.5 rounded transition-all font-bold cursor-pointer ${
@@ -33,7 +33,7 @@ export default function EducationalDisclaimerModal({
         >
           EN
         </button>
-        <button
+        <button aria-pressed={!!(language === "ES")}
           type="button"
           onClick={() => onLanguageChange("ES")}
           className={`px-2 py-0.5 rounded transition-all font-bold cursor-pointer ${

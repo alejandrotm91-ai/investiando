@@ -255,8 +255,8 @@ export default function Sidebar({
       {/* Sidebar Footer (Language + Theme selectors matching mockup perfectly) */}
       <div className="p-4 border-t border-theme-border flex items-center justify-between gap-4 bg-theme-sidebar">
         {/* Language selector: EN vs ES */}
-        <div className="flex bg-theme-bg p-1 rounded-xl border border-theme-border text-[11px] font-bold">
-          <button
+        <div data-toggle className="flex bg-theme-bg p-1 rounded-xl border border-theme-border text-[11px] font-bold">
+          <button aria-pressed={!!(language === "EN")}
             onClick={() => onLanguageChange("EN")}
             className={`px-3 py-1.5 rounded-lg transition-all duration-150 cursor-pointer ${
               language === "EN" 
@@ -266,7 +266,7 @@ export default function Sidebar({
           >
             EN
           </button>
-          <button
+          <button aria-pressed={!!(language === "ES")}
             onClick={() => onLanguageChange("ES")}
             className={`px-3 py-1.5 rounded-lg transition-all duration-150 cursor-pointer ${
               language === "ES" 
@@ -279,8 +279,8 @@ export default function Sidebar({
         </div>
 
         {/* Theme selector: Light vs Dark */}
-        <div className="flex bg-theme-bg p-1 rounded-xl border border-theme-border">
-          <button
+        <div data-toggle className="flex bg-theme-bg p-1 rounded-xl border border-theme-border">
+          <button aria-pressed={!!(theme === "light")}
             onClick={() => onThemeChange("light")}
             className={`p-1.5 rounded-lg transition-all duration-150 cursor-pointer ${
               theme === "light" 
@@ -291,7 +291,7 @@ export default function Sidebar({
           >
             <Sun size={14} />
           </button>
-          <button
+          <button aria-pressed={!!(theme === "dark")}
             onClick={() => onThemeChange("dark")}
             className={`p-1.5 rounded-lg transition-all duration-150 cursor-pointer ${
               theme === "dark" 

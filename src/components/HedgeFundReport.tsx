@@ -976,8 +976,8 @@ export default function HedgeFundReport({
         </div>
 
         {/* SUITE SUB-TABS */}
-        <div className="bg-slate-950/60 p-1.5 rounded-xl border border-slate-900/80 flex gap-1.5 self-start lg:self-center">
-          <button
+        <div data-toggle className="bg-slate-950/60 p-1.5 rounded-xl border border-slate-900/80 flex gap-1.5 self-start lg:self-center">
+          <button aria-pressed={!!(activeSubTab === "memo")}
             onClick={() => setActiveSubTab("memo")}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all duration-150 cursor-pointer flex items-center gap-1.5 ${
               activeSubTab === "memo"
@@ -988,7 +988,7 @@ export default function HedgeFundReport({
             <FileText size={13} />
             {language === "EN" ? "Research Memo" : "Memorándum CIO"}
           </button>
-          <button
+          <button aria-pressed={!!(activeSubTab === "stress")}
             onClick={() => setActiveSubTab("stress")}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all duration-150 cursor-pointer flex items-center gap-1.5 ${
               activeSubTab === "stress"
@@ -999,7 +999,7 @@ export default function HedgeFundReport({
             <ShieldAlert size={13} />
             {language === "EN" ? "Stress Tester" : "Simulador de Stress"}
           </button>
-          <button
+          <button aria-pressed={!!(activeSubTab === "factors")}
             onClick={() => setActiveSubTab("factors")}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all duration-150 cursor-pointer flex items-center gap-1.5 ${
               activeSubTab === "factors"
@@ -1010,7 +1010,7 @@ export default function HedgeFundReport({
             <Layers size={13} />
             {language === "EN" ? "Risk Factors" : "Factores de Riesgo"}
           </button>
-          <button
+          <button aria-pressed={!!(activeSubTab === "ai_analyst")}
             onClick={() => setActiveSubTab("ai_analyst")}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all duration-150 cursor-pointer flex items-center gap-1.5 ${
               activeSubTab === "ai_analyst"

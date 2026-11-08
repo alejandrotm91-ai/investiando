@@ -1994,8 +1994,8 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
 
           {/* Basis vs Valuation vs Health vs Financials Toggle */}
           <div className="flex flex-wrap items-center gap-3">
-            <div id="simulator-mode-toggle" className="simulator-mode-toggle inline-flex bg-[#0a0c14] border border-slate-800 rounded-full p-1 text-[11px] font-bold shadow-inner">
-              <button
+            <div data-toggle id="simulator-mode-toggle" className="simulator-mode-toggle inline-flex bg-[#0a0c14] border border-slate-800 rounded-full p-1 text-[11px] font-bold shadow-inner">
+              <button aria-pressed={!!(simTabMode === "basis")}
                 onClick={() => setSimTabMode("basis")}
                 className={`px-3.5 py-1.5 rounded-full transition-all duration-300 cursor-pointer flex items-center gap-1.5 uppercase font-bold text-[10px] md:text-[11px] tracking-wider ${
                   simTabMode === "basis"
@@ -2006,7 +2006,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                 <Briefcase size={12} />
                 Basis
               </button>
-              <button
+              <button aria-pressed={!!(simTabMode === "valuation")}
                 onClick={() => setSimTabMode("valuation")}
                 className={`px-3.5 py-1.5 rounded-full transition-all duration-300 cursor-pointer flex items-center gap-1.5 uppercase font-bold text-[10px] md:text-[11px] tracking-wider ${
                   simTabMode === "valuation"
@@ -2017,7 +2017,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                 <Sparkles size={12} />
                 {language === "EN" ? "Valuation" : "Valoración"}
               </button>
-              <button
+              <button aria-pressed={!!(simTabMode === "health")}
                 onClick={() => setSimTabMode("health")}
                 className={`px-3.5 py-1.5 rounded-full transition-all duration-300 cursor-pointer flex items-center gap-1.5 uppercase font-bold text-[10px] md:text-[11px] tracking-wider ${
                   simTabMode === "health"
@@ -2028,7 +2028,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                 <Award size={12} />
                 {language === "EN" ? "Health" : "Salud"}
               </button>
-              <button
+              <button aria-pressed={!!(simTabMode === "financials")}
                 onClick={() => setSimTabMode("financials")}
                 className={`px-3.5 py-1.5 rounded-full transition-all duration-300 cursor-pointer flex items-center gap-1.5 uppercase font-bold text-[10px] md:text-[11px] tracking-wider ${
                   simTabMode === "financials"
@@ -2043,8 +2043,8 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
 
             {/* View Toggles for Financials Mode */}
             {simTabMode === "financials" && (
-              <div id="simulator-view-toggle" className="simulator-view-toggle flex bg-[#0a0c14] p-1 rounded-full border border-slate-800 text-[11px] font-bold">
-                <button
+              <div data-toggle id="simulator-view-toggle" className="simulator-view-toggle flex bg-[#0a0c14] p-1 rounded-full border border-slate-800 text-[11px] font-bold">
+                <button aria-pressed={!!(financialsViewMode === "cards")}
                   onClick={() => setFinancialsViewMode("cards")}
                   className={`px-3 py-1.5 rounded-full transition-all duration-150 cursor-pointer flex items-center gap-1.5 ${
                     financialsViewMode === "cards"
@@ -2055,7 +2055,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                   <LayoutGrid size={13} />
                   {language === "EN" ? "Cards" : "Tarjetas"}
                 </button>
-                <button
+                <button aria-pressed={!!(financialsViewMode === "table")}
                   onClick={() => setFinancialsViewMode("table")}
                   className={`px-3 py-1.5 rounded-full transition-all duration-150 cursor-pointer flex items-center gap-1.5 ${
                     financialsViewMode === "table"
@@ -3313,8 +3313,8 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
         <div className="space-y-6" id="portfolio-projections-section">
           {/* Tabs Selector: Portfolio / Margin / Total (only show selector if margin positions exist, identical to Holdings) */}
           {marginPositions.length > 0 && (
-            <div className="flex bg-[#121420] p-1 rounded-2xl border border-slate-800/80 w-fit text-xs font-bold font-mono">
-              <button
+            <div data-toggle className="flex bg-[#121420] p-1 rounded-2xl border border-slate-800/80 w-fit text-xs font-bold font-mono">
+              <button aria-pressed={!!(projectionTab === "portfolio")}
                 type="button"
                 onClick={() => setProjectionTab("portfolio")}
                 className={`px-4 py-1.5 rounded-xl transition-all cursor-pointer ${
@@ -3325,7 +3325,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
               >
                 {language === "EN" ? "Portfolio" : "Portafolio"}
               </button>
-              <button
+              <button aria-pressed={!!(projectionTab === "margin")}
                 type="button"
                 onClick={() => setProjectionTab("margin")}
                 className={`px-4 py-1.5 rounded-xl transition-all cursor-pointer ${
@@ -3336,7 +3336,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
               >
                 {language === "EN" ? "Margin" : "Margen"}
               </button>
-              <button
+              <button aria-pressed={!!(projectionTab === "total")}
                 type="button"
                 onClick={() => setProjectionTab("total")}
                 className={`px-4 py-1.5 rounded-xl transition-all cursor-pointer ${
@@ -3372,8 +3372,8 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                 </div>
                 
                 {/* Year Selectors */}
-                <div className="flex bg-[#121420] p-1 rounded-xl border border-slate-800/60 text-[10px] font-bold">
-                  <button
+                <div data-toggle className="flex bg-[#121420] p-1 rounded-xl border border-slate-800/60 text-[10px] font-bold">
+                  <button aria-pressed={!!(years === 5)}
                     type="button"
                     onClick={() => setYears(5)}
                     className={`px-3 py-1.5 rounded-lg transition-all duration-150 cursor-pointer ${
@@ -3384,7 +3384,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                   >
                     5Y
                   </button>
-                  <button
+                  <button aria-pressed={!!(years === 10)}
                     type="button"
                     onClick={() => setYears(10)}
                     className={`px-3 py-1.5 rounded-lg transition-all duration-150 cursor-pointer ${

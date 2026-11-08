@@ -826,8 +826,8 @@ export default function AccountSettings({ language, user }: { language: "EN" | "
             )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-1.5 self-start sm:self-auto bg-slate-950 p-1 rounded-xl border border-slate-900">
-            <button
+          <div data-toggle className="flex flex-wrap items-center gap-1.5 self-start sm:self-auto bg-slate-950 p-1 rounded-xl border border-slate-900">
+            <button aria-pressed={!!(userStatusFilter === "ALL")}
               type="button"
               onClick={() => setUserStatusFilter("ALL")}
               className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-all ${
@@ -838,7 +838,7 @@ export default function AccountSettings({ language, user }: { language: "EN" | "
             >
               {language === "ES" ? "Todos" : "All"} ({registeredUsers.length})
             </button>
-            <button
+            <button aria-pressed={!!(userStatusFilter === "ACTIVE")}
               type="button"
               onClick={() => setUserStatusFilter("ACTIVE")}
               className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-all ${
@@ -849,7 +849,7 @@ export default function AccountSettings({ language, user }: { language: "EN" | "
             >
               {language === "ES" ? "Activos" : "Active"} ({registeredUsers.filter((u) => u.status !== "suspended").length})
             </button>
-            <button
+            <button aria-pressed={!!(userStatusFilter === "SUSPENDED")}
               type="button"
               onClick={() => setUserStatusFilter("SUSPENDED")}
               className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-all ${
@@ -860,7 +860,7 @@ export default function AccountSettings({ language, user }: { language: "EN" | "
             >
               {language === "ES" ? "Suspendidos" : "Suspended"} ({registeredUsers.filter((u) => u.status === "suspended").length})
             </button>
-            <button
+            <button aria-pressed={!!(userStatusFilter === "VERIFIED")}
               type="button"
               onClick={() => setUserStatusFilter("VERIFIED")}
               className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-all ${
@@ -871,7 +871,7 @@ export default function AccountSettings({ language, user }: { language: "EN" | "
             >
               {language === "ES" ? "Verificados" : "Verified"} ({registeredUsers.filter((u) => u.emailVerified).length})
             </button>
-            <button
+            <button aria-pressed={!!(userStatusFilter === "PENDING")}
               type="button"
               onClick={() => setUserStatusFilter("PENDING")}
               className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-all ${

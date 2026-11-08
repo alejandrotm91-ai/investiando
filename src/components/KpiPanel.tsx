@@ -215,9 +215,9 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
               {isES ? `${pending} comunicados por leer` : `${pending} releases to read`}
             </span>
           )}
-          <div className="flex bg-theme-input border border-theme-border rounded-xl p-0.5" title={isES ? "Crecimiento sobre las barras" : "Growth above the bars"}>
+          <div data-toggle className="flex bg-theme-input border border-theme-border rounded-xl p-0.5" title={isES ? "Crecimiento sobre las barras" : "Growth above the bars"}>
             {(["QoQ", "YoY"] as const).map((m) => (
-              <button
+              <button aria-pressed={!!(growthMode === m)}
                 key={m}
                 onClick={() => setGrowthMode(m)}
                 className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer transition-all ${growthMode === m ? "bg-theme-border text-theme-text-bright" : "text-theme-text-muted hover:text-theme-text-bright"}`}

@@ -348,9 +348,9 @@ export default function FairValueGraph({ ticker, points, forwardPE, currency, la
         <div className="text-[11px] font-bold uppercase tracking-wider text-theme-text-muted">{isES ? "Precio frente a valor razonable" : "Price vs. fair value"}</div>
         <div className="flex flex-wrap items-center gap-2">
           {base.key === "eps" && (
-            <div className="flex bg-theme-input border border-theme-border rounded-xl p-0.5">
+            <div data-toggle className="flex bg-theme-input border border-theme-border rounded-xl p-0.5">
               {(["GAAP", "FWD"] as const).map((b) => (
-                <button
+                <button aria-pressed={!!(basis === b)}
                   key={b}
                   onClick={() => setBasis(b)}
                   disabled={b === "FWD" && !forwardPE}
@@ -362,9 +362,9 @@ export default function FairValueGraph({ ticker, points, forwardPE, currency, la
               ))}
             </div>
           )}
-          <div className="flex bg-theme-input border border-theme-border rounded-xl p-0.5">
+          <div data-toggle className="flex bg-theme-input border border-theme-border rounded-xl p-0.5">
             {RANGES.map((r) => (
-              <button
+              <button aria-pressed={!!(range === r)}
                 key={r}
                 onClick={() => setRange(r)}
                 className={`px-2.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${range === r ? "bg-theme-border text-theme-text-bright" : "text-theme-text-muted hover:text-theme-text-bright"}`}

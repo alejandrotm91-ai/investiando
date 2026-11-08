@@ -542,8 +542,8 @@ export default function EarningsCalendar({ language, positions = [] }: { languag
       {/* Controls / Filter Bar */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         {/* Dataset Tabs */}
-        <div className="flex gap-2 p-1 bg-slate-950 border border-slate-900 rounded-xl w-fit">
-          <button
+        <div data-toggle className="flex gap-2 p-1 bg-slate-950 border border-slate-900 rounded-xl w-fit">
+          <button aria-pressed={!!(activeTab === "holdings")}
             onClick={() => setActiveTab("holdings")}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold uppercase tracking-wider transition-all cursor-pointer ${
               activeTab === "holdings"
@@ -554,7 +554,7 @@ export default function EarningsCalendar({ language, positions = [] }: { languag
             <Briefcase size={14} />
             <span>{t.tabHoldings} ({holdingsReports.length})</span>
           </button>
-          <button
+          <button aria-pressed={!!(activeTab === "all")}
             onClick={() => setActiveTab("all")}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold uppercase tracking-wider transition-all cursor-pointer ${
               activeTab === "all"
@@ -568,8 +568,8 @@ export default function EarningsCalendar({ language, positions = [] }: { languag
         </div>
 
         {/* Beat / Miss Status Quick Filters */}
-        <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-950 border border-slate-900 rounded-xl">
-          <button
+        <div data-toggle className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-950 border border-slate-900 rounded-xl">
+          <button aria-pressed={!!(statusFilter === "all")}
             onClick={() => setStatusFilter("all")}
             className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
               statusFilter === "all"
@@ -579,7 +579,7 @@ export default function EarningsCalendar({ language, positions = [] }: { languag
           >
             {t.filterAll}
           </button>
-          <button
+          <button aria-pressed={!!(statusFilter === "double_beat")}
             onClick={() => setStatusFilter("double_beat")}
             className={`px-3 py-1.5 rounded-lg text-[11px] font-extrabold transition-all cursor-pointer ${
               statusFilter === "double_beat"
@@ -589,7 +589,7 @@ export default function EarningsCalendar({ language, positions = [] }: { languag
           >
             🔥 {t.filterDoubleBeat}
           </button>
-          <button
+          <button aria-pressed={!!(statusFilter === "eps_beat")}
             onClick={() => setStatusFilter("eps_beat")}
             className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
               statusFilter === "eps_beat"
@@ -599,7 +599,7 @@ export default function EarningsCalendar({ language, positions = [] }: { languag
           >
             {t.filterEpsBeat}
           </button>
-          <button
+          <button aria-pressed={!!(statusFilter === "rev_beat")}
             onClick={() => setStatusFilter("rev_beat")}
             className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
               statusFilter === "rev_beat"
@@ -609,7 +609,7 @@ export default function EarningsCalendar({ language, positions = [] }: { languag
           >
             {t.filterRevBeat}
           </button>
-          <button
+          <button aria-pressed={!!(statusFilter === "miss")}
             onClick={() => setStatusFilter("miss")}
             className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
               statusFilter === "miss"

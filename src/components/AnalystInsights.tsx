@@ -350,8 +350,8 @@ export default function AnalystInsights({ positions, language = "EN" }: AnalystI
         </div>
 
         {/* View Mode Toggle Buttons */}
-        <div className="flex bg-[#121420] p-1 rounded-xl border border-slate-800/60 text-[11px] font-bold">
-          <button
+        <div data-toggle className="flex bg-[#121420] p-1 rounded-xl border border-slate-800/60 text-[11px] font-bold">
+          <button aria-pressed={!!(viewMode === "cards")}
             onClick={() => setViewMode("cards")}
             className={`px-3 py-1.5 rounded-lg transition-all duration-150 cursor-pointer flex items-center gap-1.5 ${
               viewMode === "cards" 
@@ -362,7 +362,7 @@ export default function AnalystInsights({ positions, language = "EN" }: AnalystI
             <LayoutGrid size={13} />
             {t.viewCards}
           </button>
-          <button
+          <button aria-pressed={!!(viewMode === "table")}
             onClick={() => setViewMode("table")}
             className={`px-3 py-1.5 rounded-lg transition-all duration-150 cursor-pointer flex items-center gap-1.5 ${
               viewMode === "table" 
