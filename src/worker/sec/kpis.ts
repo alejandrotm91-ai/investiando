@@ -267,6 +267,11 @@ export async function processKpiRelease(db: D1Database, env: ClaudeEnv & { SEC_U
       await set({ status: "pending", error: "sin saldo en la cuenta de Anthropic" });
       return "no-credit";
     }
+    // Región no admitida por la API (no debería pasar con el proxy de EE. UU.): se reintenta después
+    if (/Request not allowed/i.test(String(e?.message || e))) {
+      await set({ status: "pending", error: "región no admitida por la API de Anthropic" });
+      return "no-credit";
+    }
     await set({ status: "error", error: String(e?.message || e).slice(0, 500) });
     return "error";
   }

@@ -13,6 +13,9 @@
     "run_worker_first": ["/api/*"]
   },
   "observability": { "enabled": true },
+  // Las llamadas a Claude salen por un proxy con ubicación fija en EE. UU. (workers/claude-proxy):
+  // las tareas programadas se ejecutan en cualquier región y desde algunas Anthropic responde 403
+  "services": [{ "binding": "CLAUDE_PROXY", "service": "investiando-claude-proxy" }],
   // Cada 10 minutos: alta y carga de los 10-K/10-Q de la SEC (src/worker/sec/sync.ts)
   "triggers": { "crons": ["*/10 * * * *"] },
   "d1_databases": [

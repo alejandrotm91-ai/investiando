@@ -5,7 +5,16 @@ import { fetchBudgetLeft, useFetchBudget } from "./client";
 
 export const SEC_MODEL = "claude-opus-5-5";
 
-export interface ClaudeEnv { ANTHROPIC_API_KEY?: string; ANTHROPIC_WORKSPACE_ID?: string }
+export interface ClaudeEnv { ANTHROPIC_API_KEY?: string; ANTHROPIC_WORKSPACE_ID?: string; CLAUDE_PROXY?: Fetcher }
+
+/**
+ * fetch para el SDK de Anthropic: por el proxy de EE. UU. si está enlazado (las tareas programadas
+ * corren en cualquier región y desde algunas la API responde 403 "Request not allowed").
+ */
+export function claudeFetch(proxy?: Fetcher): typeof fetch | undefined {
+  if (!proxy) return undefined;
+  return ((input: RequestInfo | URL, init?: RequestInit) => proxy.fetch(new Request(input as any, init))) as typeof fetch;
+}
 
 export async function askClaudeJson<T>(
   env: ClaudeEnv,
@@ -17,7 +26,12 @@ export async function askClaudeJson<T>(
   // Dentro de la tarea programada cada intento cuenta en el límite de conexiones: 1 reintento como mucho
   const limited = Number.isFinite(fetchBudgetLeft());
   if (limited) useFetchBudget(2);
-  const client = new Anthropic({ apiKey, maxRetries: limited ? 1 : 3, ...(workspaceId ? { defaultHeaders: { "anthropic-workspace-id": workspaceId } } : {}) });
+  const client = new Anthropic({
+    apiKey,
+    maxRetries: limited ? 1 : 3,
+    fetch: claudeFetch(env.CLAUDE_PROXY) as any,
+    ...(workspaceId ? { defaultHeaders: { "anthropic-workspace-id": workspaceId } } : {}),
+  });
   const msg = await client.beta.messages.create({
     model: SEC_MODEL,
     max_tokens: opts.maxTokens,

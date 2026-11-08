@@ -20,7 +20,9 @@ const app = new Hono<AppEnv>();
 app.get("/api/health", async (c) => {
   // Comprueba también que la base D1 responde.
   const db = await c.env.DB.prepare("SELECT 1 AS ok").first<{ ok: number }>().catch(() => null);
-  return c.json({ status: "ok", d1: db?.ok === 1 });
+  // Desde dónde sale el proxy de Claude (debe ser EE. UU.)
+  const claudeProxy = c.req.query("proxy") && c.env.CLAUDE_PROXY ? await c.env.CLAUDE_PROXY.fetch("https://proxy.internal/__trace").then((r) => r.text()).catch((e) => String(e)) : undefined;
+  return c.json({ status: "ok", d1: db?.ok === 1, ...(claudeProxy !== undefined ? { claudeProxy } : {}) });
 });
 
 // Fase 3: usuarios en D1 (registro, sesión, recuperación de contraseña y datos de la app).

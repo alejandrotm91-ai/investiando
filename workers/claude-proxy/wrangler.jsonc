@@ -1,0 +1,12 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  // Proxy de Claude (ver index.ts). Desplegar con: npx wrangler deploy -c workers/claude-proxy/wrangler.jsonc
+  "name": "investiando-claude-proxy",
+  "main": "index.ts",
+  "compatibility_date": "2026-10-01",
+  // Sin dirección pública: solo el enlace de servicio del Worker principal
+  "workers_dev": false,
+  "preview_urls": false,
+  // Ubicación fija en EE. UU. (la API de Anthropic no atiende todas las regiones)
+  "placement": { "region": "aws:us-east-1" }
+}

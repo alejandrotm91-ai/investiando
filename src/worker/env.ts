@@ -3,6 +3,7 @@ import type { SessionUser } from "./auth/session";
 export interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
+  CLAUDE_PROXY?: Fetcher; // proxy de la API de Claude ubicado en EE. UU. (workers/claude-proxy)
   // Secretos (npx wrangler secret put NOMBRE)
   SESSION_SECRET: string;
   ANTHROPIC_API_KEY?: string;

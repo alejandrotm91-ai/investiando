@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { env } from "cloudflare:workers";
+import { claudeFetch } from "./sec/claude";
 
 /**
  * IA de investiando con Claude (API de Anthropic). Único punto donde se elige el modelo.
@@ -114,6 +115,7 @@ export async function generateContent({ contents, config, effort = "medium" }: G
   const client = new Anthropic({
     apiKey,
     maxRetries: 3,
+    fetch: claudeFetch((env as any).CLAUDE_PROXY) as any,
     ...(workspaceId ? { defaultHeaders: { "anthropic-workspace-id": workspaceId } } : {}),
   });
 
