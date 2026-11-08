@@ -29,7 +29,6 @@ import { getMarketStatus } from "../utils/market";
 import { PortfolioData, Holding } from "../types";
 import { SECTOR_TOP_HOLDINGS, SectorHoldingsConfig, SectorTopHolding } from "../data/sp500SectorHoldings";
 import SectorHeatmap from "./SectorHeatmap";
-import CommodityCards from "./CommodityCards";
 
 interface IndexCardProps {
   key?: any;
@@ -684,8 +683,8 @@ export default function MarketDashboard({
                 </div>
               </div>
 
-              {/* Controls: vista (mapa de calor / barras) + escala temporal */}
-              <div className="flex items-center gap-2.5 self-start md:self-auto flex-wrap">
+              {/* Controls: vista (mapa de calor / barras) + escala temporal, en la misma fila */}
+              <div className="flex items-center gap-2 self-start md:self-auto flex-wrap md:flex-nowrap shrink-0">
                 <div className="flex items-center bg-slate-950/90 p-1 rounded-xl border border-slate-800 shadow-inner">
                   {([
                     { id: "heatmap", label: language === "ES" ? "Mapa" : "Heatmap" },
@@ -702,10 +701,6 @@ export default function MarketDashboard({
                     </button>
                   ))}
                 </div>
-                <span className="text-[11px] font-mono text-slate-400 font-semibold flex items-center gap-1.5">
-                  <Clock size={12} className="text-amber-400" />
-                  {language === "ES" ? "Escala global:" : "Global timeframe:"}
-                </span>
                 <div className="flex items-center bg-slate-950/90 p-1 rounded-xl border border-slate-800 shadow-inner">
                   {(["1D", "1W", "1M", "YTD", "1Y"] as const).map((tf) => {
                     const active = sectorTimeframe === tf;
@@ -1271,7 +1266,126 @@ export default function MarketDashboard({
               </div>
             </div>
 
-            <CommodityCards commodities={marketData.commodities} cryptos={marketData.cryptos} language={language === "ES" ? "ES" : "EN"} />
+            {/* Commodities Sub-group */}
+            <div className="mb-6">
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3 px-1 flex items-center justify-between font-mono">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                  <span className="text-slate-300">{language === "ES" ? "Materias Primas" : "Commodities"}</span>
+                </div>
+                <span className="text-[9px] text-slate-500 font-normal">
+                  {language === "ES" ? "% ATH / Máx 52S" : "% of ATH / 52W"}
+                </span>
+              </div>
+              <div className="space-y-1.5">
+                {marketData.commodities.map((item, idx) => {
+                  const isPos = item.pct >= 0;
+                  const athPct = item.athScorePct ?? 85;
+                  return (
+                    <div
+                      key={`${item.symbol}-${idx}`}
+                      className="py-2 px-2.5 bg-slate-950/30 hover:bg-slate-800/40 border border-slate-800/40 hover:border-slate-700/60 rounded-xl transition-all group"
+                    >
+                      <div className="flex items-center justify-between text-xs gap-2">
+                        <div className="min-w-0 flex-1 flex items-center gap-2">
+                          <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700 flex-shrink-0">
+                            {item.symbol}
+                          </span>
+                          <span className="text-slate-200 font-semibold block text-xs leading-tight truncate group-hover:text-white transition-colors">
+                            {language === "ES" ? item.nameES : item.nameEN}
+                          </span>
+                        </div>
+                        <div className="text-right font-mono flex items-center gap-2 flex-shrink-0">
+                          <span className="text-slate-200 font-bold block text-xs leading-none">${item.price}</span>
+                          <span className={`text-[11px] font-bold min-w-[52px] text-right ${isPos ? "text-emerald-400" : "text-rose-400"}`}>
+                            {isPos ? "+" : ""}{item.pct.toFixed(2)}%
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* ATH Visual Progress Bar */}
+                      <div className="mt-1.5 pt-1 flex items-center justify-between gap-2.5 text-[10px] font-mono">
+                        <div className="flex-1 h-1.5 bg-slate-950 rounded-full overflow-hidden relative border border-slate-800/50 shadow-inner">
+                          <div
+                            className="h-full rounded-full transition-all duration-500 bg-gradient-to-r from-blue-500 via-indigo-500 to-emerald-400 shadow-sm"
+                            style={{ width: `${Math.max(4, Math.min(100, athPct))}%` }}
+                          />
+                        </div>
+                        <div className="flex items-center gap-1 text-[9px] text-slate-400 flex-shrink-0">
+                          <span className="text-slate-500 font-medium">ATH:</span>
+                          <span className="text-emerald-400 font-bold">{athPct}%</span>
+                          {item.highFormatted && (
+                            <span className="text-slate-500 hidden sm:inline">(${item.highFormatted})</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Crypto Sub-group */}
+            <div>
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3 pt-4 border-t border-slate-800/30 px-1 flex items-center justify-between font-mono">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                  <span className="text-slate-300">{language === "ES" ? "Criptomonedas" : "Cryptocurrencies"}</span>
+                </div>
+                <span className="text-[9px] text-slate-500 font-normal">
+                  {language === "ES" ? "% ATH / Máx 52S" : "% of ATH / 52W"}
+                </span>
+              </div>
+              <div className="space-y-1.5">
+                {marketData.cryptos.map((item, idx) => {
+                  const isPos = item.pct >= 0;
+                  const athPct = item.athScorePct ?? 80;
+                  return (
+                    <div
+                      key={`${item.symbol}-${idx}`}
+                      className="py-2 px-2.5 bg-slate-950/30 hover:bg-slate-800/40 border border-slate-800/40 hover:border-slate-700/60 rounded-xl transition-all group"
+                    >
+                      <div className="flex items-center justify-between text-xs gap-2">
+                        <div className="min-w-0 flex-1 flex items-center gap-2">
+                          <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20 flex-shrink-0">
+                            {item.symbol}
+                          </span>
+                          <span className="text-slate-200 font-semibold block text-xs leading-tight truncate group-hover:text-white transition-colors">
+                            {language === "ES" ? item.nameES : item.nameEN}
+                          </span>
+                        </div>
+                        <div className="text-right font-mono flex items-center gap-2 flex-shrink-0">
+                          <span className="text-slate-200 font-bold block text-xs leading-none">
+                            {item.symbol.includes("USD") ? "$" : ""}{item.price}
+                          </span>
+                          <span className={`text-[11px] font-bold min-w-[52px] text-right ${isPos ? "text-emerald-400" : "text-rose-400"}`}>
+                            {isPos ? "+" : ""}{item.pct.toFixed(2)}%
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* ATH Visual Progress Bar */}
+                      <div className="mt-1.5 pt-1 flex items-center justify-between gap-2.5 text-[10px] font-mono">
+                        <div className="flex-1 h-1.5 bg-slate-950 rounded-full overflow-hidden relative border border-slate-800/50 shadow-inner">
+                          <div
+                            className="h-full rounded-full transition-all duration-500 bg-gradient-to-r from-blue-500 via-indigo-500 to-emerald-400 shadow-sm"
+                            style={{ width: `${Math.max(4, Math.min(100, athPct))}%` }}
+                          />
+                        </div>
+                        <div className="flex items-center gap-1 text-[9px] text-slate-400 flex-shrink-0">
+                          <span className="text-slate-500 font-medium">ATH:</span>
+                          <span className="text-emerald-400 font-bold">{athPct}%</span>
+                          {item.highFormatted && (
+                            <span className="text-slate-500 hidden sm:inline">(${item.highFormatted})</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
           </div>
 
           <div className="text-[10px] text-slate-500 font-mono border-t border-slate-800/40 pt-3 mt-6 text-center">
