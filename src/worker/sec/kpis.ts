@@ -236,6 +236,11 @@ export async function processKpiRelease(db: D1Database, env: ClaudeEnv & { SEC_U
     return v.ok ? "done" : "rejected";
   } catch (e: any) {
     if (isBudgetError(e)) return "budget";
+    // Sin saldo en la cuenta de Anthropic: queda pendiente (no es culpa del comunicado)
+    if (/credit balance/i.test(String(e?.message || e))) {
+      await set({ status: "pending", error: "sin saldo en la cuenta de Anthropic" });
+      return "no-credit";
+    }
     await set({ status: "error", error: String(e?.message || e).slice(0, 500) });
     return "error";
   }
@@ -264,7 +269,7 @@ export async function runKpisCron(db: D1Database, env: ClaudeEnv & { SEC_USER_AG
     // Índice + comunicado (+ 99.2) + Claude con un reintento
     if (fetchBudgetLeft() < 8) break;
     out[accn] = await processKpiRelease(db, env, accn);
-    if (out[accn] === "budget") break;
+    if (out[accn] === "budget" || out[accn] === "no-credit") break;
   }
   return out;
 }

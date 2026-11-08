@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 import { Loader2, Info, Gauge } from "lucide-react";
+import FairValueGraph from "./FairValueGraph";
 
 // Múltiplos de valoración a lo largo del tiempo. Datos: GET /api/valuation/:ticker
 // (src/worker/legacy/routes.ts): precio diario de Yahoo y fundamentales TTM de la SEC.
@@ -8,7 +9,7 @@ import { Loader2, Info, Gauge } from "lucide-react";
 type MetricKey = "pe" | "dy" | "pfcf" | "pocf" | "ps" | "ev" | "pb" | "peg";
 type RangeKey = "1M" | "6M" | "YTD" | "1Y" | "5Y" | "10Y" | "ALL";
 interface Point { d: string; p: number; pe?: number | null; dy?: number | null; pfcf?: number | null; pocf?: number | null; ps?: number | null; ev?: number | null; pb?: number | null; peg?: number | null }
-interface ValuationData { symbol: string; currency: string; asOf: string | null; forwardPE: number | null; points: Point[] }
+interface ValuationData { symbol: string; currency: string; asOf: string | null; forwardPE: number | null; points: (Point & Record<string, any>)[] }
 
 interface Props {
   ticker: string;
@@ -163,6 +164,9 @@ export default function ValuationMultiples({ ticker, language, theme }: Props) {
   };
 
   return (
+    <div className="space-y-6">
+    {/* Valor razonable: cifra por acción × múltiplo mediano histórico (mismos datos) */}
+    <FairValueGraph ticker={ticker} points={data.points} forwardPE={data.forwardPE} currency={data.currency} language={language} theme={theme} />
     <div className={`${card} space-y-5`}>
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-sm font-black uppercase tracking-wider text-theme-text-bright flex items-center gap-2">
@@ -312,6 +316,7 @@ export default function ValuationMultiples({ ticker, language, theme }: Props) {
           ? "Fundamentales de los 4 últimos trimestres (TTM) de los 10-Q/10-K de la SEC, cada uno desde la fecha en que se presentó el informe (sin ver el futuro). Ajustado por splits. Los tramos sin línea son periodos con beneficio, flujo o patrimonio negativos."
           : "Fundamentals of the last 4 quarters (TTM) from SEC 10-Q/10-K filings, each counted from the date the report was filed (no look-ahead). Split-adjusted. Gaps are periods with negative earnings, cash flow or equity."}
       </p>
+    </div>
     </div>
   );
 }

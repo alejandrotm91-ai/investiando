@@ -3366,10 +3366,20 @@ Respond strictly with valid JSON conforming to this schema:
           const prevEps = epsYearBefore(f);
           const g = f.eps && prevEps && prevEps > 0 ? f.eps / prevEps - 1 : null;
           pt.peg = pe && g && g > 0 ? r(pe / (g * 100)) : null;
+          // Por acción, para el gráfico de valor razonable (cifra × múltiplo objetivo)
+          const ps = (v: number | undefined) => (v !== undefined && f.shares ? r(v / f.shares, 4) : null);
+          pt.eps = r(f.eps, 4);
+          pt.fcfps = ps(f.fcf);
+          pt.ocfps = ps(f.ocf);
+          pt.sps = ps(f.rev);
+          pt.ebps = ps(f.ebitda);
+          pt.bvps = ps(f.equity);
+          pt.ndps = ps((f.debt ?? 0) - (f.cash ?? 0));
         }
         const yearAgo = t - 365 * DAY;
         const dps = divs.filter((d) => d.t > yearAgo && d.t <= t).reduce((a, d) => a + d.amount, 0);
         pt.dy = r((dps / price) * 100);
+        pt.dps = r(dps, 4);
         points.push(pt);
       }
       const data = {
