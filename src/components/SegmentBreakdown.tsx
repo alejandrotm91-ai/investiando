@@ -133,7 +133,7 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
     const presentIn = (p: SegPeriod) => visible.filter((s) => valueOf(p, s.id, "revenue") !== undefined).map((s) => s.id);
     const sumOf = (p: SegPeriod, ids: string[]) => (ids.length ? ids.reduce((a, id) => a + (valueOf(p, id, "revenue") ?? 0), 0) : null);
     const visibleSum = (p: SegPeriod) => sumOf(p, presentIn(p));
-    const rows = periods.map((p) => {
+    const rows = periods.map((p, rowIndex) => {
       const row: Record<string, any> = { name: `${label(p)}${p.recast ? " †" : ""}`, date: p.date, total: p.total, matched: p.matched, recast: !!p.recast };
       for (const s of series) row[s.id] = isVisible(s.id) ? valueOf(p, s.id, "revenue") : undefined;
       // Crecimiento solo si el periodo anterior tiene las mismas líneas (si no, compararía estructuras distintas)
@@ -142,6 +142,7 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
       const same = !!prev && ids.length > 0 && ids.every((id) => valueOf(prev, id, "revenue") !== undefined);
       const cur = sumOf(p, ids), before = same && prev ? sumOf(prev, ids) : null;
       row.visibleSum = cur;
+      row.rowIndex = rowIndex;
       row.growth = cur !== null && before !== null && before > 0 && cur >= 0 ? cur / before - 1 : null;
       // Altura de la parte positiva de la pila: ahí va la etiqueta de crecimiento
       row[POS] = visible.reduce((a, s) => a + Math.max(0, row[s.id] ?? 0), 0);
@@ -214,9 +215,10 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
   // Muchas barras o pantalla estrecha: etiquetas sin decimales para que no se pisen
   const narrow = view.rows.length > 8 || (typeof window !== "undefined" && window.innerWidth < 640);
   // Recharts 3: la posición de la barra llega en viewBox
-  const GrowthLabel = ({ viewBox, index }: any) => {
+  // `value` es el número de fila: el índice de Recharts salta las barras vacías (años sin datos)
+  const GrowthLabel = ({ viewBox, value }: any) => {
     const { x, y, width } = viewBox ?? {};
-    const g = view.rows[index]?.growth;
+    const g = view.rows[value]?.growth;
     if (g === null || g === undefined || x === undefined || y === undefined) return null;
     return (
       <text x={x + width / 2} y={y - 6} textAnchor="middle" fontSize={narrow ? 9.5 : 10.5} fontWeight={700} fill={growthColor(g)} style={{ fontVariantNumeric: "tabular-nums" }}>
@@ -371,7 +373,7 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
                 propio (oculto) para que no ocupe sitio junto a las de verdad ni dependa del orden de apilado */}
             <XAxis xAxisId="growth" dataKey="name" hide />
             <Bar xAxisId="growth" dataKey={POS} fill="transparent" isAnimationActive={false} legendType="none" activeBar={false}>
-              <LabelList dataKey={POS} content={<GrowthLabel />} />
+              <LabelList dataKey="rowIndex" content={<GrowthLabel />} />
             </Bar>
           </BarChart>
         </ResponsiveContainer>
