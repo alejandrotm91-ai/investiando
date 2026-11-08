@@ -195,7 +195,16 @@ export interface NormalizeOptions {
   quarters?: number; // trimestres a devolver (por defecto 14)
 }
 
+/**
+ * Empresas cuyo total de ingresos es la etiqueta general (Revenues) aunque otra sea mayor: Mastercard
+ * etiqueta en RevenueFromContract… los ingresos brutos antes de incentivos a clientes (2018-2022) y en
+ * Revenues los netos, que son los de su cuenta de resultados. No vale como regla general: en BlackRock,
+ * GE o ConocoPhillips Revenues es una cifra parcial y el máximo es el total correcto.
+ */
+const NET_REVENUE_CIKS = new Set([1141391]);
+
 export function normalizeCompanyFacts(cf: CompanyFacts, opts: NormalizeOptions = {}): { annual: SecPeriod[]; quarterly: SecPeriod[] } {
+  const netRevenue = NET_REVENUE_CIKS.has(Number((cf as any).cik));
   const fys = detectFiscalYears(cf);
   const annualYears = opts.annualYears ?? 11;
   // ~11 años de trimestres (los modelos reciben 14, MODEL_QUARTERS en legacy/routes.ts; la pestaña
@@ -215,6 +224,7 @@ export function normalizeCompanyFacts(cf: CompanyFacts, opts: NormalizeOptions =
   // ingresos netos en Revenues y los brutos antes de incentivos en RevenueFromContract…, y el máximo
   // tomaba los brutos en los trimestres de 2022 (T4 negativo).
   const getDur = (c: ConceptDef, start: string, end: string, preferTag?: string): Picked | undefined => {
+    if (c.pick === "max" && netRevenue) preferTag = c.tags[0];
     if (c.pick === "max" && preferTag) {
       const v = idx.get(`${c.kind}:${preferTag}`)?.get(`${start}|${end}`);
       if (v) return { ...v, tag: preferTag };
