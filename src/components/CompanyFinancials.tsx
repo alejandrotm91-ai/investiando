@@ -65,7 +65,7 @@ export function CompanyFinancials({
   const setViewMode = onViewModeChange || setInternalViewMode;
   const [periodMode, setPeriodMode] = useState<"annual" | "quarterly">("quarterly");
   const [statementType, setStatementType] = useState<"income" | "balance" | "cashflow" | "dcf">("income");
-  const [financials, setFinancials] = useState<{ annual: any[]; annualAll?: any[]; quarterly: any[] } | null>(null);
+  const [financials, setFinancials] = useState<{ annual: any[]; annualAll?: any[]; quarterly: any[]; quarterlyAll?: any[] } | null>(null);
   // Tabla: ventana de columnas visibles (0 = las más recientes); las flechas muestran los años anteriores
   const [colOffset, setColOffset] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -242,7 +242,7 @@ export function CompanyFinancials({
       const raw = prefetchedData[selectedTicker];
       const sortedAnnual = [...(raw.annual || [])].sort(sortFn);
       const sortedQuarterly = [...(raw.quarterly || [])].sort(sortFn);
-      setFinancials({ annual: sortedAnnual, annualAll: (raw as any).annualAll ? [...(raw as any).annualAll].sort(sortFn) : undefined, quarterly: sortedQuarterly });
+      setFinancials({ annual: sortedAnnual, annualAll: (raw as any).annualAll ? [...(raw as any).annualAll].sort(sortFn) : undefined, quarterly: sortedQuarterly, quarterlyAll: (raw as any).quarterlyAll ? [...(raw as any).quarterlyAll].sort(sortFn) : undefined });
       
       if (sortedAnnual.length >= 2) {
         const revCurrent = sortedAnnual[0].totalRevenue;
@@ -277,7 +277,7 @@ export function CompanyFinancials({
         const sortedAnnual = [...(data.annual || [])].sort(sortFn);
         const sortedQuarterly = [...(data.quarterly || [])].sort(sortFn);
         
-        setFinancials({ annual: sortedAnnual, annualAll: data.annualAll ? [...data.annualAll].sort(sortFn) : undefined, quarterly: sortedQuarterly });
+        setFinancials({ annual: sortedAnnual, annualAll: data.annualAll ? [...data.annualAll].sort(sortFn) : undefined, quarterly: sortedQuarterly, quarterlyAll: data.quarterlyAll ? [...data.quarterlyAll].sort(sortFn) : undefined });
 
         if (sortedAnnual.length >= 2) {
           const revCurrent = sortedAnnual[0].totalRevenue;
@@ -303,7 +303,10 @@ export function CompanyFinancials({
   const activeData = periodMode === "annual" ? financials?.annual : financials?.quarterly;
   // Tabla: todos los ejercicios disponibles (hasta 11 de la SEC), de TABLE_COLS en TABLE_COLS con las flechas
   const TABLE_COLS = 6;
-  const tableData = (periodMode === "annual" && financials?.annualAll?.length ? financials.annualAll : activeData) ?? [];
+  const tableData =
+    (periodMode === "annual" && financials?.annualAll?.length ? financials.annualAll
+      : periodMode === "quarterly" && financials?.quarterlyAll?.length ? financials.quarterlyAll
+      : activeData) ?? [];
   const maxOffset = Math.max(0, tableData.length - TABLE_COLS);
   const offset = Math.min(colOffset, maxOffset);
   const visibleCols = tableData.slice(offset, offset + TABLE_COLS);

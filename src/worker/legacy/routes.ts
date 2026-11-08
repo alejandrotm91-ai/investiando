@@ -13,6 +13,7 @@ import { secForModels } from "../sec/sync";
 import { mergeSecWithYahoo, adjustForSplits } from "../sec/merge";
 
 const MODEL_YEARS = 6; // ejercicios de la SEC que reciben los modelos
+const MODEL_QUARTERS = 14; // trimestres de la SEC que reciben los modelos (la SEC guarda hasta 44)
 import { SUPERINVESTORS } from "../../superinvestors";
 import { SUPERINVESTOR_SCORES } from "../../utils/superinvestorScore";
 import { SECTOR_TOP_HOLDINGS } from "../../data/sp500SectorHoldings";
@@ -2542,7 +2543,8 @@ export function registerLegacyRoutes(app: LegacyApp) {
       // Los modelos usan 6 ejercicios, como antes (la SEC guarda 11 para los segmentos): con más años
       // cambiarían cálculos como el CAGR del BPA, que va del primer al último ejercicio recibido
       const cleanAnnual = sec ? adjustForSplits(mergeSecWithYahoo(sec.annual.slice(0, MODEL_YEARS), yahooAnnual), splits) : yahooAnnual;
-      const cleanQuarterly = sec ? adjustForSplits(mergeSecWithYahoo(sec.quarterly, yahooQuarterly), splits) : yahooQuarterly;
+      const cleanQuarterly = sec ? adjustForSplits(mergeSecWithYahoo(sec.quarterly.slice(0, MODEL_QUARTERS), yahooQuarterly), splits) : yahooQuarterly;
+      const quarterlyAll = sec && sec.quarterly.length > MODEL_QUARTERS ? adjustForSplits(mergeSecWithYahoo(sec.quarterly, yahooQuarterly), splits) : undefined;
       // Todos los ejercicios de la SEC (hasta 11), solo para mostrarlos en Estados Financieros
       const annualAll = sec && sec.annual.length > MODEL_YEARS ? adjustForSplits(mergeSecWithYahoo(sec.annual, yahooAnnual), splits) : undefined;
       const secSource = sec
@@ -2648,6 +2650,7 @@ export function registerLegacyRoutes(app: LegacyApp) {
         annual: cleanAnnual,
         annualAll,
         quarterly: cleanQuarterly,
+        quarterlyAll,
         avgPe,
         peHistory,
         currentPrice: currentPrice || null,
@@ -3267,6 +3270,124 @@ Respond strictly with valid JSON conforming to this schema:
   });
 
   // Fetch Yahoo Finance financials (fundamentalsTimeSeries) for single or multiple tickers
+  // ---------------------------------------------------------------- Múltiplos de valoración
+  // Serie diaria (semanal antes de 2 años) de P/E (BPA diluido), rentabilidad por dividendo, P/FCF,
+  // P/OCF, P/S, EV/EBITDA, P/B y PEG. Precio de Yahoo (ajustado por splits); fundamentales de la SEC
+  // (ya ajustados por splits): TTM de los 4 últimos trimestres y, antes, el ejercicio anual. Cada
+  // cifra cuenta desde que fue pública: fecha del 10-Q/10-K original (o cierre + 45 días; anual + 60).
+  const valuationCache: Record<string, { at: number; data: any }> = {};
+  app.get("/api/valuation/:symbol", async (req, res) => {
+    const sym = String(req.params.symbol || "").toUpperCase().trim();
+    if (!sym) return res.status(400).json({ error: "Ticker required" });
+    const hit = valuationCache[sym];
+    if (hit && Date.now() - hit.at < 60 * 60 * 1000) return res.json(hit.data);
+    try {
+      const yahooSym = sym.replace(/\./g, "-");
+      const start = new Date(Date.now() - 11.5 * 365.25 * 86400000);
+      const [fin, chart, quote]: any[] = await Promise.all([
+        fetchSingleTickerFinancials(sym),
+        yahooFinance.chart(yahooSym, { period1: start, interval: "1d", events: "div|split" } as any, { validateResult: false }).catch(() => null),
+        yahooFinance.quote(yahooSym, {}, { validateResult: false }).catch(() => null),
+      ]);
+      const quotes: { date: Date; close: number }[] = (chart?.quotes ?? []).filter((q: any) => typeof q.close === "number" && q.close > 0);
+      if (!quotes.length) return res.status(404).json({ error: "No price history" });
+      const DAY = 86400000;
+      const num = (v: any) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+      // Fundamentales en el tiempo
+      type Fund = { from: number; eps?: number; rev?: number; fcf?: number; ocf?: number; ebitda?: number; equity?: number; debt?: number; cash?: number; shares?: number; kind: "Q" | "FY"; end: number };
+      const pick = (p: any) => ({
+        equity: num(p.stockholdersEquity),
+        debt: num(p.totalDebt) ?? 0,
+        cash: (num(p.cashAndCashEquivalents) ?? 0) + (num(p.shortTermInvestments) ?? 0),
+        shares: num(p.ordinarySharesNumber) ?? num(p.dilutedAverageShares),
+      });
+      const annual: any[] = [...((fin?.annualAll?.length ? fin.annualAll : fin?.annual) ?? [])].sort((a, b) => a.date.localeCompare(b.date));
+      const quarterly: any[] = [...((fin?.quarterlyAll?.length ? fin.quarterlyAll : fin?.quarterly) ?? [])].sort((a, b) => a.date.localeCompare(b.date));
+      // Desde cuándo es pública una cifra: fecha del informe original de la SEC si es razonable
+      // (entre el cierre y 4 meses después); si no, cierre + 45 días (anual: + 60)
+      const publicFrom = (p: any, lagDays: number) => {
+        const end = new Date(p.date).getTime();
+        const filed = p.filed ? new Date(p.filed).getTime() : NaN;
+        return Number.isFinite(filed) && filed >= end && filed <= end + 120 * DAY ? filed : end + lagDays * DAY;
+      };
+      const sum4 = (qs: any[], k: string) => (qs.every((q) => num(q[k]) !== undefined) ? qs.reduce((a, q) => a + q[k], 0) : undefined);
+      const ttm: Fund[] = [];
+      for (let i = 3; i < quarterly.length; i++) {
+        const qs = quarterly.slice(i - 3, i + 1);
+        // 4 trimestres seguidos (~1 año entre el primero y el último)
+        const span = (new Date(qs[3].date).getTime() - new Date(qs[0].date).getTime()) / DAY;
+        if (span < 250 || span > 300) continue;
+        const end = new Date(qs[3].date).getTime();
+        ttm.push({ from: publicFrom(qs[3], 45), end, kind: "Q", eps: sum4(qs, "dilutedEPS"), rev: sum4(qs, "totalRevenue"), fcf: sum4(qs, "freeCashFlow"), ocf: sum4(qs, "operatingCashFlow"), ebitda: sum4(qs, "EBITDA"), ...pick(qs[3]) });
+      }
+      const firstTtm = ttm[0]?.from ?? Infinity;
+      const yearly: Fund[] = annual
+        .map((a) => {
+          const end = new Date(a.date).getTime();
+          return { from: publicFrom(a, 60), end, kind: "FY" as const, eps: num(a.dilutedEPS), rev: num(a.totalRevenue), fcf: num(a.freeCashFlow), ocf: num(a.operatingCashFlow), ebitda: num(a.EBITDA), ...pick(a) };
+        })
+        .filter((f) => f.from < firstTtm);
+      const funds = [...yearly, ...ttm].sort((a, b) => a.from - b.from);
+      // BPA de hace un año (para el PEG): el dato con cierre ~12 meses antes
+      const epsYearBefore = (f: Fund) => funds.find((g) => Math.abs(g.end - (f.end - 365 * DAY)) < 45 * DAY && g.eps !== undefined)?.eps;
+      // Dividendos (Yahoo, por acción y ajustados por splits)
+      const divs: { t: number; amount: number }[] = Object.values(chart?.events?.dividends ?? {})
+        .map((d: any) => ({ t: new Date(d.date).getTime(), amount: Number(d.amount) }))
+        .filter((d) => Number.isFinite(d.amount) && d.amount > 0)
+        .sort((a, b) => a.t - b.t);
+      const r = (v: number | null | undefined, k = 2) => (v === null || v === undefined || !Number.isFinite(v) ? null : Number(v.toFixed(k)));
+      const twoYearsAgo = Date.now() - 2 * 365.25 * DAY;
+      const points: any[] = [];
+      let fi = -1;
+      let lastWeek = "";
+      for (let qi = 0; qi < quotes.length; qi++) {
+        const q = quotes[qi];
+        const t = new Date(q.date).getTime();
+        // Semanal antes de 2 años (menos puntos), diario después; siempre el último
+        if (t < twoYearsAgo && qi < quotes.length - 1) {
+          const d = new Date(t);
+          const wk = `${d.getUTCFullYear()}-${Math.floor((t / DAY + 4) / 7)}`;
+          if (wk === lastWeek) continue;
+          lastWeek = wk;
+        }
+        while (fi + 1 < funds.length && funds[fi + 1].from <= t) fi++;
+        const f = fi >= 0 ? funds[fi] : null;
+        const price = q.close;
+        const pt: any = { d: new Date(t).toISOString().slice(0, 10), p: r(price) };
+        if (f) {
+          const mcap = f.shares ? price * f.shares : undefined;
+          const pe = f.eps && f.eps > 0 ? price / f.eps : null;
+          pt.pe = r(pe);
+          pt.ps = mcap && f.rev && f.rev > 0 ? r(mcap / f.rev) : null;
+          pt.pfcf = mcap && f.fcf && f.fcf > 0 ? r(mcap / f.fcf) : null;
+          pt.pocf = mcap && f.ocf && f.ocf > 0 ? r(mcap / f.ocf) : null;
+          pt.pb = mcap && f.equity && f.equity > 0 ? r(mcap / f.equity) : null;
+          pt.ev = mcap && f.ebitda && f.ebitda > 0 ? r((mcap + (f.debt ?? 0) - (f.cash ?? 0)) / f.ebitda) : null;
+          const prevEps = epsYearBefore(f);
+          const g = f.eps && prevEps && prevEps > 0 ? f.eps / prevEps - 1 : null;
+          pt.peg = pe && g && g > 0 ? r(pe / (g * 100)) : null;
+        }
+        const yearAgo = t - 365 * DAY;
+        const dps = divs.filter((d) => d.t > yearAgo && d.t <= t).reduce((a, d) => a + d.amount, 0);
+        pt.dy = r((dps / price) * 100);
+        points.push(pt);
+      }
+      const data = {
+        symbol: sym,
+        currency: quote?.currency ?? "USD",
+        asOf: points[points.length - 1]?.d ?? null,
+        forwardPE: r(num(quote?.forwardPE)),
+        source: fin?.dataSource ?? null,
+        points,
+      };
+      valuationCache[sym] = { at: Date.now(), data };
+      return res.json(data);
+    } catch (e: any) {
+      console.error("valuation failed", sym, e);
+      return res.status(500).json({ error: "Failed to compute valuation", details: e?.message });
+    }
+  });
+
   app.post("/api/portfolio/financials", async (req, res) => {
     const { ticker, tickers } = req.body;
     const tickerList: string[] = Array.isArray(tickers)
@@ -3295,6 +3416,7 @@ Respond strictly with valid JSON conforming to this schema:
         annual: firstData.annual,
         annualAll: (firstData as any).annualAll,
         quarterly: firstData.quarterly,
+        quarterlyAll: (firstData as any).quarterlyAll,
         avgPe: firstData.avgPe,
         peHistory: firstData.peHistory,
         ...results

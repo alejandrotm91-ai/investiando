@@ -194,7 +194,9 @@ export interface NormalizeOptions {
 export function normalizeCompanyFacts(cf: CompanyFacts, opts: NormalizeOptions = {}): { annual: SecPeriod[]; quarterly: SecPeriod[] } {
   const fys = detectFiscalYears(cf);
   const annualYears = opts.annualYears ?? 11;
-  const nQuarters = opts.quarters ?? 14;
+  // ~11 años de trimestres (los modelos reciben 14, MODEL_QUARTERS en legacy/routes.ts; la pestaña
+  // Valoración y la tabla de Estados financieros, todos)
+  const nQuarters = opts.quarters ?? 44;
 
   // Índices por etiqueta
   const idx = new Map<string, Map<string, Picked>>();
@@ -277,7 +279,11 @@ export function normalizeCompanyFacts(cf: CompanyFacts, opts: NormalizeOptions =
             const fyV = getDur(c, fy.start, fy.end);
             const prev = qVals.map((q) => q[c.key]);
             if (fyV && prev.length === 3 && prev.every((x) => typeof x === "number")) {
-              p[c.key] = 4 * fyV.val - prev.reduce((s, x) => s + x, 0);
+              // Con un split por medio, los trimestres pueden venir en unidades distintas que el año
+              // (Nvidia FY2024: unos antes y otros después del 10:1); entonces, la media anual
+              const sameUnits = prev.every((x) => x > fyV.val * 0.67 && x < fyV.val * 1.5);
+              const q4 = 4 * fyV.val - prev.reduce((s, x) => s + x, 0);
+              p[c.key] = sameUnits && q4 > fyV.val * 0.67 && q4 < fyV.val * 1.5 ? q4 : fyV.val;
               p.derived.push(c.key);
               if (fyV.filed > (p.perShareFiled ?? "")) p.perShareFiled = fyV.filed;
             }
@@ -310,12 +316,14 @@ export function normalizeCompanyFacts(cf: CompanyFacts, opts: NormalizeOptions =
         }
       }
       // BPA del trimestre calculado (T4): beneficio / acciones medias del trimestre
-      if (p.dilutedEPS === undefined && typeof p.netIncomeCommonStockholders === "number" && p.dilutedAverageShares > 0) {
-        p.dilutedEPS = round4(p.netIncomeCommonStockholders / p.dilutedAverageShares);
+      // Sin "beneficio para accionistas comunes" trimestral (Broadcom), el beneficio neto
+      const niCommon = typeof p.netIncomeCommonStockholders === "number" ? p.netIncomeCommonStockholders : typeof p.netIncome === "number" ? p.netIncome : undefined;
+      if (p.dilutedEPS === undefined && niCommon !== undefined && p.dilutedAverageShares > 0) {
+        p.dilutedEPS = round4(niCommon / p.dilutedAverageShares);
         p.derived.push("dilutedEPS");
       }
-      if (p.basicEPS === undefined && typeof p.netIncomeCommonStockholders === "number" && p.basicAverageShares > 0) {
-        p.basicEPS = round4(p.netIncomeCommonStockholders / p.basicAverageShares);
+      if (p.basicEPS === undefined && niCommon !== undefined && p.basicAverageShares > 0) {
+        p.basicEPS = round4(niCommon / p.basicAverageShares);
         p.derived.push("basicEPS");
       }
       qVals.push({ ...p });

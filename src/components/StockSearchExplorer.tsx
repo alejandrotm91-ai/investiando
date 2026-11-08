@@ -33,7 +33,8 @@ import {
   SlidersHorizontal,
   Flame,
   FileSpreadsheet,
-  PieChart as PieChartIcon
+  PieChart as PieChartIcon,
+  Gauge,
 } from "lucide-react";
 import { 
   ResponsiveContainer, 
@@ -52,6 +53,7 @@ import { CompanyFinancials } from "./CompanyFinancials";
 import SingleStockBogleAnalysis from "./SingleStockBogleAnalysis";
 import ThreeStatementModel from "./ThreeStatementModel";
 import SegmentBreakdown from "./SegmentBreakdown";
+import ValuationMultiples from "./ValuationMultiples";
 import EarningsPreviewCard from "./EarningsPreviewCard";
 import { SearchResult } from "../types";
 import { saveUserCloudData, subscribeUserCloudData } from "../lib/cloudData";
@@ -269,7 +271,7 @@ export default function StockSearchExplorer({
   const [loadingBenchmarkChart, setLoadingBenchmarkChart] = useState<boolean>(false);
 
   // Active sub-tab in Stock View
-  const [activeSubTab, setActiveSubTab] = useState<"overview" | "financials" | "segments" | "threestatements" | "bogle">("overview");
+  const [activeSubTab, setActiveSubTab] = useState<"overview" | "financials" | "segments" | "valuation" | "threestatements" | "bogle">("overview");
 
   // Chart timeframe state
   const [chartRange, setChartRange] = useState<"1W" | "1M" | "6M" | "YTD" | "1Y" | "5Y" | "ALL">("1M");
@@ -1592,6 +1594,18 @@ export default function StockSearchExplorer({
             </button>
 
             <button
+              onClick={() => setActiveSubTab("valuation")}
+              className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 cursor-pointer transition-all shrink-0 border ${
+                activeSubTab === "valuation"
+                  ? "bg-emerald-500 text-slate-950 border-emerald-400 font-extrabold shadow-md"
+                  : "text-theme-text-muted border-transparent hover:text-theme-text-bright hover:bg-theme-card-hover"
+              }`}
+            >
+              <Gauge size={14} />
+              <span>{language === "EN" ? "Valuation" : "Valoración"}</span>
+            </button>
+
+            <button
               onClick={() => setActiveSubTab("threestatements")}
               className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 cursor-pointer transition-all shrink-0 border ${
                 activeSubTab === "threestatements"
@@ -2376,6 +2390,10 @@ export default function StockSearchExplorer({
           {/* 7b. TAB CONTENT: SEGMENTOS (capa 2 de la SEC) */}
           {activeSubTab === "segments" && stockData && (
             <SegmentBreakdown ticker={stockData.symbol} language={language} theme={theme} />
+          )}
+
+          {activeSubTab === "valuation" && stockData && (
+            <ValuationMultiples ticker={stockData.symbol} language={language} theme={theme} />
           )}
 
           {/* 8. TAB CONTENT: 3-STATEMENT MODEL & DCF VALUATION */}
