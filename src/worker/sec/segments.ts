@@ -52,8 +52,13 @@ const GENERIC_SUFFIX = /^(equipment|inc|incorporated|corp|corporation|co|company
 const AGGREGATE_MEMBER = /:ReportableSegmentAggregationBeforeOtherOperatingSegmentMember$/;
 const TAGS = new Set([...REVENUE_TAGS, OI_TAG]);
 
-/** Cifra de un miembro en un periodo: [eje, miembro, etiqueta, inicio, fin, valor, presentado] */
-export type SegFact = [AxisKey, string, string, string, string, number, string];
+/**
+ * Cifra de un miembro en un periodo: [eje, miembro, etiqueta, inicio, fin, valor, presentado].
+ * Eje "total" (miembro "total"): ingresos consolidados tal como los publica ese informe, para
+ * comparar el desglose con su propio total si después se rehízo (Pfizer 2018-2019 sin Upjohn).
+ */
+export type SegFact = [AxisKey | "total", string, string, string, string, number, string];
+export const TOTAL = "total";
 
 const attr = (s: string, name: string) => s.match(new RegExp(`\\b${name}="([^"]*)"`))?.[1];
 
@@ -63,7 +68,7 @@ const attr = (s: string, name: string) => s.match(new RegExp(`\\b${name}="([^"]*
  * otros segmentos), `prefer` elige la variante; sin él, la que aparece primero.
  */
 export function parseSegmentFacts(xml: string, filed: string, prefer?: "ops" | "plain"): SegFact[] {
-  const ctx = new Map<string, { axis: AxisKey; member: string; start: string; end: string; via?: string; half?: string; ops: boolean }>();
+  const ctx = new Map<string, { axis: AxisKey | "total"; member: string; start: string; end: string; via?: string; half?: string; ops: boolean }>();
   const ctxRe = /<(?:[\w-]+:)?context\b([^>]*)>([\s\S]*?)<\/(?:[\w-]+:)?context>/g;
   const raw: { id: string; body: string; dims: string[][] }[] = [];
   const productMembers = new Set<string>();
@@ -90,6 +95,13 @@ export function parseSegmentFacts(xml: string, filed: string, prefer?: "ops" | "
   // "ventas y otros ingresos de explotación" × EE. UU./resto); entonces solo junto a un segmento
   const segProduct = productWithSegment.size === 1 ? [...productWithSegment][0] : null;
   for (const { id, body, dims: all } of raw) {
+    // Sin dimensiones: ingresos consolidados del informe
+    if (all.length === 0) {
+      const start = body.match(/<(?:[\w-]+:)?startDate>\s*([\d-]+)\s*</)?.[1];
+      const end = body.match(/<(?:[\w-]+:)?endDate>\s*([\d-]+)\s*</)?.[1];
+      if (start && end && revCtx.has(id)) ctx.set(id, { axis: TOTAL, member: TOTAL, start, end, ops: false });
+      continue;
+    }
     const withSeg = all.some(([d]) => AXES[d] === "segment");
     const dims = all.filter(([d, mem]) => !(AXES[d] === "product" && (mem === soleProduct || (withSeg && mem === segProduct))));
     const main = dims.filter(([d]) => AXES[d]);
@@ -136,7 +148,7 @@ export function parseSegmentFacts(xml: string, filed: string, prefer?: "ops" | "
     if (!TAGS.has(tag)) continue;
     const c = ctx.get(attr(attrs, "contextRef") ?? "");
     const val = Number(raw.trim());
-    if (!c || !Number.isFinite(val)) continue;
+    if (!c || !Number.isFinite(val) || (c.axis === TOTAL && tag === OI_TAG)) continue;
     const key = `${c.axis}|${c.member}|${tag}|${c.start}|${c.end}`;
     if (c.half) {
       const cur = halves.get(key) ?? { fact: [c.axis, c.member, tag, c.start, c.end, 0, filed] as SegFact, parts: new Map<string, number>() };
@@ -256,6 +268,7 @@ export interface SegPeriod {
   operatingIncome: Record<string, number>; // miembro → beneficio operativo (si lo hay)
   total: number | null; // ingresos consolidados oficiales del periodo
   matched: boolean; // el desglose suma el total
+  asReported?: boolean; // cuadra con el total publicado en el mismo informe, no con el rehecho después
   recast?: boolean; // cifras rehechas con la estructura actual, del 8-K de reorganización (capa 4)
   src?: string; // fecha del informe más reciente del que salen las cifras
   derived?: boolean; // alguna cifra calculada por diferencia de acumulados (T4 = año − 9 meses)
@@ -326,8 +339,24 @@ interface PeriodRef { date: string; start: string; kind: "Q" | "FY"; fiscalYear:
  */
 export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: SecPeriod[], labels: Record<string, string>, asOf: string | null, recasts: RecastRef[] = []): SegmentData {
   // Cifra más reciente por (eje, miembro, etiqueta, inicio, fin), con los renombres unificados
+  // Totales publicados en cada informe: periodo → informe → etiqueta → valor
+  const reported = new Map<string, Map<string, Map<string, number>>>();
+  for (const f of facts) {
+    if (f[0] !== TOTAL) continue;
+    const k = `${f[3]}|${f[4]}`;
+    const byFiled = reported.get(k) ?? reported.set(k, new Map()).get(k)!;
+    (byFiled.get(f[6]) ?? byFiled.set(f[6], new Map()).get(f[6])!).set(f[2], f[5]);
+  }
+  /**
+   * Total del informe `filed` para el periodo, con la misma etiqueta que el desglose (con otra, un
+   * subconjunto de segmentos podría coincidir por casualidad con una cifra parcial).
+   */
+  const reportedTotals = (p: PeriodRef, filed: string, tag: string): number[] => {
+    const v = reported.get(`${p.start}|${p.date}`)?.get(filed)?.get(tag);
+    return typeof v === "number" && v > 0 ? [v] : [];
+  };
   const latest = new Map<string, SegFact>();
-  for (const f of applyAliases(regionsOffSegmentAxis(facts), labels)) {
+  for (const f of applyAliases(regionsOffSegmentAxis(facts.filter((x) => x[0] !== TOTAL)), labels)) {
     if (AGGREGATE_MEMBER.test(f[1])) continue; // guardado antes de que el lector lo descartara
     const k = `${f[0]}|${f[1]}|${f[2]}|${f[3]}|${f[4]}`;
     const cur = latest.get(k);
@@ -430,7 +459,24 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
         }
         return false;
       };
-      const choices = refs.map((p, pi) => (perPeriod[pi].length && p.total !== null ? bestSubset(perPeriod[pi], p.total, confirmParent) : null));
+      // Si el desglose no suma el total actual (rehecho después: escisiones, operaciones
+      // interrumpidas), se prueba con el total que publicó el mismo informe que el desglose
+      const asRep: (number | undefined)[] = [];
+      const differs = (t: number, total: number | null) => total === null || Math.abs(t - total) > Math.abs(t) * 0.003 + 1e6;
+      const choices = refs.map((p, pi) => {
+        if (!perPeriod[pi].length) return null;
+        const c = p.total !== null ? bestSubset(perPeriod[pi], p.total, confirmParent) : null;
+        if (c) return c;
+        for (const t of reportedTotals(p, newestOf[pi], tag)) {
+          if (!differs(t, p.total)) continue;
+          const c2 = bestSubset(perPeriod[pi], t, confirmParent);
+          if (c2) {
+            asRep[pi] = t;
+            return c2;
+          }
+        }
+        return null;
+      });
       // Productos/geografía que no cuadran: valen las mismas líneas que en al menos dos periodos que sí
       // cuadran, si cubren entre el 90 % y el 100 % de los ingresos (Netflix hasta 2022: regiones solo de
       // streaming, el DVD aparte). La diferencia se muestra aparte.
@@ -451,7 +497,13 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
         const vals = perPeriod[pi];
         if (vals.length === 0) continue;
         const chosen = choices[pi];
-        const partial = !chosen && axis !== "segment" ? partialOf(vals, p.total) : null;
+        let partial = !chosen && axis !== "segment" ? partialOf(vals, p.total) : null;
+        if (!chosen && !partial && axis !== "segment")
+          for (const t of reportedTotals(p, newestOf[pi], tag)) {
+            if (!differs(t, p.total) || !(partial = partialOf(vals, t))) continue;
+            asRep[pi] = t;
+            break;
+          }
         // Sin coincidencia: un solo miembro no es un desglose (p. ej. "ReportableSegment")
         if (!chosen && !partial && (vals.length < 2 || axis !== "segment")) continue; // productos/geografía: solo si cuadra
         const use = new Set(chosen ?? partial ?? withoutParents(vals, labels, freq, confirmParent));
@@ -464,7 +516,9 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
           if (o !== undefined) oi[m] = o;
         }
         if (chosen) matchedCount++;
-        const sp: SegPeriod = { date: p.date, start: p.start, kind: p.kind, fiscalYear: p.fiscalYear, fiscalQuarter: p.fiscalQuarter, revenue, operatingIncome: oi, total: p.total, matched: !!chosen };
+        const total = asRep[pi] ?? p.total;
+        const sp: SegPeriod = { date: p.date, start: p.start, kind: p.kind, fiscalYear: p.fiscalYear, fiscalQuarter: p.fiscalQuarter, revenue, operatingIncome: oi, total, matched: !!chosen };
+        if (asRep[pi] !== undefined) sp.asReported = true;
         if (recast && newestOf[pi] === `${recast.filed}R`) sp.recast = true; // recastKey() en recast.ts
         sp.src = newestOf[pi];
         if ([...use].some((m) => derivedOf[pi].has(m))) sp.derived = true;
@@ -565,7 +619,7 @@ export const normLabel = (s: string) =>
  * Devuelve miembro antiguo → miembro más reciente.
  */
 export function memberAliases(facts: SegFact[], labels: Record<string, string>): Map<string, string> {
-  interface Info { axis: AxisKey; filed: Set<string>; last: string; vals: Map<string, number> }
+  interface Info { axis: SegFact[0]; filed: Set<string>; last: string; vals: Map<string, number> }
   const info = new Map<string, Info>();
   for (const f of facts) {
     const k = `${f[0]}|${f[1]}`;
@@ -627,5 +681,5 @@ export function applyAliases(facts: SegFact[], labels: Record<string, string>): 
 
 /** Miembros de las cifras (para pedir sus etiquetas). */
 export function membersIn(facts: SegFact[]): Set<string> {
-  return new Set(facts.map((f) => f[1]));
+  return new Set(facts.filter((f) => f[0] !== TOTAL).map((f) => f[1]));
 }

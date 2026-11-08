@@ -4,7 +4,8 @@ import { Loader2, PieChart as PieIcon, Info, ExternalLink, RotateCcw } from "luc
 
 // Capa 2 de la SEC: ingresos por segmento, producto y geografía (XBRL de los 10-Q/10-K).
 // Datos: GET /api/sec/segments/:ticker (src/worker/sec/segments.ts). Los periodos con "†" vienen
-// rehechos del 8-K de reorganización (capa 4, src/worker/sec/recast.ts).
+// rehechos del 8-K de reorganización (capa 4, src/worker/sec/recast.ts); los de "‡" cuadran con el
+// total que publicó su propio informe, antes de que la empresa rehiciera ese año (escisiones).
 
 type AxisKey = "segment" | "product" | "geography";
 interface SegPeriod {
@@ -18,6 +19,7 @@ interface SegPeriod {
   total: number | null;
   matched: boolean;
   recast?: boolean; // rehecho con la estructura actual a partir del 8-K de reorganización (capa 4)
+  asReported?: boolean; // cifras del informe original: la empresa rehízo después el total (escisión)
 }
 interface SegAxis {
   tag: string;
@@ -136,7 +138,7 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
     const sumOf = (p: SegPeriod, ids: string[]) => (ids.length ? ids.reduce((a, id) => a + (valueOf(p, id, "revenue") ?? 0), 0) : null);
     const visibleSum = (p: SegPeriod) => sumOf(p, presentIn(p));
     const rows = periods.map((p, rowIndex) => {
-      const row: Record<string, any> = { name: `${label(p)}${p.recast ? " †" : ""}`, date: p.date, total: p.total, matched: p.matched, recast: !!p.recast };
+      const row: Record<string, any> = { name: `${label(p)}${p.recast ? " †" : ""}${p.asReported ? " ‡" : ""}`, date: p.date, total: p.total, matched: p.matched, recast: !!p.recast, asReported: !!p.asReported };
       for (const s of series) row[s.id] = isVisible(s.id) ? valueOf(p, s.id, "revenue") : undefined;
       // Crecimiento solo si el periodo anterior tiene las mismas líneas (si no, compararía estructuras distintas)
       const prev = previousOf(p);
@@ -172,6 +174,7 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
     const gap = latest.total !== null && !latest.matched ? latest.total - sumLatest : null;
     const hasOI = table.some((r) => r.oi !== undefined);
     const anyRecast = periods.some((p) => p.recast) || !!prior?.recast;
+    const anyAsReported = periods.some((p) => p.asReported);
     // CAGR de cada línea visible: de su primer a su último periodo con dato positivo en el gráfico
     // (un segmento que empieza más tarde lleva su propio rango). Menos de ~1 año: no se calcula.
     const cagr = visible.map((s) => {
@@ -188,7 +191,7 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
     const counts = new Map<string, number>();
     for (const c of cagr) if (c.value !== null && c.range) counts.set(c.range, (counts.get(c.range) ?? 0) + 1);
     const cagrRange = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-    return { periods, latest, prior, series, visible, rows, table, gap, hasOI, label, anyRecast, cagr, cagrRange };
+    return { periods, latest, prior, series, visible, rows, table, gap, hasOI, label, anyRecast, anyAsReported, cagr, cagrRange };
   }, [axisData, activeKind, theme, isES, selected]);
 
   const toggleSeries = (id: string) =>
@@ -264,6 +267,11 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
         {row.recast && (
           <div className="text-[10px] text-theme-text-muted mt-1">
             {isES ? "† Rehecho con la estructura actual (8-K)" : "† Recast to the current structure (8-K)"}
+          </div>
+        )}
+        {row.asReported && (
+          <div className="text-[10px] text-theme-text-muted mt-1">
+            {isES ? "‡ Según el informe original (después rehecho)" : "‡ As originally reported (later restated)"}
           </div>
         )}
         {selected.size > 0 && row.visibleSum !== null && (
@@ -440,6 +448,15 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
             </a>
             {isES ? "). El 10-Q/10-K original los presentó con la estructura anterior." : "). The original 10-Q/10-K reported them under the previous structure."}
           </span>
+        </p>
+      )}
+
+      {view.anyAsReported && (
+        <p className="text-[11px] text-theme-text-muted flex items-start gap-1.5">
+          <Info size={12} className="mt-0.5 shrink-0" />
+          {isES
+            ? "‡ Cifras y total tal como los publicó el informe original. La empresa rehízo después ese año (escisión o venta de un negocio), así que pueden no ser comparables con los siguientes."
+            : "‡ Figures and total as originally reported. The company later restated that year (spin-off or divestiture), so they may not be comparable with later years."}
         </p>
       )}
 
