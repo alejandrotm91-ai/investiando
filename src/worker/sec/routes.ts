@@ -6,6 +6,7 @@ import { SEC_UNIVERSE, SEC_UNIVERSE_AS_OF } from "./universe";
 import { getSegments, syncSegments } from "./segmentSync";
 import { getPreview, processPreview, queueFromSubmissions } from "./earnings";
 import { processRecast } from "./recast";
+import { getKpis, processKpiRelease } from "./kpis";
 
 // /api/sec/*: estados financieros oficiales (10-K/10-Q) normalizados.
 export const secRoutes = new Hono<AppEnv>();
@@ -39,6 +40,26 @@ secRoutes.post("/preview/process", requireAdmin, async (c) => {
   const { results } = await c.env.DB.prepare("SELECT accn FROM sec_previews WHERE ticker = ? AND status IN ('pending','error') ORDER BY filed DESC LIMIT 2").bind(t).all<{ accn: string }>();
   const out: Record<string, string> = {};
   for (const r of results) out[r.accn] = await processPreview(c.env.DB, c.env, r.accn);
+  return c.json(out);
+});
+
+// Capa 5: KPIs operativos de los comunicados de resultados (Uber, Netflix…)
+secRoutes.get("/kpis/:ticker", async (c) => {
+  const k = await getKpis(c.env.DB, c.req.param("ticker"));
+  if (!k) return c.json({ error: "Sin KPIs definidos para este ticker." }, 404);
+  return c.json(k);
+});
+
+// Procesar a mano comunicados pendientes de KPIs (solo admin): {ticker?, max?, reset?}
+secRoutes.post("/kpis/process", requireAdmin, async (c) => {
+  const body = await c.req.json().catch(() => ({}) as any);
+  const t = body.ticker ? String(body.ticker).toUpperCase() : null;
+  if (body.reset && t) await c.env.DB.prepare("UPDATE sec_kpis SET status = 'pending' WHERE ticker = ?").bind(t).run();
+  const { results } = await c.env.DB.prepare(`SELECT accn FROM sec_kpis WHERE status IN ('pending','error') ${t ? "AND ticker = ?" : ""} ORDER BY filed DESC LIMIT ?`)
+    .bind(...(t ? [t] : []), Math.min(6, Number(body.max) || 3))
+    .all<{ accn: string }>();
+  const out: Record<string, string> = {};
+  for (const r of results) out[r.accn] = await processKpiRelease(c.env.DB, c.env, r.accn);
   return c.json(out);
 });
 

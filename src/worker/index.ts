@@ -10,6 +10,7 @@ import { runSecCron } from "./sec/sync";
 import { runSegmentsCron } from "./sec/segmentSync";
 import { runPreviewsCron } from "./sec/earnings";
 import { runRecastsCron } from "./sec/recast";
+import { runKpisCron } from "./sec/kpis";
 import { startFetchBudget, endFetchBudget } from "./sec/client";
 
 // API de investiando en Cloudflare Workers. Las rutas de server.ts se migran aquí por fases;
@@ -66,6 +67,9 @@ export default {
         // Avances de resultados de los 8-K (capa 3): antes que los segmentos, que descargan mucho
         .then(() => runPreviewsCron(env.DB, env))
         .then((r) => console.log("SEC avances", JSON.stringify(r)), (e) => console.error("SEC avances error", e))
+        // KPIs operativos de los comunicados (capa 5): pocos comunicados por ejecución
+        .then(() => runKpisCron(env.DB, env))
+        .then((r) => Object.keys(r).length && console.log("SEC KPIs", JSON.stringify(r)), (e) => console.error("SEC KPIs error", e))
         // Histórico rehecho tras reorganizaciones (capa 4): pocas y baratas, antes que los segmentos
         // para que una recarga grande de segmentos no las deje sin conexiones
         .then(() => runRecastsCron(env.DB, env))

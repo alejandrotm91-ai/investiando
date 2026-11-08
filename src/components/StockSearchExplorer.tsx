@@ -55,6 +55,7 @@ import ThreeStatementModel from "./ThreeStatementModel";
 import SegmentBreakdown from "./SegmentBreakdown";
 import ValuationMultiples from "./ValuationMultiples";
 import EarningsPreviewCard from "./EarningsPreviewCard";
+import KpiPanel from "./KpiPanel";
 import { SearchResult } from "../types";
 import { saveUserCloudData, subscribeUserCloudData } from "../lib/cloudData";
 import { getRawFeatures, buildScores, overrideFeaturesWithFinancials, ScoredRow } from "../utils/engine";
@@ -2355,7 +2356,11 @@ export default function StockSearchExplorer({
 
           {/* 7b. TAB CONTENT: SEGMENTOS (capa 2 de la SEC) */}
           {activeSubTab === "segments" && stockData && (
-            <SegmentBreakdown ticker={stockData.symbol} language={language} theme={theme} />
+            <div className="space-y-6">
+              <SegmentBreakdown ticker={stockData.symbol} language={language} theme={theme} />
+              {/* KPIs operativos de los comunicados (solo empresas con KPIs definidos: Uber, Netflix…) */}
+              <KpiPanel ticker={stockData.symbol} language={language} theme={theme} />
+            </div>
           )}
 
           {activeSubTab === "valuation" && stockData && (
