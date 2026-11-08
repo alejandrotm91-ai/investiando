@@ -6,8 +6,12 @@ import { Activity, Info, ExternalLink, Loader2 } from "lucide-react";
 // ARM de Netflix… Salen de los comunicados de resultados (8-K) leídos con Claude y validados con los
 // ingresos de la SEC. Datos: GET /api/sec/kpis/:ticker (src/worker/sec/kpis.ts).
 
-interface KpiMeta { key: string; en: string; es: string; unit: "M" | "$M" | "$" | "%"; kind: "flow" | "stock" | "avg" }
-interface KpiChart { id: string; en: string; es: string; type: "bar" | "stack" | "line"; keys: string[]; derived?: "per_user_month" | "take_rate" }
+interface KpiMeta { key: string; en: string; es: string; unit: "M" | "$M" | "$" | "%" | "share" | "n" | "GWh" | "d"; kind: "flow" | "stock" | "avg" }
+interface KpiChart {
+  id: string; en: string; es: string; type: "bar" | "stack" | "line"; keys: string[];
+  derived?: "per_user_month" | "take_rate" | "margins";
+  series?: { key: string; en: string; es: string; rev: string; cost: string }[];
+}
 interface KpiPoint { date: string; values: Record<string, number>; confirmed: Record<string, boolean> }
 interface KpiData {
   ticker: string;
@@ -40,6 +44,10 @@ function fmt(v: number | undefined | null, unitIn: KpiMeta["unit"] | "x" | "frac
   const a = Math.abs(v), sign = v < 0 ? "−" : "";
   if (unit === "%") return `${(v * 100).toFixed(1)}%`;
   if (unit === "pct") return `${v > 0 ? "+" : ""}${v.toFixed(v % 1 ? 1 : 0)}%`;
+  if (unit === "share") return `${v.toFixed(v % 1 ? 1 : 0)}%`;
+  if (unit === "GWh") return `${v.toFixed(1)} GWh`;
+  if (unit === "d") return `${v.toFixed(0)} d`;
+  if (unit === "n") return a >= 1e6 ? `${sign}${(a / 1e6).toFixed(2)}M` : a >= 1e4 ? `${sign}${(a / 1e3).toFixed(0)}K` : a >= 1e3 ? `${sign}${(a / 1e3).toFixed(1)}K` : `${sign}${a.toFixed(0)}`;
   if (unit === "x") return v.toFixed(1);
   if (unit === "$") return `${sign}$${a.toFixed(2)}`;
   if (unit === "$M") return a >= 1e6 ? `${sign}$${(a / 1e6).toFixed(2)}T` : a >= 1000 ? `${sign}$${(a / 1000).toFixed(a >= 100000 ? 0 : 1)}B` : `${sign}$${a.toFixed(0)}M`;
@@ -76,8 +84,12 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
   const gridColor = theme === "light" ? "#e7e3da" : "#1e2230";
   const axisColor = theme === "light" ? "#6b675e" : "#8b90a0";
   // Nombre corto en leyendas: la parte tras "·" ("Reservas · Mobility" → "Mobility"); el total, "Global"
-  const name = (k: string) => (!meta[k] ? k : /·/.test(meta[k].en) ? (isES ? meta[k].es : meta[k].en).replace(/^.*· /, "") : c0(k));
-  const c0 = (k: string) => (k === "arm" || k === "memberships" ? "Global" : isES ? meta[k].es : meta[k].en);
+  const seriesName = (k: string) => {
+    for (const c of data.charts) for (const x of c.series ?? []) if (x.key === k) return isES ? x.es : x.en;
+    return null;
+  };
+  const name = (k: string) => seriesName(k) ?? (!meta[k] ? k : /·/.test(meta[k].en) ? (isES ? meta[k].es : meta[k].en).replace(/^.*· /, "") : c0(k));
+  const c0 = (k: string): string => (k === "arm" || k === "memberships" ? "Global" : isES ? meta[k].es : meta[k].en);
 
   // Serie de un gráfico: valores por trimestre (con los calculados)
   const seriesOf = (c: KpiChart) =>
@@ -87,6 +99,11 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
         if (c.derived === "per_user_month") {
           const t = p.values.trips, m = p.values.mapcs;
           if (t !== undefined && m) row.value = t / (m * 3);
+        } else if (c.derived === "margins") {
+          for (const s of c.series ?? []) {
+            const r = p.values[s.rev], k = p.values[s.cost];
+            if (r !== undefined && k !== undefined && r > 0) row[s.key] = (r - k) / r;
+          }
         } else if (c.derived === "take_rate") {
           const r = p.values.revenue, g = p.values.gross_bookings;
           if (r !== undefined && g) row.value = r / g;
@@ -99,10 +116,10 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
         }
         return row;
       })
-      .filter((r) => r.value !== undefined || c.keys.some((k) => r[k] !== undefined));
+      .filter((r) => r.value !== undefined || c.keys.some((k) => r[k] !== undefined) || (c.series ?? []).some((s) => r[s.key] !== undefined));
 
   const headline = (c: KpiChart, rows: Record<string, any>[]) => {
-    const unit: any = c.derived === "per_user_month" ? "x" : c.derived === "take_rate" ? "frac" : meta[c.keys[0]]?.unit ?? "M";
+    const unit: any = c.derived === "per_user_month" ? "x" : c.derived === "take_rate" || c.derived === "margins" ? "frac" : meta[c.keys[0]]?.unit ?? "M";
     const val = (r: Record<string, any>) => (c.derived ? r.value : c.type === "stack" ? r.total : c.type === "bar" ? r[c.keys[0]] : undefined);
     const last = [...rows].reverse().find((r) => val(r) !== undefined);
     if (!last) return null;
@@ -119,7 +136,7 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
     if (!active || !payload?.length) return null;
     const row = payload[0].payload;
     const c: KpiChart = chart;
-    const unit: any = c.derived === "per_user_month" ? "x" : c.derived === "take_rate" ? "frac" : null;
+    const unit: any = c.derived === "per_user_month" ? "x" : c.derived === "take_rate" || c.derived === "margins" ? "frac" : null;
     const items = [...payload].filter((p: any) => p.value !== undefined && p.value !== null).reverse();
     const allConfirmed = c.keys.every((k) => row.confirmed?.[k] !== false);
     return (
@@ -188,8 +205,8 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
             const rows = seriesOf(c);
             if (!rows.length) return null;
             const h = headline(c, rows);
-            const unit: any = c.derived === "per_user_month" ? "x" : c.derived === "take_rate" ? "frac" : meta[c.keys[0]]?.unit ?? "M";
-            const keys = c.derived ? ["value"] : c.keys.filter((k) => rows.some((r) => r[k] !== undefined));
+            const unit: any = c.derived === "per_user_month" ? "x" : c.derived === "take_rate" || c.derived === "margins" ? "frac" : meta[c.keys[0]]?.unit ?? "M";
+            const keys = c.derived === "margins" ? (c.series ?? []).map((x) => x.key).filter((k) => rows.some((r) => r[k] !== undefined)) : c.derived ? ["value"] : c.keys.filter((k) => rows.some((r) => r[k] !== undefined));
             return (
               <div key={c.id} className="border border-theme-border rounded-2xl p-4 space-y-2">
                 <div className="flex items-start justify-between gap-2">

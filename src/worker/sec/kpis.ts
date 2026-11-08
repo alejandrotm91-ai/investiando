@@ -20,7 +20,9 @@ export interface KpiDef {
   key: string;
   en: string;
   es: string;
-  unit: "M" | "$M" | "$" | "%"; // millones (personas, viajes), millones de dólares, dólares, crecimiento interanual en %
+  // millones (personas, viajes), millones de dólares, dólares, crecimiento interanual en %, cuota en %
+  // (sin signo), unidades sueltas (vehículos, estaciones), GWh, días
+  unit: "M" | "$M" | "$" | "%" | "share" | "n" | "GWh" | "d";
   kind: "flow" | "stock" | "avg"; // suma del trimestre, saldo al cierre, media del trimestre
   range: [number, number]; // en su unidad; fuera de él se descarta
   hint: string; // cómo lo llama el comunicado (para Claude)
@@ -31,14 +33,17 @@ export interface KpiChart {
   es: string;
   type: "bar" | "stack" | "line";
   keys: string[];
-  // KPIs calculados: viajes por usuario al mes, comisión sobre reservas (ingresos ÷ reservas)
-  derived?: "per_user_month" | "take_rate";
+  // KPIs calculados: viajes por usuario al mes, comisión sobre reservas (ingresos ÷ reservas) y
+  // márgenes brutos de cada par ingresos/coste (`series`)
+  derived?: "per_user_month" | "take_rate" | "margins";
+  series?: { key: string; en: string; es: string; rev: string; cost: string }[];
 }
 export interface CompanyKpis {
   kpis: KpiDef[];
   charts: KpiChart[];
   from?: string; // comunicados presentados desde esta fecha
   until?: string; // y hasta esta (Netflix dejó de publicar suscriptores en 2025)
+  minChars?: number; // comunicados más cortos se saltan sin llamar a Claude (avisos de entregas de Tesla)
   note?: { en: string; es: string };
 }
 
@@ -109,6 +114,67 @@ export const KPI_DEFS: Record<string, CompanyKpis> = {
       { id: "cars", en: "Rental car days", es: "Días de alquiler de coche", type: "bar", keys: ["car_days"] },
       { id: "flights", en: "Flight tickets", es: "Billetes de avión", type: "bar", keys: ["flights"] },
       { id: "take", en: "Take rate (revenue ÷ gross bookings)", es: "Comisión (ingresos ÷ reservas)", type: "line", keys: ["revenue", "gross_bookings"], derived: "take_rate" },
+    ],
+  },
+  // Apple no publica unidades desde 2019: margen bruto de productos y de servicios
+  AAPL: {
+    from: "2023-01-01",
+    kpis: [
+      { key: "products_rev", en: "Products net sales", es: "Ventas de productos", unit: "$M", kind: "flow", range: [20000, 300000], hint: "Products net sales in the quarter (three months), in millions of USD" },
+      { key: "services_rev", en: "Services net sales", es: "Ventas de servicios", unit: "$M", kind: "flow", range: [5000, 200000], hint: "Services net sales in the quarter (three months), in millions of USD" },
+      { key: "products_cost", en: "Products cost of sales", es: "Coste de productos", unit: "$M", kind: "flow", range: [10000, 250000], hint: "Products cost of sales in the quarter (three months), in millions of USD" },
+      { key: "services_cost", en: "Services cost of sales", es: "Coste de servicios", unit: "$M", kind: "flow", range: [1000, 100000], hint: "Services cost of sales in the quarter (three months), in millions of USD" },
+    ],
+    charts: [
+      {
+        id: "gm", en: "Gross margin: products vs. services", es: "Margen bruto: productos frente a servicios", type: "line", keys: ["products_rev", "products_cost", "services_rev", "services_cost"], derived: "margins",
+        series: [
+          { key: "gm_products", en: "Products", es: "Productos", rev: "products_rev", cost: "products_cost" },
+          { key: "gm_services", en: "Services", es: "Servicios", rev: "services_rev", cost: "services_cost" },
+        ],
+      },
+      { id: "mix", en: "Net sales: products / services", es: "Ventas: productos / servicios", type: "stack", keys: ["products_rev", "services_rev"] },
+    ],
+  },
+  AMZN: {
+    from: "2023-01-01",
+    kpis: [
+      { key: "fcf_ttm", en: "Free cash flow (TTM)", es: "Flujo de caja libre (12 meses)", unit: "$M", kind: "avg", range: [-300000, 300000], hint: "Free cash flow for the trailing twelve months ending in that quarter, in millions of USD (negative if outflow)" },
+      { key: "employees", en: "Employees", es: "Empleados", unit: "M", kind: "stock", range: [0.3, 5], hint: "Employees (full-time and part-time) at end of quarter, in millions (e.g. 1,638,000 -> 1.638)" },
+      { key: "shipping", en: "Worldwide shipping costs", es: "Costes de envío", unit: "$M", kind: "flow", range: [5000, 150000], hint: "WW shipping costs in the quarter, in millions of USD" },
+      { key: "units_growth", en: "Paid units growth", es: "Crecimiento de unidades vendidas", unit: "%", kind: "avg", range: [-50, 100], hint: "WW paid units year-over-year growth in the quarter, in %" },
+      { key: "seller_mix", en: "Third-party seller unit mix", es: "Cuota de vendedores externos", unit: "share", kind: "avg", range: [20, 90], hint: "WW seller unit mix, % of WW paid units sold by third-party sellers, in % (e.g. 61)" },
+    ],
+    charts: [
+      { id: "fcf", en: "Free cash flow (trailing 12 months)", es: "Flujo de caja libre (12 meses)", type: "bar", keys: ["fcf_ttm"] },
+      { id: "units", en: "Paid units growth", es: "Crecimiento de unidades vendidas", type: "line", keys: ["units_growth"] },
+      { id: "mix", en: "Third-party seller unit mix", es: "Cuota de vendedores externos", type: "line", keys: ["seller_mix"] },
+      { id: "employees", en: "Employees", es: "Empleados", type: "bar", keys: ["employees"] },
+      { id: "shipping", en: "Worldwide shipping costs", es: "Costes de envío", type: "bar", keys: ["shipping"] },
+    ],
+  },
+  // El 8-K de entregas de Tesla (unos 3.000 caracteres, sin ingresos) se salta: los datos vienen en
+  // la tabla de cinco trimestres de su presentación trimestral
+  TSLA: {
+    from: "2023-01-01",
+    minChars: 10000,
+    kpis: [
+      { key: "deliveries", en: "Vehicle deliveries", es: "Entregas de vehículos", unit: "n", kind: "flow", range: [100000, 5000000], hint: "Total vehicle deliveries in the quarter (units)" },
+      { key: "del_3y", en: "Deliveries · Model 3/Y", es: "Entregas · Model 3/Y", unit: "n", kind: "flow", range: [50000, 5000000], hint: "Model 3/Y deliveries in the quarter (units)" },
+      { key: "del_other", en: "Deliveries · Other models", es: "Entregas · Otros modelos", unit: "n", kind: "flow", range: [0, 1000000], hint: "Other models deliveries in the quarter (units)" },
+      { key: "production", en: "Vehicle production", es: "Producción de vehículos", unit: "n", kind: "flow", range: [100000, 5000000], hint: "Total vehicle production in the quarter (units)" },
+      { key: "storage_gwh", en: "Energy storage deployed", es: "Almacenamiento instalado", unit: "GWh", kind: "flow", range: [0.5, 200], hint: "Energy storage deployed in the quarter, in GWh" },
+      { key: "sc_connectors", en: "Supercharger connectors", es: "Conectores Supercharger", unit: "n", kind: "stock", range: [10000, 2000000], hint: "Supercharger connectors at end of quarter (count)" },
+      { key: "fsd_subs", en: "Active FSD subscriptions", es: "Suscripciones FSD activas", unit: "M", kind: "stock", range: [0.05, 100], hint: "Active FSD subscriptions at end of quarter, in millions" },
+      { key: "inventory_days", en: "Vehicle inventory (days of supply)", es: "Inventario (días de suministro)", unit: "d", kind: "avg", range: [1, 200], hint: "Global vehicle inventory, days of supply" },
+    ],
+    charts: [
+      { id: "del", en: "Deliveries (Model 3/Y / other)", es: "Entregas (Model 3/Y / otros)", type: "stack", keys: ["del_3y", "del_other"] },
+      { id: "storage", en: "Energy storage deployed", es: "Almacenamiento de energía instalado", type: "bar", keys: ["storage_gwh"] },
+      { id: "prod", en: "Production", es: "Producción", type: "bar", keys: ["production"] },
+      { id: "sc", en: "Supercharger connectors", es: "Conectores Supercharger", type: "bar", keys: ["sc_connectors"] },
+      { id: "fsd", en: "Active FSD subscriptions", es: "Suscripciones FSD activas", type: "bar", keys: ["fsd_subs"] },
+      { id: "inv", en: "Inventory (days of supply)", es: "Inventario (días de suministro)", type: "line", keys: ["inventory_days"] },
     ],
   },
   NFLX: {
@@ -294,6 +360,10 @@ export async function processKpiRelease(db: D1Database, env: ClaudeEnv & { SEC_U
     if (!pr) {
       await set({ status: "error", error: "sin anexo 99.1" });
       return "error";
+    }
+    if (def.minChars && pr.text.length < def.minChars) {
+      await set({ status: "skipped", error: `comunicado corto (${pr.text.length} caracteres): sin tablas de KPIs`, doc_url: pr.url });
+      return "skipped";
     }
     const r = await askClaudeJson<Extract>(env, {
       system: SYSTEM,
