@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
-import { Loader2, PieChart as PieIcon, Info, ExternalLink } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, LabelList } from "recharts";
+import { Loader2, PieChart as PieIcon, Info, ExternalLink, RotateCcw } from "lucide-react";
 
 // Capa 2 de la SEC: ingresos por segmento, producto y geografía (XBRL de los 10-Q/10-K).
 // Datos: GET /api/sec/segments/:ticker (src/worker/sec/segments.ts). Los periodos con "†" vienen
@@ -60,6 +60,9 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [axis, setAxis] = useState<AxisKey>("segment");
   const [kind, setKind] = useState<"Q" | "FY">("Q");
+  // Líneas ocultas en las barras (clic en la leyenda). Se reinicia al cambiar de empresa o de eje.
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  useEffect(() => setHidden(new Set()), [ticker, axis]);
 
   useEffect(() => {
     let alive = true;
@@ -112,13 +115,38 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
     };
     const label = (p: SegPeriod) =>
       p.kind === "Q" ? `${isES ? "T" : "Q"}${p.fiscalQuarter} FY${String(p.fiscalYear).slice(2)}` : `FY${p.fiscalYear}`;
+    // Crecimiento de lo visible: trimestral frente al trimestre anterior (QoQ), anual frente al año anterior (YoY)
+    const visible = series.filter((s) => !hidden.has(s.id));
+    const all = axisData.periods.filter((p) => p.kind === activeKind).sort((a, b) => a.date.localeCompare(b.date));
+    const previousOf = (p: SegPeriod) =>
+      all.find((q) =>
+        activeKind === "Q"
+          ? p.fiscalQuarter === 1
+            ? q.fiscalYear === p.fiscalYear - 1 && q.fiscalQuarter === 4
+            : q.fiscalYear === p.fiscalYear && q.fiscalQuarter === (p.fiscalQuarter ?? 0) - 1
+          : q.fiscalYear === p.fiscalYear - 1
+      );
+    const visibleSum = (p: SegPeriod) => {
+      let sum = 0;
+      for (const s of visible) {
+        const v = valueOf(p, s.id, "revenue");
+        if (v === undefined) return null; // una línea sin dato en el periodo: la suma no es comparable
+        sum += v;
+      }
+      return sum;
+    };
     const rows = periods.map((p) => {
       const row: Record<string, any> = { name: `${label(p)}${p.recast ? " †" : ""}`, date: p.date, total: p.total, matched: p.matched, recast: !!p.recast };
-      for (const s of series) row[s.id] = valueOf(p, s.id, "revenue");
+      for (const s of series) row[s.id] = hidden.has(s.id) ? undefined : valueOf(p, s.id, "revenue");
+      const prev = previousOf(p);
+      const cur = visibleSum(p), before = prev ? visibleSum(prev) : null;
+      row.visibleSum = cur;
+      row.growth = cur !== null && before !== null && before > 0 && cur >= 0 ? cur / before - 1 : null;
+      // Línea más alta de la parte positiva de la pila: sobre ella va la etiqueta de crecimiento
+      row.topId = [...visible].reverse().find((s) => (row[s.id] ?? 0) > 0)?.id ?? null;
       return row;
     });
-    // Mismo periodo del año anterior (para el crecimiento)
-    const all = axisData.periods.filter((p) => p.kind === activeKind);
+    // Mismo periodo del año anterior (para el crecimiento de la tabla)
     const prior = all.find((p) =>
       activeKind === "Q" ? p.fiscalQuarter === latest.fiscalQuarter && p.fiscalYear === latest.fiscalYear - 1 : p.fiscalYear === latest.fiscalYear - 1
     );
@@ -140,8 +168,17 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
     const gap = latest.total !== null && !latest.matched ? latest.total - sumLatest : null;
     const hasOI = table.some((r) => r.oi !== undefined);
     const anyRecast = periods.some((p) => p.recast) || !!prior?.recast;
-    return { periods, latest, prior, series, rows, table, gap, hasOI, label, anyRecast };
-  }, [axisData, activeKind, theme, isES]);
+    return { periods, latest, prior, series, visible, rows, table, gap, hasOI, label, anyRecast };
+  }, [axisData, activeKind, theme, isES, hidden]);
+
+  const toggleSeries = (id: string) =>
+    setHidden((h) => {
+      const next = new Set(h);
+      if (next.has(id)) next.delete(id);
+      else if (view && view.series.length - next.size > 1) next.add(id); // siempre queda al menos una
+      return next;
+    });
+  const growthName = activeKind === "Q" ? "QoQ" : "YoY";
 
   const axisNames: Record<AxisKey, string> = isES
     ? { segment: "Segmentos", product: "Productos", geography: "Geografía" }
@@ -171,6 +208,22 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
   const axisColor = theme === "light" ? "#6b675e" : "#8b90a0";
   const asOf = data.asOf ? new Date(`${data.asOf}T12:00:00Z`).toLocaleDateString(isES ? "es-ES" : "en-US") : "—";
 
+  const growthColor = (g: number) => (g >= 0 ? (theme === "light" ? "#15803d" : "#34d399") : theme === "light" ? "#b91c1c" : "#fb7185");
+  // Muchas barras o pantalla estrecha: etiquetas sin decimales para que no se pisen
+  const narrow = view.rows.length > 8 || (typeof window !== "undefined" && window.innerWidth < 640);
+  // Recharts 3: la posición de la barra llega en viewBox
+  const growthLabel = (id: string) => ({ viewBox, index }: any) => {
+    const { x, y, width } = viewBox ?? {};
+    const row = view.rows[index];
+    const g = row?.growth;
+    if (row?.topId !== id || g === null || g === undefined || x === undefined || y === undefined) return null;
+    return (
+      <text x={x + width / 2} y={y - 6} textAnchor="middle" fontSize={narrow ? 9.5 : 10.5} fontWeight={700} fill={growthColor(g)} style={{ fontVariantNumeric: "tabular-nums" }}>
+        {fmtPct(g, Math.abs(g) >= 0.995 || narrow ? 0 : 1)}
+      </text>
+    );
+  };
+
   const TooltipBox = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null;
     const row = payload[0].payload;
@@ -190,6 +243,18 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
         {row.recast && (
           <div className="text-[10px] text-theme-text-muted mt-1">
             {isES ? "† Rehecho con la estructura actual (8-K)" : "† Recast to the current structure (8-K)"}
+          </div>
+        )}
+        {hidden.size > 0 && row.visibleSum !== null && (
+          <div className="flex justify-between gap-3 pt-1.5 mt-1 border-t border-theme-border text-theme-text-bright">
+            <span>{isES ? "Suma de lo seleccionado" : "Selected total"}</span>
+            <span className="font-mono">{fmtMoney(row.visibleSum)}</span>
+          </div>
+        )}
+        {row.growth !== null && (
+          <div className="flex justify-between gap-3 py-0.5 text-theme-text-muted">
+            <span>{isES ? `Crecimiento ${growthName}` : `${growthName} growth`}</span>
+            <span className="font-mono" style={{ color: growthColor(row.growth) }}>{fmtPct(row.growth)}</span>
           </div>
         )}
         {row.total !== null && (
@@ -242,25 +307,43 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
         </div>
       </div>
 
-      {/* Leyenda (identidad nunca solo por color: la tabla repite los nombres) */}
-      <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-        {view.series.map((s) => (
-          <span key={s.id} className="flex items-center gap-1.5 text-[11px] text-theme-text-muted">
-            <span className="w-2.5 h-2.5 rounded-sm" style={{ background: s.color }} />
-            {s.label}
-          </span>
-        ))}
+      {/* Leyenda: cada línea se muestra u oculta en las barras (identidad nunca solo por color: la tabla repite los nombres) */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {view.series.map((s) => {
+          const off = hidden.has(s.id);
+          return (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => toggleSeries(s.id)}
+              aria-pressed={!off}
+              title={off ? (isES ? "Mostrar en las barras" : "Show in the bars") : isES ? "Ocultar de las barras" : "Hide from the bars"}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[11px] cursor-pointer transition-all ${off ? "border-theme-border text-theme-text-muted opacity-50 line-through" : "border-theme-border bg-theme-input text-theme-text-bright"}`}
+            >
+              <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: off ? "transparent" : s.color, boxShadow: `inset 0 0 0 1.5px ${s.color}` }} />
+              {s.label}
+            </button>
+          );
+        })}
+        {hidden.size > 0 && (
+          <button type="button" onClick={() => setHidden(new Set())} className="flex items-center gap-1 px-2 py-1 text-[11px] text-theme-text-muted hover:text-theme-text-bright cursor-pointer">
+            <RotateCcw size={11} /> {isES ? "Ver todo" : "Show all"}
+          </button>
+        )}
+        <span className="ml-auto text-[10px] text-theme-text-muted">
+          {isES ? `Sobre cada barra: crecimiento ${growthName} de lo seleccionado` : `Above each bar: ${growthName} growth of the selection`}
+        </span>
       </div>
 
       <div className="h-[280px] sm:h-[320px] -ml-2">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={view.rows} stackOffset="sign" barCategoryGap="28%">
+          <BarChart data={view.rows} stackOffset="sign" barCategoryGap="28%" margin={{ top: 18, right: 4, left: 0, bottom: 0 }}>
             <CartesianGrid vertical={false} stroke={gridColor} strokeDasharray="0" />
             <XAxis dataKey="name" tick={{ fill: axisColor, fontSize: 11 }} axisLine={false} tickLine={false} />
             <YAxis tickFormatter={(v) => fmtMoney(v)} tick={{ fill: axisColor, fontSize: 11 }} axisLine={false} tickLine={false} width={62} />
             <ReferenceLine y={0} stroke={axisColor} strokeOpacity={0.5} />
             <Tooltip content={<TooltipBox />} cursor={{ fill: theme === "light" ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.04)" }} />
-            {view.series.map((s, i) => (
+            {view.visible.map((s, i) => (
               <Bar
                 key={s.id}
                 dataKey={s.id}
@@ -268,9 +351,11 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
                 fill={s.color}
                 stroke={theme === "light" ? "#ffffff" : "#0f111a"}
                 strokeWidth={1}
-                radius={i === view.series.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                radius={i === view.visible.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
                 isAnimationActive={false}
-              />
+              >
+                <LabelList dataKey={s.id} content={growthLabel(s.id)} />
+              </Bar>
             ))}
           </BarChart>
         </ResponsiveContainer>
