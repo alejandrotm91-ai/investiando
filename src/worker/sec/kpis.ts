@@ -272,11 +272,11 @@ export const KPI_DEFS: Record<string, CompanyKpis> = {
   JPM: {
     from: "2023-01-01",
     kpis: [
-      { key: "nii", en: "Net interest income", es: "Margen de intereses", unit: "$M", kind: "flow", range: [5000, 150000], hint: "Firmwide net interest income (reported) in the quarter, in millions of USD" },
+      { key: "nii", en: "Net interest income", es: "Margen de intereses", unit: "$M", kind: "flow", range: [5000, 150000], hint: "Firmwide net interest income in the quarter, in millions of USD, as stated (managed basis is fine if that is the only figure; e.g. 'Net interest income was $27.1 billion' -> 27100)" },
       { key: "rotce", en: "ROTCE", es: "ROTCE", unit: "share", kind: "avg", range: [-20, 60], hint: "Return on tangible common equity (ROTCE) for the quarter as reported, in %" },
       { key: "cet1", en: "CET1 ratio (Standardized)", es: "Ratio CET1 (estándar)", unit: "share", kind: "stock", range: [5, 25], hint: "Standardized CET1 capital ratio at quarter end, in %" },
-      { key: "avg_loans", en: "Average loans", es: "Préstamos medios", unit: "$M", kind: "avg", range: [300000, 6000000], hint: "Firmwide average loans in the quarter, in millions of USD (e.g. $1.6 trillion -> 1600000)" },
-      { key: "avg_deposits", en: "Average deposits", es: "Depósitos medios", unit: "$M", kind: "avg", range: [500000, 8000000], hint: "Firmwide average deposits in the quarter, in millions of USD" },
+      { key: "avg_loans", en: "Average loans", es: "Préstamos medios", unit: "$M", kind: "avg", range: [300000, 6000000], hint: "Firmwide average loans in the quarter, in millions of USD, even if rounded (e.g. 'Average loans $1.6T' -> 1600000)" },
+      { key: "avg_deposits", en: "Average deposits", es: "Depósitos medios", unit: "$M", kind: "avg", range: [500000, 8000000], hint: "Firmwide average deposits in the quarter, in millions of USD, even if rounded (e.g. '$2.5T' -> 2500000); omit if only growth rates are given" },
       { key: "nco", en: "Net charge-offs", es: "Fallidos netos", unit: "$M", kind: "flow", range: [50, 50000], hint: "Firmwide net charge-offs in the quarter, in millions of USD" },
       { key: "card_nco_rate", en: "Card net charge-off rate", es: "Tasa de fallidos en tarjetas", unit: "share", kind: "avg", range: [0.1, 20], hint: "Card Services net charge-off rate in the quarter, in %" },
       { key: "tbvps", en: "Tangible book value per share", es: "Valor contable tangible por acción", unit: "$", kind: "stock", range: [20, 1000], hint: "Tangible book value per share at quarter end, in USD" },
