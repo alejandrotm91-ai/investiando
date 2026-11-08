@@ -6,7 +6,7 @@ import { Activity, Info, ExternalLink, Loader2 } from "lucide-react";
 // ARM de Netflix… Salen de los comunicados de resultados (8-K) leídos con Claude y validados con los
 // ingresos de la SEC. Datos: GET /api/sec/kpis/:ticker (src/worker/sec/kpis.ts).
 
-interface KpiMeta { key: string; en: string; es: string; unit: "M" | "$M" | "$" | "%" | "share" | "n" | "GWh" | "d"; kind: "flow" | "stock" | "avg" }
+interface KpiMeta { key: string; en: string; es: string; unit: "M" | "$M" | "$" | "%" | "share" | "n" | "GWh" | "d" | "kbd" | "mmcfd"; kind: "flow" | "stock" | "avg" }
 interface KpiChart {
   id: string; en: string; es: string; type: "bar" | "stack" | "line"; keys: string[];
   derived?: "per_user_month" | "take_rate" | "margins" | "guidance";
@@ -47,6 +47,8 @@ function fmt(v: number | undefined | null, unitIn: KpiMeta["unit"] | "x" | "frac
   if (unit === "share") return `${v.toFixed(v % 1 ? 1 : 0)}%`;
   if (unit === "GWh") return `${v.toFixed(1)} GWh`;
   if (unit === "d") return `${v.toFixed(0)} d`;
+  if (unit === "kbd") return `${Math.round(v).toLocaleString("en-US")} kb/d`;
+  if (unit === "mmcfd") return `${Math.round(v).toLocaleString("en-US")} MMcf/d`;
   if (unit === "n") return a >= 1e6 ? `${sign}${(a / 1e6).toFixed(2)}M` : a >= 1e4 ? `${sign}${(a / 1e3).toFixed(0)}K` : a >= 1e3 ? `${sign}${(a / 1e3).toFixed(1)}K` : `${sign}${a.toFixed(0)}`;
   if (unit === "x") return v.toFixed(1);
   if (unit === "$") return `${sign}$${a.toFixed(2)}`;

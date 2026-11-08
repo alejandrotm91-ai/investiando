@@ -15,6 +15,7 @@ import { cik10, fetchBudgetLeft, secFetch } from "./client";
 import { askClaudeJson, SEC_MODEL, type ClaudeEnv } from "./claude";
 import { fetchPressRelease } from "./earnings";
 import { getSecFinancials, isBudgetError, normTicker } from "./sync";
+import { SEC_UNIVERSE } from "./universe";
 
 export interface KpiDef {
   key: string;
@@ -22,7 +23,7 @@ export interface KpiDef {
   es: string;
   // millones (personas, viajes), millones de dólares, dólares, crecimiento interanual en %, cuota en %
   // (sin signo), unidades sueltas (vehículos, estaciones), GWh, días
-  unit: "M" | "$M" | "$" | "%" | "share" | "n" | "GWh" | "d";
+  unit: "M" | "$M" | "$" | "%" | "share" | "n" | "GWh" | "d" | "kbd" | "mmcfd"; // kbd: miles de barriles/día; mmcfd: millones de pies cúbicos/día
   kind: "flow" | "stock" | "avg"; // suma del trimestre, saldo al cierre, media del trimestre
   range: [number, number]; // en su unidad; fuera de él se descarta
   hint: string; // cómo lo llama el comunicado (para Claude)
@@ -46,6 +47,7 @@ export interface CompanyKpis {
   from?: string; // comunicados presentados desde esta fecha
   until?: string; // y hasta esta (Netflix dejó de publicar suscriptores en 2025)
   minChars?: number; // comunicados más cortos se saltan sin llamar a Claude (avisos de entregas de Tesla)
+  revenueHint?: string; // qué cifra de ingresos usar para validar, si el comunicado trae varias (ExxonMobil)
   note?: { en: string; es: string };
 }
 
@@ -287,6 +289,58 @@ export const KPI_DEFS: Record<string, CompanyKpis> = {
       { id: "tbv", en: "Tangible book value per share", es: "Valor contable tangible por acción", type: "line", keys: ["tbvps"] },
     ],
   },
+  WMT: {
+    from: "2023-01-01",
+    kpis: [
+      { key: "us_comp", en: "Walmart U.S. comp sales (ex fuel)", es: "Ventas comparables Walmart EE. UU. (sin carburante)", unit: "%", kind: "avg", range: [-20, 40], hint: "Walmart U.S. comp sales growth excluding fuel for the quarter (13 weeks), in %" },
+      { key: "us_transactions", en: "Walmart U.S. transactions", es: "Transacciones Walmart EE. UU.", unit: "%", kind: "avg", range: [-20, 40], hint: "Walmart U.S. comparable transactions growth in the quarter, in %" },
+      { key: "us_ticket", en: "Walmart U.S. average ticket", es: "Ticket medio Walmart EE. UU.", unit: "%", kind: "avg", range: [-20, 40], hint: "Walmart U.S. comparable average ticket growth in the quarter, in %" },
+      { key: "ecom_growth", en: "Global eCommerce growth", es: "Crecimiento del comercio electrónico", unit: "%", kind: "avg", range: [-50, 200], hint: "Global (Walmart Inc.) eCommerce sales growth in the quarter, in %" },
+      { key: "ads_growth", en: "Global advertising growth", es: "Crecimiento de la publicidad", unit: "%", kind: "avg", range: [-50, 300], hint: "Global advertising business growth in the quarter, in %" },
+      { key: "membership_growth", en: "Membership fee revenue growth", es: "Crecimiento de cuotas de socio", unit: "%", kind: "avg", range: [-50, 200], hint: "Global membership and other income / membership fee revenue growth in the quarter, in %" },
+    ],
+    charts: [
+      { id: "comp", en: "Walmart U.S. comp sales, transactions and ticket", es: "Walmart EE. UU.: comparables, transacciones y ticket", type: "line", keys: ["us_comp", "us_transactions", "us_ticket"] },
+      { id: "growth", en: "eCommerce, advertising and membership growth", es: "Crecimiento de e-commerce, publicidad y cuotas", type: "line", keys: ["ecom_growth", "ads_growth", "membership_growth"] },
+    ],
+  },
+  HD: {
+    from: "2023-01-01",
+    kpis: [
+      { key: "comp_sales", en: "Comparable sales growth", es: "Crecimiento de ventas comparables", unit: "%", kind: "avg", range: [-30, 50], hint: "Total comparable sales % change for the quarter (three months, not year-to-date)" },
+      { key: "comp_transactions", en: "Comparable customer transactions", es: "Transacciones comparables", unit: "%", kind: "avg", range: [-30, 50], hint: "Comparable customer transactions % change for the quarter" },
+      { key: "comp_ticket", en: "Comparable average ticket", es: "Ticket medio comparable", unit: "%", kind: "avg", range: [-30, 50], hint: "Comparable average ticket % change for the quarter" },
+      { key: "transactions", en: "Customer transactions", es: "Transacciones de clientes", unit: "M", kind: "flow", range: [100, 2000], hint: "Customer transactions in the quarter, in millions" },
+      { key: "avg_ticket", en: "Average ticket", es: "Ticket medio", unit: "$", kind: "avg", range: [30, 300], hint: "Average ticket in the quarter, in USD" },
+      { key: "stores", en: "Stores", es: "Tiendas", unit: "n", kind: "stock", range: [1500, 4000], hint: "Total number of retail stores at quarter end" },
+    ],
+    charts: [
+      { id: "comp", en: "Comparable sales, transactions and ticket", es: "Ventas comparables, transacciones y ticket", type: "line", keys: ["comp_sales", "comp_transactions", "comp_ticket"] },
+      { id: "tx", en: "Customer transactions", es: "Transacciones de clientes", type: "bar", keys: ["transactions"] },
+      { id: "ticket", en: "Average ticket", es: "Ticket medio", type: "line", keys: ["avg_ticket"] },
+      { id: "stores", en: "Stores", es: "Tiendas", type: "bar", keys: ["stores"] },
+    ],
+  },
+  // ExxonMobil: comunicados en el CIK nuevo (sociedad holding) y, los anteriores, en el antiguo
+  XOM: {
+    from: "2023-01-01",
+    revenueHint: "revenue = 'Total revenues and other income' (not 'Sales and other operating revenue')",
+    kpis: [
+      { key: "production", en: "Oil-equivalent production", es: "Producción equivalente de petróleo", unit: "kbd", kind: "avg", range: [2000, 8000], hint: "Worldwide oil-equivalent production in the quarter, thousand oil-equivalent barrels per day (koebd)" },
+      { key: "liquids", en: "Liquids production", es: "Producción de líquidos", unit: "kbd", kind: "avg", range: [1000, 6000], hint: "Worldwide net production of crude oil, NGL, bitumen and synthetic oil, thousand barrels per day (kbd)" },
+      { key: "gas", en: "Natural gas production", es: "Producción de gas natural", unit: "mmcfd", kind: "avg", range: [3000, 20000], hint: "Worldwide net natural gas production available for sale, million cubic feet per day (mcfd)" },
+      { key: "refinery", en: "Refinery throughput", es: "Crudo procesado en refinerías", unit: "kbd", kind: "avg", range: [1000, 7000], hint: "Worldwide refinery throughput, thousand barrels per day (kbd)" },
+      { key: "us_liquids", en: "U.S. liquids production", es: "Producción de líquidos en EE. UU.", unit: "kbd", kind: "avg", range: [300, 4000], hint: "United States net liquids production, thousand barrels per day (kbd)" },
+      { key: "earnings_ex", en: "Earnings excluding identified items", es: "Beneficio sin partidas identificadas", unit: "$M", kind: "flow", range: [-20000, 40000], hint: "Total company earnings excluding identified items (non-GAAP; excluding estimated timing effects if that is the headline measure) in the quarter, in millions of USD" },
+    ],
+    charts: [
+      { id: "prod", en: "Oil-equivalent production", es: "Producción equivalente de petróleo", type: "bar", keys: ["production"] },
+      { id: "liq", en: "Liquids production (worldwide / U.S.)", es: "Producción de líquidos (mundial / EE. UU.)", type: "line", keys: ["liquids", "us_liquids"] },
+      { id: "gas", en: "Natural gas production", es: "Producción de gas natural", type: "bar", keys: ["gas"] },
+      { id: "ref", en: "Refinery throughput", es: "Crudo procesado en refinerías", type: "bar", keys: ["refinery"] },
+      { id: "earn", en: "Earnings excluding identified items", es: "Beneficio sin partidas identificadas", type: "bar", keys: ["earnings_ex"] },
+    ],
+  },
   NFLX: {
     from: "2020-01-01",
     until: "2025-02-28",
@@ -389,11 +443,14 @@ async function earnings8KBetween(cik: number, from: string, until: string, ua?: 
 /** Encola los 8-K de resultados de la empresa en su ventana de fechas. */
 async function queueReleases(db: D1Database, ticker: string, cik: number, def: CompanyKpis, ua?: string) {
   const from = def.from ?? new Date(Date.now() - 3 * 365 * DAY).toISOString().slice(0, 10);
-  const list = await earnings8KBetween(cik, from, def.until ?? "9999-12-31", ua);
+  // También los CIK anteriores (ExxonMobil y BlackRock pasaron a una sociedad holding nueva)
+  const ciks = [cik, ...(SEC_UNIVERSE.find((u) => u.ticker === ticker)?.prev ?? [])];
+  const list: { accn: string; filed: string; cik: number }[] = [];
+  for (const c of ciks) for (const f of await earnings8KBetween(c, from, def.until ?? "9999-12-31", ua)) list.push({ ...f, cik: c });
   for (const f of list)
     await db
       .prepare("INSERT OR IGNORE INTO sec_kpis (accn, ticker, cik, filed, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', ?, ?)")
-      .bind(f.accn, ticker, cik, f.filed, Date.now(), Date.now())
+      .bind(f.accn, ticker, f.cik, f.filed, Date.now(), Date.now())
       .run();
   await db
     .prepare("INSERT INTO sec_meta (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
@@ -477,7 +534,7 @@ export async function processKpiRelease(db: D1Database, env: ClaudeEnv & { SEC_U
     }
     const r = await askClaudeJson<Extract>(env, {
       system: SYSTEM,
-      user: `Empresa: ${row.ticker}\nKPIs a extraer: ${def.kpis.map((d) => `${d.key} = ${d.hint}`).join("; ")}\n\nComunicado (8-K del ${row.filed}):\n${pr.text.slice(0, MAX_TEXT)}`,
+      user: `Empresa: ${row.ticker}\n${def.revenueHint ? `Ingresos: ${def.revenueHint}\n` : ""}KPIs a extraer: ${def.kpis.map((d) => `${d.key} = ${d.hint}`).join("; ")}\n\nComunicado (8-K del ${row.filed}):\n${pr.text.slice(0, MAX_TEXT)}`,
       schema: schemaFor(def.kpis),
       maxTokens: 6000,
       effort: "low",
