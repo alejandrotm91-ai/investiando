@@ -318,12 +318,63 @@ export default function LandingShowcase({ language, theme, onThemeChange, onLang
                         </div>
                       </div>
                     </div>
-                    <div style={{ padding: 16, borderRadius: 16, background: "var(--card-2)", border: "1px solid var(--line)" }}>
+                    <div style={{ padding: 16, borderRadius: 16, background: "var(--card-2)", border: "1px solid var(--line)", display: "flex", flexDirection: "column", minWidth: 0 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", color: "var(--muted)", textTransform: "uppercase" }}>{t("Vs S&P 500 · YTD", "Vs S&P 500 · en el año")}</div>
-                      <svg viewBox="0 0 200 60" style={{ width: "100%", height: 56, marginTop: 8 }} aria-hidden="true">
-                        <polyline points="0,46 20,44 40,40 60,42 80,34 100,30 120,32 140,22 160,18 180,20 200,10" fill="none" stroke="var(--accent-text)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                        <polyline points="0,48 20,47 40,45 60,46 80,41 100,40 120,39 140,34 160,32 180,33 200,28" fill="none" stroke="var(--muted)" strokeWidth="2" strokeDasharray="4 4" strokeLinecap="round" />
-                      </svg>
+                      {/* Rentabilidad en el año frente a los índices (como el gráfico Benchmark de Summary) */}
+                      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 8, marginTop: 8 }}>
+                        <svg viewBox="0 0 300 150" style={{ width: "100%", height: "auto", display: "block", overflow: "visible" }} aria-hidden="true">
+                          {(() => {
+                            const port = [0, 3, 5, 2, 1, -2, -8, 4, 15, 22, 26, 18, 21, 20, 17, 24, 20, 22, 25, 21, 26, 15, 4.8];
+                            const ndx = [0, 2, 2, 0, 0, -3, -7, 2, 10, 16, 20, 15, 17, 17, 14, 20, 16, 19, 22, 18, 23, 12, 7];
+                            const spx = [0, 1, 2, 1, 1, -2, -6, 1, 6, 8, 10, 8, 9, 10, 8, 12, 11, 12, 13, 11, 13, 9, 7.6];
+                            const L = 34, R = 296, T = 6, B = 128;
+                            const y = (v: number) => T + ((30 - v) / 40) * (B - T); // de +30 % a −10 %
+                            const x = (i: number) => L + (i / (port.length - 1)) * (R - L);
+                            const pts = (a: number[]) => a.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+                            const months = language === "ES" ? ["Ene", "Mar", "May", "Jul", "Sep", "Nov"] : ["Jan", "Mar", "May", "Jul", "Sep", "Nov"];
+                            return (
+                              <>
+                                <defs>
+                                  <linearGradient id="lp-bench-fill" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor="var(--text)" stopOpacity="0.16" />
+                                    <stop offset="100%" stopColor="var(--text)" stopOpacity="0" />
+                                  </linearGradient>
+                                </defs>
+                                {[30, 20, 10, 0, -10].map((g) => (
+                                  <g key={g}>
+                                    <line x1={L} x2={R} y1={y(g)} y2={y(g)} stroke="var(--line)" strokeWidth="1" strokeDasharray={g === 0 ? undefined : "2 4"} />
+                                    <text x={L - 6} y={y(g) + 3} textAnchor="end" className="lp-mono" style={{ fontSize: 9, fill: "var(--muted)" }}>
+                                      {g > 0 ? `+${g}%` : g < 0 ? `−${-g}%` : "0%"}
+                                    </text>
+                                  </g>
+                                ))}
+                                {months.map((m, i) => (
+                                  <text key={m} x={L + ((i + 0.5) / months.length) * (R - L)} y={B + 16} textAnchor="middle" style={{ fontSize: 9, fill: "var(--muted)" }}>
+                                    {m}
+                                  </text>
+                                ))}
+                                <polygon points={`${x(0)},${y(0)} ${pts(port)} ${x(port.length - 1)},${y(0)}`} fill="url(#lp-bench-fill)" />
+                                <polyline points={pts(spx)} fill="none" stroke="#38bdf8" strokeWidth="1.6" strokeDasharray="4 3" strokeLinejoin="round" />
+                                <polyline points={pts(ndx)} fill="none" stroke="var(--accent-text)" strokeWidth="1.6" strokeDasharray="1.5 2.5" strokeLinecap="round" strokeLinejoin="round" />
+                                <polyline points={pts(port)} fill="none" stroke="var(--text)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+                              </>
+                            );
+                          })()}
+                        </svg>
+                        <div className="lp-mono" style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", columnGap: 10, rowGap: 4, fontSize: 10, fontWeight: 700 }}>
+                          {[
+                            { n: "S&P 500", v: "+7.6%", c: "#38bdf8" },
+                            { n: "NASDAQ-100", v: "+7.0%", c: "var(--accent-text)" },
+                            { n: t("Portfolio", "Cartera"), v: "+4.8%", c: "var(--text)" },
+                          ].map((l) => (
+                            <span key={l.n} style={{ display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
+                              <span style={{ width: 7, height: 7, borderRadius: 999, background: l.c }} />
+                              <span style={{ color: "var(--text)" }}>{l.n}</span>
+                              <span style={{ color: "var(--up-text)" }}>{l.v}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12 }}>
