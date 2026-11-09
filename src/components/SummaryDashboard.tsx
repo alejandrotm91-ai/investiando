@@ -19,6 +19,7 @@ import { PortfolioDistributionDonut } from "./PortfolioDistributionDonut";
 import { getRawFeatures, buildScores, overrideFeaturesWithFinancials } from "../utils/engine";
 import { calculatePortfolioScoreFromMatrix, getStockScore } from "../utils/stockScoresMatrix";
 import { getCachedFinancials, getAllCachedFinancials, setCachedFinancials } from "../utils/financialsCache";
+import { useScoreBenchmarks } from "../utils/useScoreBenchmarks";
 
 const BENCHMARK_METRICS = {
   SP500: {
@@ -166,13 +167,14 @@ export default function SummaryDashboard({
     fetchAllFinancials();
   }, [portfolio]);
 
+  const scoreV = useScoreBenchmarks();
   const portfolioWeightedHealth = React.useMemo(() => {
     if (!portfolio || !validPositions) return null;
     const stockPositions = validPositions.filter(p => !p.isCash);
     if (stockPositions.length === 0) return null;
     
     return calculatePortfolioScoreFromMatrix(stockPositions, effectiveFinancialsMap);
-  }, [portfolio, effectiveFinancialsMap]);
+  }, [portfolio, effectiveFinancialsMap, scoreV]);
 
   const portfolioWeightedScore = portfolioWeightedHealth ? portfolioWeightedHealth.score : 0;
   const portfolioWeightedType = portfolioWeightedHealth ? portfolioWeightedHealth.dominantType : null;

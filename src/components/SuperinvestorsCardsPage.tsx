@@ -22,6 +22,7 @@ import {
   Zap,
   CheckCircle2
 } from "lucide-react";
+import { useScoreBenchmarks } from "../utils/useScoreBenchmarks";
 
 interface SuperinvestorsCardsPageProps {
   onSelect: (id: string) => void;
@@ -131,6 +132,7 @@ export default function SuperinvestorsCardsPage({ onSelect, language, theme }: S
   const [sortField, setSortField] = React.useState<"pnl" | "score" | "value">("value");
   const [sortDirection, setSortDirection] = React.useState<"asc" | "desc" | null>("desc");
 
+  useScoreBenchmarks(); // vuelve a pintar al llegar la referencia de los scores
   const sortedSuperinvestorKeys = React.useMemo(() => {
     const keys = [...superinvestorKeys];
     if (!sortDirection) return keys;

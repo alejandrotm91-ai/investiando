@@ -1,5 +1,6 @@
 import { SuperinvestorMeta, SUPERINVESTORS } from "../superinvestors";
 import { calculatePortfolioScoreFromMatrix, getStockScore, UnifiedStockScore } from "./stockScoresMatrix";
+import { getScoreBenchmarkVersion } from "./scoreBenchmarks";
 
 export interface SuperinvestorScoreInfo {
   score: number; // 0 to 100
@@ -47,17 +48,19 @@ export function calculateFundScore(si: SuperinvestorMeta): SuperinvestorScoreInf
   };
 }
 
-/** Precomputed scores for all superinvestors for instant synchronous access */
-export const SUPERINVESTOR_SCORES: Record<string, SuperinvestorScoreInfo> = Object.keys(SUPERINVESTORS).reduce((acc, key) => {
-  acc[key] = calculateFundScore(SUPERINVESTORS[key]);
-  return acc;
-}, {} as Record<string, SuperinvestorScoreInfo>);
-
-/** Combined portfolio score */
-export const COMBINED_SUPERINVESTOR_SCORE: SuperinvestorScoreInfo = (() => {
-  const allScores = Object.values(SUPERINVESTOR_SCORES);
-  const avg = Math.ceil(allScores.reduce((sum, s) => sum + s.score, 0) / (allScores.length || 1));
-  return {
+// Se recalculan cuando cambia la referencia de datos reales (scoreBenchmarks): antes se calculaban
+// una sola vez al cargar, con datos inventados
+let cache: { v: number; scores: Record<string, SuperinvestorScoreInfo>; combined: SuperinvestorScoreInfo } | null = null;
+function current() {
+  const v = getScoreBenchmarkVersion();
+  if (cache && cache.v === v) return cache;
+  const scores = Object.keys(SUPERINVESTORS).reduce((acc, key) => {
+    acc[key] = calculateFundScore(SUPERINVESTORS[key]);
+    return acc;
+  }, {} as Record<string, SuperinvestorScoreInfo>);
+  const all = Object.values(scores);
+  const avg = Math.ceil(all.reduce((sum, s) => sum + s.score, 0) / (all.length || 1));
+  const combined: SuperinvestorScoreInfo = {
     score: avg,
     grade: avg >= 75 ? "A" : avg >= 65 ? "B+" : "B",
     labelEN: "Diversified Multi-Legend Factor",
@@ -69,4 +72,19 @@ export const COMBINED_SUPERINVESTOR_SCORE: SuperinvestorScoreInfo = (() => {
     dominantType: "Balanced Legend Compounder",
     topDrivers: [],
   };
-})();
+  cache = { v, scores, combined };
+  return cache;
+}
+
+/** Scores de cada superinversor (se leen como un objeto; se recalculan con la referencia vigente) */
+export const SUPERINVESTOR_SCORES: Record<string, SuperinvestorScoreInfo> = new Proxy({} as Record<string, SuperinvestorScoreInfo>, {
+  get: (_t, k) => (typeof k === "string" ? current().scores[k] : undefined),
+  has: (_t, k) => typeof k === "string" && k in current().scores,
+  ownKeys: () => Reflect.ownKeys(current().scores),
+  getOwnPropertyDescriptor: (_t, k) => (typeof k === "string" && k in current().scores ? { enumerable: true, configurable: true, value: current().scores[k] } : undefined),
+});
+
+/** Score combinado de todos los superinversores */
+export const COMBINED_SUPERINVESTOR_SCORE: SuperinvestorScoreInfo = new Proxy({} as SuperinvestorScoreInfo, {
+  get: (_t, k) => (current().combined as any)[k],
+});

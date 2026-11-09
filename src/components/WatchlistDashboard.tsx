@@ -7,6 +7,7 @@ import { CompanyFinancials } from "./CompanyFinancials";
 import { SearchResult } from "../types";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from "recharts";
 import { saveUserCloudData, subscribeUserCloudData } from "../lib/cloudData";
+import { useScoreBenchmarks } from "../utils/useScoreBenchmarks";
 
 interface WatchlistItem {
   symbol: string;
@@ -345,6 +346,7 @@ export default function WatchlistDashboard({
   }, [items, performanceTimeframe, dynamicPerformance]);
 
   // Generate scored items map for the watchlist using the unified Master Stock Score Matrix
+  const scoreV = useScoreBenchmarks();
   const scoredRowsMap = useMemo(() => {
     const fullMap: Record<string, any> = {};
     if (items.length === 0 && portfolioPositions.length === 0) return fullMap;
@@ -363,8 +365,8 @@ export default function WatchlistDashboard({
         if (finData) {
           raw = overrideFeaturesWithFinancials(raw, finData);
         }
-        if (item.pe !== undefined && item.pe !== null) raw.trailing_pe = item.pe;
-        if (item.fwdPe !== undefined && item.fwdPe !== null) raw.forward_pe = item.fwdPe;
+        if (raw.trailing_pe == null && item.pe != null && item.pe > 0) raw.trailing_pe = item.pe;
+        if (raw.forward_pe == null && item.fwdPe != null && item.fwdPe > 0) raw.forward_pe = item.fwdPe;
 
         fullMap[sym] = {
           symbol: unified.symbol,
@@ -395,9 +397,9 @@ export default function WatchlistDashboard({
         if (finData) {
           raw = overrideFeaturesWithFinancials(raw, finData);
         }
-        if (pos.pe !== undefined && pos.pe !== null) raw.trailing_pe = pos.pe;
-        if (pos.fwdPe !== undefined && pos.fwdPe !== null) raw.forward_pe = pos.fwdPe;
-        if (pos.evEbitda !== undefined && pos.evEbitda !== null) raw.ev_ebitda = pos.evEbitda;
+        if (raw.trailing_pe == null && pos.pe != null && pos.pe > 0) raw.trailing_pe = pos.pe;
+        if (raw.forward_pe == null && pos.fwdPe != null && pos.fwdPe > 0) raw.forward_pe = pos.fwdPe;
+        if (raw.ev_ebitda == null && pos.evEbitda != null && pos.evEbitda > 0) raw.ev_ebitda = pos.evEbitda;
 
         fullMap[sym] = {
           symbol: unified.symbol,
@@ -416,7 +418,7 @@ export default function WatchlistDashboard({
     });
     
     return fullMap;
-  }, [items, portfolioPositions, financialsMap]);
+  }, [items, portfolioPositions, financialsMap, scoreV]);
 
   const getScoreColorClass = (score: number | null) => {
     if (score === null) return "text-slate-500";

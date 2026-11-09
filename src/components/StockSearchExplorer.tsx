@@ -59,6 +59,7 @@ import KpiPanel from "./KpiPanel";
 import { SearchResult } from "../types";
 import { saveUserCloudData, subscribeUserCloudData } from "../lib/cloudData";
 import { getRawFeatures, buildScores, overrideFeaturesWithFinancials, ScoredRow } from "../utils/engine";
+import { useScoreBenchmarks } from "../utils/useScoreBenchmarks";
 
 interface StockDetails {
   symbol: string;
@@ -622,6 +623,7 @@ export default function StockSearchExplorer({
   }, [selectedTicker]);
 
   // Compute Sector-Normalized Fundamental Score matching holdings and simulator implementation
+  const scoreV = useScoreBenchmarks();
   const scoredRow = useMemo<ScoredRow | null>(() => {
     if (!stockData) return null;
     const sym = stockData.symbol.toUpperCase();
@@ -631,15 +633,9 @@ export default function StockSearchExplorer({
     if (financialsData) {
       raw = overrideFeaturesWithFinancials(raw, financialsData);
     }
-    if (stockData.trailingPE !== undefined && stockData.trailingPE !== null) {
-      raw.trailing_pe = stockData.trailingPE;
-    }
-    if (stockData.forwardPE !== undefined && stockData.forwardPE !== null) {
-      raw.forward_pe = stockData.forwardPE;
-    }
-    if (stockData.evEbitda !== undefined && stockData.evEbitda !== null) {
-      raw.ev_ebitda = stockData.evEbitda;
-    }
+    if (raw.trailing_pe == null && stockData.trailingPE != null && stockData.trailingPE > 0) raw.trailing_pe = stockData.trailingPE;
+    if (raw.forward_pe == null && stockData.forwardPE != null && stockData.forwardPE > 0) raw.forward_pe = stockData.forwardPE;
+    if (raw.ev_ebitda == null && stockData.evEbitda != null && stockData.evEbitda > 0) raw.ev_ebitda = stockData.evEbitda;
 
     const finMap: Record<string, any> = {};
     if (financialsData) {
@@ -648,7 +644,7 @@ export default function StockSearchExplorer({
 
     const scored = buildScores([raw], "zscore", finMap);
     return scored[0] || null;
-  }, [stockData, financialsData]);
+  }, [stockData, financialsData, scoreV]);
 
   // Diluted EPS CAGR for Annual Financials (matching Financials Income Statement)
   const basicEpsAnnualCagr = useMemo(() => {

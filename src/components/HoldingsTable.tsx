@@ -3,6 +3,7 @@ import { motion } from "motion/react";
 import { Position } from "../types";
 import { getRawFeatures, buildScores, overrideFeaturesWithFinancials } from "../utils/engine";
 import { getStockScore, calculatePortfolioScoreFromMatrix } from "../utils/stockScoresMatrix";
+import { useScoreBenchmarks } from "../utils/useScoreBenchmarks";
 import { getCachedFinancials, getAllCachedFinancials, setCachedFinancials } from "../utils/financialsCache";
 import { CompanyFinancials } from "./CompanyFinancials";
 import { getQuarterlyBasicEpsCagrFromFinancials } from "./WhatIfSimulator";
@@ -2388,6 +2389,7 @@ export default function HoldingsTable({
   }, 0);
 
   // Scorecard / Health mode calculations using unified Master Stock Score Matrix
+  const scoreV = useScoreBenchmarks();
   const scoredRowsMap = useMemo(() => {
     const map = new Map<string, any>();
     const stockPositions = activePositions.filter((p) => !p.isCash);
@@ -2403,18 +2405,15 @@ export default function HoldingsTable({
       if (finData) {
         raw = overrideFeaturesWithFinancials(raw, finData);
       }
-      if (pos.pe !== null && pos.pe !== undefined) {
-        raw.trailing_pe = pos.pe;
-      }
-      if (pos.fwdPe !== null && pos.fwdPe !== undefined) {
-        raw.forward_pe = pos.fwdPe;
-      }
-      if (pos.evEbitda !== null && pos.evEbitda !== undefined) {
-        raw.ev_ebitda = pos.evEbitda;
-      }
+      // Múltiplos de la posición solo si la referencia no los trae (así la empresa y sus comparables
+      // se miden con la misma fuente)
+      if (raw.trailing_pe == null && pos.pe != null && pos.pe > 0) raw.trailing_pe = pos.pe;
+      if (raw.forward_pe == null && pos.fwdPe != null && pos.fwdPe > 0) raw.forward_pe = pos.fwdPe;
+      if (raw.ev_ebitda == null && pos.evEbitda != null && pos.evEbitda > 0) raw.ev_ebitda = pos.evEbitda;
 
-      let rowScores = unified.strategyScores;
-      let rowFactors = unified.factors;
+      let rowScores: any = unified.strategyScores;
+      let rowFactors: any = unified.factors;
+      let profile: any = unified;
 
       const finMap: Record<string, any> = {};
       if (finData) {
@@ -2430,6 +2429,8 @@ export default function HoldingsTable({
           stability: scoredList[0].factors.stability,
           valuation: scoredList[0].factors.valuation,
         };
+        // Arquetipo y tipo del cálculo con todos los datos (no del de la matriz, que puede no tener estados)
+        profile = { ...scoredList[0], subscores: scoredList[0].sub };
       }
 
       map.set(sym, {
@@ -2438,16 +2439,16 @@ export default function HoldingsTable({
         sector: unified.sector,
         scores: rowScores,
         factors: rowFactors,
-        archetype: unified.archetype,
-        type: unified.type,
-        valuationMethod: unified.valuationMethod,
-        note: unified.note,
-        sub: unified.subscores || {},
+        archetype: profile.archetype,
+        type: profile.type,
+        valuationMethod: profile.valuationMethod,
+        note: profile.note,
+        sub: profile.subscores || {},
         raw,
       });
     });
     return map;
-  }, [activePositions, effectiveFinancialsMap]);
+  }, [activePositions, effectiveFinancialsMap, scoreV]);
 
   const getPositionCagr = (ticker: string): number => {
     const sym = ticker.toUpperCase();
@@ -2500,7 +2501,7 @@ export default function HoldingsTable({
 
   const portfolioHealth = useMemo(() => {
     return calculatePortfolioScoreFromMatrix(sortedPositions, effectiveFinancialsMap);
-  }, [sortedPositions, effectiveFinancialsMap]);
+  }, [sortedPositions, effectiveFinancialsMap, scoreV]);
 
   const portfolioWeightedScore = portfolioHealth.score;
   const portfolioWeightedType = portfolioHealth.dominantType;

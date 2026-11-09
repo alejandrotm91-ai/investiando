@@ -10,6 +10,7 @@ import {
   StrategyId 
 } from "./engine";
 import { TICKER_CLASSIFICATION } from "../data/tickerClassification";
+import { getScoreBenchmarkVersion } from "./scoreBenchmarks";
 
 export interface UnifiedStockScore {
   symbol: string;
@@ -41,6 +42,8 @@ export interface UnifiedStockScore {
   valuationMethod: string;
   note: string;
   subscores?: Record<string, number | null>;
+  /** Sin datos reales para ningún factor (los factores muestran 50 por defecto y no cuentan en agregados) */
+  dataMissing?: boolean;
 }
 
 export function getScoreGrade(score: number): "A+" | "A" | "B+" | "B" | "C" | "D" {
@@ -145,7 +148,7 @@ export function getSectorForTicker(ticker: string, fallbackSector?: string): str
       return sectorName;
     }
   }
-  return "Technology";
+  return "Unknown";
 }
 
 /** In-memory Master Scores Matrix Map (Singleton) */
@@ -166,6 +169,7 @@ function mapRowToUnifiedScore(row: ScoredRow): UnifiedStockScore {
   const deep_value = Math.ceil(row.scores.deep_value ?? 50);
 
   const sectorClass = TICKER_CLASSIFICATION[normalizeTicker(row.symbol)] || TICKER_CLASSIFICATION[row.symbol];
+  const dataMissing = [row.factors.growth, row.factors.quality, row.factors.stability, row.factors.valuation].every((v) => v === null || v === undefined);
 
   return {
     symbol: normalizeTicker(row.symbol),
@@ -197,63 +201,19 @@ function mapRowToUnifiedScore(row: ScoredRow): UnifiedStockScore {
     valuationMethod: row.valuationMethod,
     note: row.note,
     subscores: row.sub,
+    dataMissing,
   };
 }
 
-/** Pre-initialize the entire universe of stocks on startup */
-function initializeMasterMatrix() {
-  const allRawFeatures: any[] = [];
-  const registeredSymbols = new Set<string>();
-
-  // 1. S&P 500 benchmark sector constituents
-  Object.entries(SP500_SECTORS_TOP20).forEach(([sectorName, secData]) => {
-    secData.tickers.forEach((t) => {
-      const sym = normalizeTicker(t.symbol);
-      if (!registeredSymbols.has(sym)) {
-        registeredSymbols.add(sym);
-        allRawFeatures.push(getRawFeatures(sym, t.name, sectorName));
-      }
-    });
-  });
-
-  // 2. All Superinvestors holdings
-  Object.values(SUPERINVESTORS).forEach((fund) => {
-    fund.holdings.forEach((h) => {
-      if (h.ticker && h.ticker.toUpperCase() !== "CASH" && h.ticker.toUpperCase() !== "USD") {
-        const sym = normalizeTicker(h.ticker);
-        if (!registeredSymbols.has(sym)) {
-          registeredSymbols.add(sym);
-          const sec = getSectorForTicker(sym, h.sector);
-          allRawFeatures.push(getRawFeatures(sym, h.company || sym, sec));
-        }
-      }
-    });
-  });
-
-  // 3. Known classifications
-  Object.keys(TICKER_CLASSIFICATION).forEach((tick) => {
-    const sym = normalizeTicker(tick);
-    if (!registeredSymbols.has(sym)) {
-      registeredSymbols.add(sym);
-      const sec = TICKER_CLASSIFICATION[tick].sector;
-      allRawFeatures.push(getRawFeatures(sym, `${sym} Corporation`, sec));
-    }
-  });
-
-  // Run initial sector-relative scoring
-  const scoredUniverse = buildScores(allRawFeatures, "zscore");
-  scoredUniverse.forEach((row) => {
-    const unified = mapRowToUnifiedScore(row);
-    MATRIX_STORE.set(unified.symbol, unified);
-    // Also save dot-variant if hyphenated (e.g., BRK.B -> BRK-B)
-    if (unified.symbol.includes("-")) {
-      MATRIX_STORE.set(unified.symbol.replace("-", "."), unified);
-    }
-  });
+/** La caché se vacía cuando cambia la referencia de datos reales (scoreBenchmarks) */
+let matrixVersion = -1;
+function syncMatrixVersion() {
+  const v = getScoreBenchmarkVersion();
+  if (v !== matrixVersion) {
+    MATRIX_STORE.clear();
+    matrixVersion = v;
+  }
 }
-
-// Run precomputation once
-initializeMasterMatrix();
 
 /**
  * Get the standardized, sector-normalized score for ANY stock.
@@ -268,6 +228,7 @@ export function getStockScore(
     return createDefaultScore("UNKNOWN", "Unknown", "Technology");
   }
 
+  syncMatrixVersion();
   const norm = normalizeTicker(ticker);
   if (MATRIX_STORE.has(norm)) {
     return MATRIX_STORE.get(norm)!;
@@ -453,23 +414,21 @@ export function calculatePortfolioScoreFromMatrix(
     let stability = unified.factors?.stability ?? 50;
     let valuation = unified.factors?.valuation ?? 50;
     let dominantItemType = unified.type;
+    let hasData = !unified.dataMissing;
 
     if (finData) {
       let raw = { ...getRawFeatures(pos.ticker, pos.name || unified.name, sector) };
       raw = overrideFeaturesWithFinancials(raw, finData);
-      if (pos.pe !== null && pos.pe !== undefined) {
-        raw.trailing_pe = pos.pe;
-      }
-      if (pos.fwdPe !== null && pos.fwdPe !== undefined) {
-        raw.forward_pe = pos.fwdPe;
-      }
-      if (pos.evEbitda !== null && pos.evEbitda !== undefined) {
-        raw.ev_ebitda = pos.evEbitda;
-      }
+      // Múltiplos de la posición solo si la referencia no los trae (misma definición que los comparables)
+      if (raw.trailing_pe == null && pos.pe !== null && pos.pe !== undefined && pos.pe > 0) raw.trailing_pe = pos.pe;
+      if (raw.forward_pe == null && pos.fwdPe !== null && pos.fwdPe !== undefined && pos.fwdPe > 0) raw.forward_pe = pos.fwdPe;
+      if (raw.ev_ebitda == null && pos.evEbitda !== null && pos.evEbitda !== undefined && pos.evEbitda > 0) raw.ev_ebitda = pos.evEbitda;
 
       const finMap: Record<string, any> = { [sym]: finData };
       const scoredList = buildScores([raw], "zscore", finMap);
       if (scoredList && scoredList.length > 0) {
+        const f = scoredList[0].factors;
+        hasData = [f.growth, f.quality, f.stability, f.valuation].some((v) => v !== null && v !== undefined);
         score = scoredList[0].scores?.balanced ?? (scoredList[0] as any).score ?? score;
         growth = scoredList[0].factors?.growth ?? growth;
         quality = scoredList[0].factors?.quality ?? quality;
@@ -480,6 +439,9 @@ export function calculatePortfolioScoreFromMatrix(
         }
       }
     }
+
+    // Sin datos reales: no cuenta en la media (antes entraba como 50)
+    if (!hasData) return;
 
     const w =
       pos.portfolioWeight ??

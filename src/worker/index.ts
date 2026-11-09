@@ -7,6 +7,7 @@ import { requireUser } from "./auth/session";
 import { adminRoutes, smtpRoutes } from "./admin/routes";
 import { secRoutes } from "./sec/routes";
 import { sectorMapRoutes } from "./sectorMap";
+import { scoreRoutes } from "./scores";
 import { runSecCron } from "./sec/sync";
 import { runSegmentsCron } from "./sec/segmentSync";
 import { runPreviewsCron } from "./sec/earnings";
@@ -39,6 +40,9 @@ app.route("/api/sec", secRoutes);
 
 // Mapa de calor por acciones de Market (unas 25-30 empresas por sector, tamaño = capitalización).
 app.route("/api/market/sector-map", sectorMapRoutes);
+
+// Referencia del score de salud (Holdings → Health): métricas reales de las empresas con estados de la SEC.
+app.route("/api/scores", scoreRoutes);
 
 // Fase 4: cada consulta a Claude cuesta dinero, así que las rutas de IA exigen sesión.
 const AI_ROUTES = [

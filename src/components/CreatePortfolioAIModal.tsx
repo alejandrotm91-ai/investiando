@@ -24,6 +24,7 @@ import {
   Activity
 } from "lucide-react";
 import { calculatePortfolioScoreFromMatrix, getStockScore } from "../utils/stockScoresMatrix";
+import { useScoreBenchmarks } from "../utils/useScoreBenchmarks";
 
 export interface CreatePortfolioAIModalProps {
   isOpen: boolean;
@@ -250,10 +251,11 @@ export default function CreatePortfolioAIModal({
   }, [isOpen]);
 
   // Compute Unified Global Portfolio Score
+  const scoreV = useScoreBenchmarks();
   const portfolioScore = useMemo(() => {
     if (!result || !result.holdings || result.holdings.length === 0) return null;
     return calculatePortfolioScoreFromMatrix(result.holdings);
-  }, [result]);
+  }, [result, scoreV]);
 
   if (!isOpen) return null;
 

@@ -30,6 +30,7 @@ import { getTickerSector, getSectorSpanish, getSectorColor, getTickerSubsector, 
 import { CompanyFinancials } from "./CompanyFinancials";
 import { saveUserCloudData, subscribeUserCloudData } from "../lib/cloudData";
 import { getRawFeatures, buildScores, overrideFeaturesWithFinancials } from "../utils/engine";
+import { useScoreBenchmarks } from "../utils/useScoreBenchmarks";
 
 // Function to calculate Quarterly Compound Growth Rate (CAGR) of basicEPS from Financials
 export const getQuarterlyBasicEpsCagrFromFinancials = (financialsData: { annual?: any[]; quarterly?: any[] } | null | undefined): number | null => {
@@ -272,6 +273,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
   }, [marginPositions.length, projectionTab]);
 
   // Scorecard / Health calculations for simulation positions
+  const scoreV = useScoreBenchmarks();
   const scoredRowsMap = useMemo(() => {
     const map = new Map<string, any>();
     const stockPositions = [...simPositions, ...marginPositions].filter((p) => !p.isCash);
@@ -280,9 +282,9 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
     const rawFeaturesList = stockPositions.map((pos) => {
       const sector = getTickerSector(pos.ticker, pos.isCash);
       let raw = { ...getRawFeatures(pos.ticker, pos.name, sector) };
-      if (pos.pe !== null && pos.pe !== undefined) raw.trailing_pe = pos.pe;
-      if (pos.fwdPe !== null && pos.fwdPe !== undefined) raw.forward_pe = pos.fwdPe;
-      if (pos.evEbitda !== null && pos.evEbitda !== undefined) raw.ev_ebitda = pos.evEbitda;
+      if (raw.trailing_pe == null && pos.pe != null && pos.pe > 0) raw.trailing_pe = pos.pe;
+      if (raw.forward_pe == null && pos.fwdPe != null && pos.fwdPe > 0) raw.forward_pe = pos.fwdPe;
+      if (raw.ev_ebitda == null && pos.evEbitda != null && pos.evEbitda > 0) raw.ev_ebitda = pos.evEbitda;
       const finData = financialsMap[pos.ticker] || financialsMap[pos.ticker.toUpperCase()];
       if (finData) {
         raw = overrideFeaturesWithFinancials(raw, finData);
@@ -294,7 +296,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
       map.set(row.symbol.toUpperCase(), row);
     });
     return map;
-  }, [simPositions, marginPositions, financialsMap]);
+  }, [simPositions, marginPositions, financialsMap, scoreV]);
 
   const getScoreColorClass = (score: number | null) => {
     if (score === null) return "text-slate-500";

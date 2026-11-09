@@ -567,4 +567,35 @@ Retorno total ≈ Motor 1 (crecimiento del BPA) + Motor 2 (dividendo) + Motor 3 
 
 ---
 
+## 13. Score de salud (Holdings → Health, Scorecard, Watchlist, Stock Explorer)
+
+Cada empresa se compara con las de su sector GICS (11 sectores; la subindustria de la clasificación se traduce con `gicsSector`). Si el sector tiene menos de 6 empresas de referencia, con todo el mercado.
+
+**Referencia** (`GET /api/scores/benchmarks`, `src/worker/scores.ts`): las empresas con estados de la SEC en D1 (~105; sin GOOG ni BRK-A, duplicados), con precio, capitalización y PER de Yahoo y beta de 5 años de rentabilidades mensuales frente al SPY. Se recalcula cada 6 h y se guarda en D1 (`quote_cache`, clave `SCOREBENCH`). Una empresa fuera de la referencia se mide con sus propios estados y la misma fórmula (`overrideFeaturesWithFinancials`). Lo que no se puede calcular queda vacío y no cuenta: nunca hay valores inventados.
+
+**Métricas** (`src/utils/scoreMetrics.ts`, igual en servidor y navegador; cifras TTM con 4 trimestres seguidos, si no del último ejercicio):
+
+| Factor | Métrica (peso) | Definición |
+|---|---|---|
+| Growth | Ventas (0,35) | CAGR a 3 años, último ejercicio frente al de 3 años antes |
+| | BPA (0,40) | CAGR a 3 años del BPA diluido ajustado por splits, entre la mediana de 3 ejercicios de cada extremo (con ≥ 6 ejercicios) |
+| | Flujo libre (0,25) | Igual que el BPA, con el flujo de caja libre (no el operativo) |
+| Quality | ROIC (0,40) | EBIT × (1 − tipo efectivo, 0-35 %, 21 % por defecto) ÷ (patrimonio + deuda − caja) |
+| | Margen bruto (0,20), operativo (0,30) | TTM |
+| | Conversión (0,10) | Flujo libre ÷ beneficio neto |
+| Stability | Beta (0,30) | 5 años mensual frente al SPY |
+| | Volatilidad de ventas (0,25) y de margen (0,25) | Desviación típica del crecimiento anual y del margen operativo (≥ 3 ejercicios, hasta 10) |
+| | Cobertura de intereses (0,20) | EBIT ÷ intereses (100 sin intereses y EBIT positivo) |
+| Valuation | PER (0,25), PER previsto (0,25) | De Yahoo; sin BPA positivo no cuenta |
+| | EV/EBITDA (0,30) | (capitalización + deuda − caja) ÷ EBITDA TTM |
+| | Rentabilidad del flujo libre (0,20) | Flujo libre TTM ÷ capitalización |
+
+- EBIT = beneficio operativo o, si la empresa no publica esa línea (ExxonMobil), beneficio antes de impuestos + intereses.
+- Bancos y aseguradoras sin beneficio operativo: ROE en lugar de ROIC y margen antes de impuestos; sin cobertura de intereses ni EV/EBITDA (sus intereses son coste de explotación).
+- Cada métrica se winsoriza (5-95 %) en el grupo y se pasa a 0-100 con su z-score; P/E, EV/EBITDA, beta y volatilidades puntúan al revés (menos es mejor). Factor = media ponderada de las métricas disponibles; score = media de los factores según la estrategia (equilibrada 25 % cada uno).
+- Los múltiplos de la posición (P/E, P/E previsto, EV/EBITDA) solo se usan si la referencia no los trae, para medir a la empresa y a sus comparables con la misma fuente. Las posiciones sin ningún dato no cuentan en el score de la cartera.
+- **Tipo de empresa** (`determineType`): por sector (Financials, Utilities/Real Estate, Energy/Materials = cíclica) y por crecimiento real, no por el score de Growth (que es relativo al sector): hipercrecimiento con ventas ≥ 20 % anual; compounder de crecimiento con ventas ≥ 8 % o BPA ≥ 12 % y Quality ≥ 50 (o ventas ≥ 5 % y Quality ≥ 40); compounder maduro con Quality y Stability ≥ 60.
+
+---
+
 *Memoria de Cálculo DCF — investiando.app. Generada por Claude (Anthropic) — agosto 2026. No constituye asesoría de inversión.*

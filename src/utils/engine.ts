@@ -4,7 +4,8 @@
  * Es el port directo de sp500_engine.py (capas 3, 4 y 5).
  */
 
-import { SP500_SECTORS_TOP20 } from "../data/sp500Sectors";
+import { computeScoreMetrics, gicsSector } from "./scoreMetrics";
+import { getAllBenchmarks, getBenchmark } from "./scoreBenchmarks";
 
 export type Metric =
   | "revenue_cagr" | "eps_cagr" | "fcf_cagr"
@@ -110,15 +111,9 @@ function groupSubscores(
   return out;
 }
 
+/** Sector GICS de un nombre de sector o subindustria; "Unknown" si no se reconoce (se compara con todo el mercado). */
 export function normalizeSectorName(sector: string): string {
-  if (!sector) return "Technology";
-  const s = sector.trim();
-  if (s === "Financial Services") return "Financials";
-  if (s === "Information Technology") return "Technology";
-  if (s === "Basic Materials") return "Materials";
-  if (SP500_SECTORS_TOP20[s]) return s;
-  const match = Object.keys(SP500_SECTORS_TOP20).find(k => k.toLowerCase() === s.toLowerCase());
-  return match || "Technology";
+  return gicsSector(sector) ?? "Unknown";
 }
 
 // ---------- buildScores: sector-relativo estricto S&P 500 ---------------------
@@ -146,16 +141,14 @@ export function buildScores(
   for (const normSector of inputBySector.keys()) {
     const inputGroup = inputBySector.get(normSector)!;
 
-    // Load S&P 500 top 20 sector benchmark group
-    const sectorInfo = SP500_SECTORS_TOP20[normSector] || SP500_SECTORS_TOP20["Technology"];
+    // Empresas de referencia con datos reales (scoreBenchmarks) del mismo sector; si hay menos de
+    // MIN_SECTOR_N, todo el mercado
+    const allBench = getAllBenchmarks();
+    const sameSector = allBench.filter((b) => normalizeSectorName(b.sector || "") === normSector);
+    const peers = sameSector.length >= MIN_SECTOR_N ? sameSector : allBench;
     const benchmarkMap = new Map<string, RawFeatures>();
-
-    sectorInfo.tickers.forEach(t => {
-      const raw = getRawFeatures(t.symbol, t.name, normSector);
-      if (financialsMap && financialsMap[t.symbol.toUpperCase()]) {
-        overrideFeaturesWithFinancials(raw, financialsMap[t.symbol.toUpperCase()]);
-      }
-      benchmarkMap.set(t.symbol.toUpperCase(), raw);
+    peers.forEach((b) => {
+      benchmarkMap.set(b.symbol.toUpperCase(), { symbol: b.symbol, name: b.symbol, sector: b.sector || normSector, ...b.metrics });
     });
 
     // Merge or override input rows for this sector
@@ -277,457 +270,39 @@ export function rankInSector(rows: ScoredRow[], symbol: string, strat: StrategyI
   return { rank: peers.findIndex(x => x.symbol === symbol) + 1, total: peers.length };
 }
 
-export const SECTOR_CAPS: Record<string, number> = {
-  "semis_ai":               40,  // NVDA, AVGO cuando el negocio principal es IA/datacenter
-  "tech_mature":            35,  // MSFT, GOOGL, AAPL, ADBE
-  "fintech":                50,  // NU, SOFI — negocio en inflexión desde base negativa
-  "payments":               20,  // V, MA — crecimiento estable de red, sin saltos estructurales
-  "ecommerce":              40,  // AMZN, MELI — ciclos de margen
-  "healthcare_managed":     25,  // UNH y similares — cap más bajo por regulación/reversión a la media
-  "financials_diversified": 20,  // SCHW y bancos/brokers maduros
-  "default":                35,
-};
-
-export function resolveSectorCap(symbol?: string, sector?: string, industry?: string): { capKey: string; cap: number; inferred: boolean } {
-  const sym = (symbol || "").toUpperCase().trim();
-  const sec = (sector || "").toLowerCase().trim();
-  const ind = (industry || "").toLowerCase().trim();
-
-  // 1. Ticker mappings for clear archetype matches
-  const mapping: Record<string, string> = {
-    NVDA: "semis_ai", AVGO: "semis_ai", TSM: "semis_ai", AMD: "semis_ai", MRVL: "semis_ai",
-    ASML: "semis_ai", ARM: "semis_ai", MU: "semis_ai", INTC: "semis_ai", QCOM: "semis_ai",
-    TXN: "semis_ai", LRCX: "semis_ai", AMAT: "semis_ai", KLAC: "semis_ai", ADI: "semis_ai",
-    MSFT: "tech_mature", GOOGL: "tech_mature", GOOG: "tech_mature", AAPL: "tech_mature",
-    ADBE: "tech_mature", ORCL: "tech_mature", CSCO: "tech_mature", IBM: "tech_mature",
-    CRM: "tech_mature", SAP: "tech_mature", INTU: "tech_mature", NOW: "tech_mature",
-    NU: "fintech", SOFI: "fintech", HOOD: "fintech", UPST: "fintech", AFRM: "fintech", COIN: "fintech",
-    V: "payments", MA: "payments", AXP: "payments", DFS: "payments", FIS: "payments", FISV: "payments",
-    AMZN: "ecommerce", MELI: "ecommerce", BABA: "ecommerce", JD: "ecommerce", PDD: "ecommerce",
-    EBAY: "ecommerce", SHOP: "ecommerce", SE: "ecommerce", CPNG: "ecommerce",
-    UNH: "healthcare_managed", ELV: "healthcare_managed", CI: "healthcare_managed",
-    HUM: "healthcare_managed", CVS: "healthcare_managed", CNC: "healthcare_managed",
-    SCHW: "financials_diversified", JPM: "financials_diversified", BAC: "financials_diversified",
-    MS: "financials_diversified", GS: "financials_diversified", C: "financials_diversified",
-    WFC: "financials_diversified", BLK: "financials_diversified", BK: "financials_diversified"
-  };
-
-  if (sym && mapping[sym]) {
-    const key = mapping[sym];
-    return { capKey: key, cap: SECTOR_CAPS[key] ?? SECTOR_CAPS.default, inferred: false };
-  }
-
-  // 2. Sector / Industry string mappings
-  if (sec.includes("semiconductor") || ind.includes("semiconductor") || ind.includes("artificial intelligence") || ind.includes("ai")) {
-    return { capKey: "semis_ai", cap: SECTOR_CAPS.semis_ai, inferred: false };
-  }
-  if (sec.includes("fintech") || ind.includes("fintech") || ind.includes("consumer finance")) {
-    return { capKey: "fintech", cap: SECTOR_CAPS.fintech, inferred: false };
-  }
-  if (sec.includes("payment") || ind.includes("payment") || ind.includes("transaction processing")) {
-    return { capKey: "payments", cap: SECTOR_CAPS.payments, inferred: false };
-  }
-  if (sec.includes("ecommerce") || sec.includes("e-commerce") || sec.includes("internet retail") || ind.includes("e-commerce") || ind.includes("internet retail")) {
-    return { capKey: "ecommerce", cap: SECTOR_CAPS.ecommerce, inferred: false };
-  }
-  if ((sec.includes("health") || ind.includes("health")) && (sec.includes("managed") || ind.includes("insurance") || ind.includes("plan") || ind.includes("managed care"))) {
-    return { capKey: "healthcare_managed", cap: SECTOR_CAPS.healthcare_managed, inferred: false };
-  }
-  if (sec.includes("financial") || sec.includes("bank") || ind.includes("bank") || ind.includes("broker") || ind.includes("capital market")) {
-    return { capKey: "financials_diversified", cap: SECTOR_CAPS.financials_diversified, inferred: false };
-  }
-  if (sec.includes("tech") || sec.includes("software") || sec.includes("information technology") || ind.includes("software") || ind.includes("hardware")) {
-    return { capKey: "tech_mature", cap: SECTOR_CAPS.tech_mature, inferred: false };
-  }
-
-  // 3. Fallback to default
-  return { capKey: "default", cap: SECTOR_CAPS.default, inferred: true };
-}
-
-// ---------- generador determinista de metricas -------------------------------
+// ---------- métricas reales ---------------------------------------------------
+/**
+ * Completa las métricas que falten con los estados financieros de la empresa (misma definición que la
+ * referencia del servidor, scoreMetrics.ts). Las que ya vienen de la referencia no se tocan, para que
+ * la empresa y sus comparables se midan igual.
+ */
 export function overrideFeaturesWithFinancials(raw: RawFeatures, fin: { annual: any[]; quarterly: any[]; [key: string]: any } | null): RawFeatures {
   if (!fin) return raw;
-
-  let sortedAnnual: any[] = [];
-  if (fin.annual && fin.annual.length > 0) {
-    sortedAnnual = [...fin.annual].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const annual = Array.isArray(fin.annualAll) && fin.annualAll.length ? fin.annualAll : fin.annual;
+  const quarterly = Array.isArray(fin.quarterlyAll) && fin.quarterlyAll.length ? fin.quarterlyAll : fin.quarterly;
+  const { metrics, flags } = computeScoreMetrics(annual, quarterly, {
+    trailingPE: fin.trailingPE ?? fin.stockData?.trailingPE ?? null,
+    forwardPE: fin.forwardPE ?? fin.stockData?.forwardPE ?? null,
+    price: fin.currentPrice ?? fin.stockData?.price ?? null,
+    marketCap: fin.marketCap ?? fin.stockData?.marketCap ?? null,
+    beta: fin.beta ?? fin.stockData?.beta ?? null,
+    sector: raw.sector || null,
+  });
+  for (const [k, v] of Object.entries(metrics)) {
+    if ((raw[k] === null || raw[k] === undefined) && v !== null && v !== undefined) raw[k] = v;
   }
-
-  let sortedQuarterly: any[] = [];
-  if (fin.quarterly && fin.quarterly.length > 0) {
-    sortedQuarterly = [...fin.quarterly].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  for (const [k, v] of Object.entries(flags)) {
+    if (raw[k] === undefined && v !== undefined) raw[k] = v;
   }
-
-  const calculateGrowth = (key: string): number | null => {
-    // Prioritize quarterly YoY (latest quarter vs same quarter 1 year ago, idx + 4) for the most up-to-date AGR
-    if (sortedQuarterly.length >= 2) {
-      const validCols = sortedQuarterly
-        .map((col, idx) => ({ val: col[key], idx }))
-        .filter(item => typeof item.val === "number" && !isNaN(item.val));
-
-      if (validCols.length >= 2) {
-        const latestItem = validCols[0];
-        let priorYearItem = validCols.find(item => item.idx === latestItem.idx + 4);
-        if (!priorYearItem && validCols.length > 1) {
-          priorYearItem = validCols[1];
-        }
-
-        if (priorYearItem && priorYearItem.val !== 0 && latestItem.val !== undefined) {
-          return ((latestItem.val - priorYearItem.val) / Math.abs(priorYearItem.val)) * 100;
-        }
-      }
-    }
-
-    // Fallback to Annual YoY (latest annual vs previous annual)
-    if (sortedAnnual.length >= 2) {
-      const validCols = sortedAnnual
-        .map((col, idx) => ({ val: col[key], idx }))
-        .filter(item => typeof item.val === "number" && !isNaN(item.val));
-
-      if (validCols.length >= 2) {
-        const latestItem = validCols[0];
-        const priorYearItem = validCols[1];
-        if (priorYearItem && priorYearItem.val !== 0 && latestItem.val !== undefined) {
-          return ((latestItem.val - priorYearItem.val) / Math.abs(priorYearItem.val)) * 100;
-        }
-      }
-    }
-
-    return null;
-  };
-
-  // --- Annual Historical CAGR (3-Year / Multi-Year) ---
-  const calculateAnnualCagr = (key: string): number | null => {
-    const validAnnual = sortedAnnual
-      .map(col => ({ val: col[key] }))
-      .filter(item => typeof item.val === "number" && !isNaN(item.val));
-
-    if (validAnnual.length >= 4) {
-      const latest = validAnnual[0].val;
-      const base   = validAnnual[3].val;
-      if (base <= 0 && latest > 0) {
-        const prior = validAnnual[1].val;
-        if (prior !== 0) return ((latest - prior) / Math.abs(prior)) * 100;
-      }
-      if (base > 0) return (Math.pow(latest / base, 1 / 3) - 1) * 100;
-    }
-    if (validAnnual.length >= 2) {
-      const latest = validAnnual[0].val;
-      const prior  = validAnnual[1].val;
-      if (prior !== 0 && latest !== undefined)
-        return ((latest - prior) / Math.abs(prior)) * 100;
-    }
-    return null;
-  };
-
-  const revCagr = calculateAnnualCagr("totalRevenue") ?? calculateGrowth("totalRevenue");
-  if (revCagr !== null) {
-    raw.revenue_cagr = Number(revCagr.toFixed(2));
-  }
-
-  // --- EPS CAGR (3-Year Historical with negative base handling + Forward Blend + Sector Cap) ---
-
-  const calculateAnnualEpsCagr = (): number | null => {
-    const validAnnual = sortedAnnual
-      .map(col => ({ val: col.dilutedEPS ?? col.basicEPS }))
-      .filter(item => typeof item.val === "number" && !isNaN(item.val));
-
-    if (validAnnual.length >= 4) {
-      const latest = validAnnual[0].val;
-      const base   = validAnnual[3].val;
-      if (base <= 0 && latest > 0) {
-        const prior = validAnnual[1].val;
-        if (prior !== 0) return ((latest - prior) / Math.abs(prior)) * 100;
-      }
-      if (base > 0) return (Math.pow(latest / base, 1 / 3) - 1) * 100;
-    }
-    if (validAnnual.length >= 2) {
-      const latest = validAnnual[0].val;
-      const prior  = validAnnual[1].val;
-      if (prior !== 0 && latest !== undefined)
-        return ((latest - prior) / Math.abs(prior)) * 100;
-    }
-    return null;
-  };
-
-  const validEpsAnnual = sortedAnnual
-    .map(col => ({ val: col.dilutedEPS ?? col.basicEPS }))
-    .filter(item => typeof item.val === "number" && !isNaN(item.val));
-
-  if (validEpsAnnual.length < 4) {
-    raw.epsCagrLowConfidence = true;
-  }
-
-  let historicCagr: number | null = calculateAnnualEpsCagr() ?? calculateAnnualCagr("dilutedEPS") ?? calculateAnnualCagr("basicEPS");
-  if (historicCagr === null) {
-    historicCagr = calculateGrowth("dilutedEPS") ?? calculateGrowth("basicEPS");
-  }
-
-  // Forward CAGR from consensus
-  const epsNow: number | null =
-    (typeof fin?.epsNow === "number" && !isNaN(fin.epsNow)) ? fin.epsNow :
-    (typeof fin?.trailingEps === "number" && !isNaN(fin.trailingEps)) ? fin.trailingEps :
-    (typeof fin?.stockData?.trailingEps === "number" && !isNaN(fin.stockData.trailingEps)) ? fin.stockData.trailingEps :
-    (typeof raw.trailing_eps === "number" && !isNaN(raw.trailing_eps)) ? raw.trailing_eps :
-    (typeof raw.epsNow === "number" && !isNaN(raw.epsNow)) ? raw.epsNow :
-    (validEpsAnnual.length > 0 && typeof validEpsAnnual[0].val === "number" && validEpsAnnual[0].val !== 0) ? validEpsAnnual[0].val : null;
-
-  const forwardEps: number | null =
-    (typeof fin?.forwardEps === "number" && !isNaN(fin.forwardEps)) ? fin.forwardEps :
-    (typeof fin?.stockData?.forwardEps === "number" && !isNaN(fin.stockData.forwardEps)) ? fin.stockData.forwardEps :
-    (typeof raw.forwardEps === "number" && !isNaN(raw.forwardEps)) ? raw.forwardEps :
-    (typeof raw.forward_eps === "number" && !isNaN(raw.forward_eps)) ? raw.forward_eps : null;
-
-  const forwardCagr = (epsNow !== null && epsNow !== 0 && forwardEps !== null && !isNaN(forwardEps))
-    ? ((forwardEps / epsNow) - 1) * 100
-    : null;
-
-  // Blend (40% histórico / 60% forward)
-  let blended: number | null = null;
-  if (historicCagr !== null && forwardCagr !== null) {
-    blended = historicCagr * 0.4 + forwardCagr * 0.6;
-  } else if (forwardCagr !== null) {
-    blended = forwardCagr;
-    raw.epsCagrLowConfidence = true;
-  } else if (historicCagr !== null) {
-    blended = historicCagr;
-    raw.epsCagrLowConfidence = true;
-  } else {
-    blended = null;
-  }
-
-  if (historicCagr !== null) raw.historicEpsCagr = Number(historicCagr.toFixed(2));
-  if (forwardCagr !== null) raw.forwardEpsCagr = Number(forwardCagr.toFixed(2));
-
-  // Cap por sector
-  if (blended !== null) {
-    const sectorCapResult = resolveSectorCap(raw.symbol, raw.sector);
-    if (sectorCapResult.inferred) {
-      raw.sectorCapInferred = true;
-    }
-    if (blended > sectorCapResult.cap) {
-      raw.eps_cagr = sectorCapResult.cap;
-      raw.epsCagrCapped = true;
-    } else {
-      raw.eps_cagr = Number(blended.toFixed(2));
-    }
-  }
-
-  // --- Operating Cash Flow CAGR (Annual Historical 3-Year / Multi-Year CAGR) ---
-  const calculateAnnualOcfCagr = (): number | null => {
-    const validAnnual = sortedAnnual
-      .map(col => ({ val: col.operatingCashFlow }))
-      .filter(item => typeof item.val === "number" && !isNaN(item.val));
-
-    if (validAnnual.length >= 4) {
-      const latest = validAnnual[0].val;
-      const base   = validAnnual[3].val;
-      if (base <= 0 && latest > 0) {
-        const prior = validAnnual[1].val;
-        if (prior !== 0) return ((latest - prior) / Math.abs(prior)) * 100;
-      }
-      if (base > 0) return (Math.pow(latest / base, 1 / 3) - 1) * 100;
-    }
-    if (validAnnual.length >= 2) {
-      const latest = validAnnual[0].val;
-      const prior  = validAnnual[1].val;
-      if (prior !== 0 && latest !== undefined)
-        return ((latest - prior) / Math.abs(prior)) * 100;
-    }
-    return null;
-  };
-
-  const ocfCagr = calculateAnnualOcfCagr() ?? calculateAnnualCagr("operatingCashFlow") ?? calculateGrowth("operatingCashFlow");
-  if (ocfCagr !== null) {
-    raw.fcf_cagr = Number(ocfCagr.toFixed(2));
-    raw.ocf_cagr = Number(ocfCagr.toFixed(2));
-  }
-
-  const latest = sortedAnnual[0];
-
-  if (latest) {
-    raw.positiveFcf = (latest.freeCashFlow ?? 0) > 0;
-    raw.negativeFcf = (latest.freeCashFlow ?? 0) < 0;
-    if (latest.totalRevenue && latest.capitalExpenditure) {
-      raw.capexRatio = Math.abs(latest.capitalExpenditure) / latest.totalRevenue * 100;
-    }
-  }
-
-  const sharesCagr = calculateGrowth("dilutedAverageShares") ?? calculateGrowth("basicAverageShares");
-  if (sharesCagr !== null) raw.shareDilution3y = sharesCagr;
-
-  if (sortedAnnual.length >= 4) {
-    const rev1 = sortedAnnual[0].totalRevenue;
-    const rev4 = sortedAnnual[3].totalRevenue;
-    if (rev1 && rev4) raw.revenueDecline = rev1 < rev4;
-  }
-
-  if (sortedAnnual.length >= 3) {
-    const m1 = sortedAnnual[0].netIncomeCommonStockholders && sortedAnnual[0].totalRevenue ? sortedAnnual[0].netIncomeCommonStockholders / sortedAnnual[0].totalRevenue : null;
-    const m3 = sortedAnnual[2].netIncomeCommonStockholders && sortedAnnual[2].totalRevenue ? sortedAnnual[2].netIncomeCommonStockholders / sortedAnnual[2].totalRevenue : null;
-    if (m1 !== null && m3 !== null) raw.marginsImproving = m1 > m3;
-
-    let earnChanges = [];
-    for (let i = 0; i < sortedAnnual.length - 1; i++) {
-       const cur = sortedAnnual[i].netIncomeCommonStockholders;
-       const prior = sortedAnnual[i+1].netIncomeCommonStockholders;
-       if (cur !== undefined && prior !== undefined && prior !== 0) earnChanges.push((cur - prior) / Math.abs(prior));
-    }
-    if (earnChanges.length > 0) {
-      const avg = earnChanges.reduce((a, b) => a + b, 0) / earnChanges.length;
-      raw.earningsVolatility = Math.sqrt(earnChanges.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / earnChanges.length);
-    }
-  }
-  raw.epsRevisionPositive = true;
-
-  if (latest) {
-    if (latest.netIncomeCommonStockholders && latest.investedCapital && latest.investedCapital !== 0) {
-      raw.roic = (latest.netIncomeCommonStockholders / latest.investedCapital) * 100;
-    }
-    if (latest.grossProfit && latest.totalRevenue && latest.totalRevenue !== 0) {
-      raw.gross_margin = (latest.grossProfit / latest.totalRevenue) * 100;
-    }
-    if (latest.operatingIncome && latest.totalRevenue && latest.totalRevenue !== 0) {
-      raw.operating_margin = (latest.operatingIncome / latest.totalRevenue) * 100;
-    }
-    if (latest.freeCashFlow && latest.netIncomeCommonStockholders && latest.netIncomeCommonStockholders !== 0) {
-      raw.fcf_conversion = (latest.freeCashFlow / latest.netIncomeCommonStockholders) * 100;
-    }
-    if (latest.operatingIncome && latest.interestExpense && latest.interestExpense !== 0) {
-      raw.interest_cov = latest.operatingIncome / Math.abs(latest.interestExpense);
-    }
-  }
-
-  if (sortedAnnual.length >= 3) {
-    let revGrowths = [];
-    let margins = [];
-    for (let i = 0; i < sortedAnnual.length - 1; i++) {
-      const currentVal = sortedAnnual[i].totalRevenue;
-      const priorVal = sortedAnnual[i + 1].totalRevenue;
-      if (currentVal && priorVal && priorVal !== 0) {
-        revGrowths.push(((currentVal - priorVal) / Math.abs(priorVal)) * 100);
-      }
-      if (sortedAnnual[i].grossProfit && sortedAnnual[i].totalRevenue && sortedAnnual[i].totalRevenue !== 0) {
-        margins.push((sortedAnnual[i].grossProfit / sortedAnnual[i].totalRevenue) * 100);
-      }
-    }
-    if (revGrowths.length > 0) {
-      const avg = revGrowths.reduce((a, b) => a + b, 0) / revGrowths.length;
-      raw.rev_growth_vol = Math.sqrt(revGrowths.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / revGrowths.length);
-    }
-    if (margins.length > 0) {
-      const avg = margins.reduce((a, b) => a + b, 0) / margins.length;
-      raw.margin_vol = Math.sqrt(margins.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / margins.length);
-    }
-  }
-
   return raw;
 }
 
+/** Métricas de la empresa en la referencia (datos reales) o vacías. Nunca valores inventados. */
 export function getRawFeatures(symbol: string, name: string, sector: string): RawFeatures {
   const ticker = symbol.toUpperCase();
-  
-  // Custom baseline for known tickers
-  const baselines: Record<string, Partial<Record<Metric, number>>> = {
-    MSFT: {
-      revenue_cagr: 14.5, eps_cagr: 18.2, fcf_cagr: 15.1,
-      roic: 28.5, gross_margin: 69.2, operating_margin: 44.6, fcf_conversion: 95.0,
-      beta: 1.10, rev_growth_vol: 3.2, margin_vol: 2.1, interest_cov: 45.0,
-      trailing_pe: 35.2, forward_pe: 31.0, ev_ebitda: 25.4, fcf_yield: 2.8,
-    },
-    NVDA: {
-      revenue_cagr: 65.4, eps_cagr: 85.2, fcf_cagr: 72.1,
-      roic: 58.5, gross_margin: 76.2, operating_margin: 54.6, fcf_conversion: 110.0,
-      beta: 1.68, rev_growth_vol: 18.2, margin_vol: 6.5, interest_cov: 95.0,
-      trailing_pe: 29.48, forward_pe: 21.93, ev_ebitda: 23.81, fcf_yield: 1.8,
-    },
-    AAPL: {
-      revenue_cagr: 8.5, eps_cagr: 11.2, fcf_cagr: 9.8,
-      roic: 45.5, gross_margin: 45.2, operating_margin: 30.6, fcf_conversion: 105.0,
-      beta: 1.05, rev_growth_vol: 4.2, margin_vol: 1.8, interest_cov: 38.0,
-      trailing_pe: 30.2, forward_pe: 27.0, ev_ebitda: 22.4, fcf_yield: 3.2,
-    },
-    META: {
-      revenue_cagr: 18.5, eps_cagr: 24.2, fcf_cagr: 22.1,
-      roic: 24.5, gross_margin: 80.2, operating_margin: 38.6, fcf_conversion: 92.0,
-      beta: 1.25, rev_growth_vol: 7.5, margin_vol: 4.1, interest_cov: 52.0,
-      trailing_pe: 28.2, forward_pe: 24.0, ev_ebitda: 18.4, fcf_yield: 3.8,
-    },
-    GOOGL: {
-      revenue_cagr: 12.5, eps_cagr: 16.2, fcf_cagr: 14.1,
-      roic: 22.5, gross_margin: 56.2, operating_margin: 28.6, fcf_conversion: 88.0,
-      beta: 1.08, rev_growth_vol: 3.8, margin_vol: 2.2, interest_cov: 60.0,
-      trailing_pe: 25.2, forward_pe: 21.0, ev_ebitda: 15.4, fcf_yield: 4.2,
-    },
-    AMZN: {
-      revenue_cagr: 11.5, eps_cagr: 35.2, fcf_cagr: 42.1,
-      roic: 14.5, gross_margin: 46.2, operating_margin: 9.6, fcf_conversion: 120.0,
-      beta: 1.15, rev_growth_vol: 5.1, margin_vol: 3.2, interest_cov: 15.0,
-      trailing_pe: 40.2, forward_pe: 32.0, ev_ebitda: 19.4, fcf_yield: 2.5,
-    },
-    AVGO: {
-      revenue_cagr: 19.2, eps_cagr: 22.4, fcf_cagr: 18.5,
-      roic: 18.5, gross_margin: 65.4, operating_margin: 35.2, fcf_conversion: 98.0,
-      beta: 1.20, rev_growth_vol: 6.5, margin_vol: 3.1, interest_cov: 12.5,
-      trailing_pe: 38.5, forward_pe: 28.2, ev_ebitda: 21.2, fcf_yield: 4.5,
-    },
-    MAGS: {
-      revenue_cagr: 20.5, eps_cagr: 25.2, fcf_cagr: 22.1,
-      roic: 25.0, gross_margin: 60.2, operating_margin: 32.0, fcf_conversion: 95.0,
-      beta: 1.22, rev_growth_vol: 8.0, margin_vol: 4.0, interest_cov: 40.0,
-      trailing_pe: 32.2, forward_pe: 28.0, ev_ebitda: 20.4, fcf_yield: 3.0,
-    },
-    IREN: {
-      revenue_cagr: 45.2, eps_cagr: 5.2, fcf_cagr: -12.5,
-      roic: 2.5, gross_margin: 28.4, operating_margin: -1.5, fcf_conversion: 45.0,
-      beta: 2.20, rev_growth_vol: 35.2, margin_vol: 18.4, interest_cov: 1.5,
-      trailing_pe: 85.0, forward_pe: 45.0, ev_ebitda: 38.0, fcf_yield: -4.2,
-    },
-    CRWV: {
-      revenue_cagr: 8.2, eps_cagr: 6.4, fcf_cagr: 5.1,
-      roic: 6.5, gross_margin: 34.2, operating_margin: 8.5, fcf_conversion: 75.0,
-      beta: 1.15, rev_growth_vol: 10.2, margin_vol: 5.4, interest_cov: 4.5,
-      trailing_pe: 18.5, forward_pe: 15.2, ev_ebitda: 11.2, fcf_yield: 2.4,
-    },
-    NBIS: {
-      revenue_cagr: 125.0, eps_cagr: 45.0, fcf_cagr: -15.0,
-      roic: 3.5, gross_margin: 48.5, operating_margin: -8.5, fcf_conversion: -25.0,
-      beta: 1.85, rev_growth_vol: 28.5, margin_vol: 16.2, interest_cov: 25.0,
-      trailing_pe: 55.0, forward_pe: 32.0, ev_ebitda: 26.5, fcf_yield: -2.8,
-    }
-  };
-  
-  if (baselines[ticker]) {
-    return { symbol: ticker, name, sector, ...baselines[ticker] };
-  }
-  
-  // Deterministic fallback based on hash
-  let hash = 0;
-  for (let i = 0; i < ticker.length; i++) {
-    hash = ticker.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const absHash = Math.abs(hash);
-  
-  return {
-    symbol: ticker,
-    name,
-    sector,
-    revenue_cagr: 5 + (absHash % 30),
-    eps_cagr: 4 + (absHash % 40),
-    fcf_cagr: 3 + (absHash % 35),
-    roic: 5 + (absHash % 25),
-    gross_margin: 20 + (absHash % 60),
-    operating_margin: 5 + (absHash % 40),
-    fcf_conversion: 60 + (absHash % 50),
-    beta: parseFloat((0.8 + (absHash % 150) / 100).toFixed(2)),
-    rev_growth_vol: 2 + (absHash % 20),
-    margin_vol: 1 + (absHash % 15),
-    interest_cov: 2 + (absHash % 50),
-    trailing_pe: 10 + (absHash % 60),
-    forward_pe: 8 + (absHash % 50),
-    ev_ebitda: 6 + (absHash % 35),
-    fcf_yield: parseFloat((-2 + (absHash % 10)).toFixed(1)),
-  };
+  const b = getBenchmark(ticker);
+  if (b) return { symbol: ticker, name, sector: sector || b.sector || "", ...b.metrics, ...(b.flags || {}) };
+  return { symbol: ticker, name, sector };
 }
 
 // ---------- tipificacion de tipo y metodo -------------------------------------------
@@ -736,9 +311,11 @@ export function determineType(r: RawFeatures, factors: Record<Factor, number | n
   const q = factors.quality ?? 0;
   const s = factors.stability ?? 0;
   
-  const isFinancial = r.sector === "Financials" || r.sector === "Financial Services";
-  const isUtilityOrRealEstate = ["Utilities", "Real Estate"].includes(r.sector || "");
-  const commodityExposure = ["Energy", "Basic Materials", "Materials"].includes(r.sector || "");
+  // Sector GICS normalizado (la clasificación trae a veces la subindustria)
+  const sec = normalizeSectorName(r.sector || "");
+  const isFinancial = sec === "Financials";
+  const isUtilityOrRealEstate = sec === "Utilities" || sec === "Real Estate";
+  const commodityExposure = sec === "Energy" || sec === "Materials";
   
   const negativeFcf = r.negativeFcf ?? false;
   const heavyDilution = r.shareDilution3y != null && r.shareDilution3y > 5;
@@ -746,6 +323,13 @@ export function determineType(r: RawFeatures, factors: Record<Factor, number | n
   const capexRatio = r.capexRatio ?? 0;
   const revenueCagr3y = r.revenue_cagr ?? 0;
   const earningsVolatility = r.earningsVolatility ?? 0;
+  // El tipo depende del crecimiento real (CAGR a 3 años), no del score de Growth, que es relativo al
+  // sector: un 77 entre empresas de consumo básico no es "hipercrecimiento". Sin datos, el score.
+  const revG = r.revenue_cagr;
+  const epsG = r.eps_cagr;
+  const hyper = revG != null ? revG >= 20 : g >= 75;
+  const growing = revG != null ? revG >= 8 || (epsG != null && epsG >= 12) : g >= 50;
+  const someGrowth = revG != null ? revG >= 5 : g >= 40;
 
   if (isFinancial) return { type: "Financial / Fintech", valuationMethod: "P/B + Earnings Power" };
 
@@ -765,17 +349,17 @@ export function determineType(r: RawFeatures, factors: Record<Factor, number | n
     return { type: "Cyclical", valuationMethod: "Normalized Earnings + EV/EBITDA" };
 
   // Top Tier Growth
-  if (g >= 75 && !negativeFcf) 
+  if (hyper && !negativeFcf) 
     return { type: "Hypergrowth", valuationMethod: "DCF + PEG + Revenue Multiple" };
   
-  if (g >= 50 && q >= 50 && !negativeFcf) 
+  if (growing && q >= 50 && !negativeFcf) 
     return { type: "Growth Compounder", valuationMethod: "DCF + PEG" };
 
   // Top Tier Quality / Stalwarts
   if (q >= 60 && s >= 60 && !negativeFcf) 
     return { type: "Mature Compounder", valuationMethod: "DCF + Dividend Discount" };
   
-  if (g >= 40 && q >= 40 && !negativeFcf) 
+  if (someGrowth && q >= 40 && !negativeFcf) 
     return { type: "Growth Compounder", valuationMethod: "DCF + PEG" };
   
   if (s >= 50 && !negativeFcf) 
@@ -788,7 +372,7 @@ export function determineType(r: RawFeatures, factors: Record<Factor, number | n
   if (negativeFcf) 
     return { type: "Speculative", valuationMethod: "Revenue Multiple + Scenario Analysis" };
     
-  if (g >= 30)
+  if (someGrowth)
     return { type: "Growth Compounder", valuationMethod: "DCF + PEG" };
     
   return { type: "Mature Compounder", valuationMethod: "DCF + Dividend Discount" };

@@ -31,6 +31,7 @@ import {
   HelpCircle,
   Layers
 } from "lucide-react";
+import { useScoreBenchmarks } from "../utils/useScoreBenchmarks";
 
 interface StockScorecardProps {
   positions: Position[];
@@ -99,6 +100,7 @@ export default function StockScorecard({ positions }: StockScorecardProps) {
   }, [stockPositions]);
 
   // Generate a map of raw features for accurate UI rendering (aligned with the scoredRows)
+  const scoreV = useScoreBenchmarks();
   const rawFeaturesMap = useMemo(() => {
     const map: Record<string, any> = {};
     stockPositions.forEach((pos) => {
@@ -108,19 +110,13 @@ export default function StockScorecard({ positions }: StockScorecardProps) {
       if (finData) {
         raw = overrideFeaturesWithFinancials(raw, finData);
       }
-      if (pos.pe !== null && pos.pe !== undefined) {
-        raw.trailing_pe = pos.pe;
-      }
-      if (pos.fwdPe !== null && pos.fwdPe !== undefined) {
-        raw.forward_pe = pos.fwdPe;
-      }
-      if (pos.evEbitda !== null && pos.evEbitda !== undefined) {
-        raw.ev_ebitda = pos.evEbitda;
-      }
+      if (raw.trailing_pe == null && pos.pe != null && pos.pe > 0) raw.trailing_pe = pos.pe;
+      if (raw.forward_pe == null && pos.fwdPe != null && pos.fwdPe > 0) raw.forward_pe = pos.fwdPe;
+      if (raw.ev_ebitda == null && pos.evEbitda != null && pos.evEbitda > 0) raw.ev_ebitda = pos.evEbitda;
       map[pos.ticker.toUpperCase()] = raw;
     });
     return map;
-  }, [stockPositions, financialsMap]);
+  }, [stockPositions, financialsMap, scoreV]);
 
   // Generate scored rows using the unified Master Stock Score Matrix
   const scoredRows = useMemo(() => {
@@ -144,7 +140,7 @@ export default function StockScorecard({ positions }: StockScorecardProps) {
         raw,
       } as ScoredRow;
     });
-  }, [stockPositions, rawFeaturesMap]);
+  }, [stockPositions, rawFeaturesMap, scoreV]);
 
   // Calculo de Score General del Portafolio (Ponderado por el peso de cada ticker activo)
   const portfolioScores = useMemo(() => {
