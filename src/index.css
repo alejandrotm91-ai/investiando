@@ -1550,3 +1550,11 @@ html.light [data-toggle]:not(#_t):not(#_t):not(#_t):not(#_t) button[aria-pressed
   background-color: rgba(27, 25, 23, 0.05) !important;
   color: #1b1917 !important;
 }
+
+/* Summary, modo claro: la tarjeta Portfolio Distribution (2.ª de la primera fila) en blanco, como
+   Portfolio Value. :not(#_t) ×4 para ganar a las reglas posicionales anteriores. */
+.light #summary-section > div:first-child > div:nth-child(2):not(#_t):not(#_t):not(#_t):not(#_t) {
+  background: var(--theme-card) !important;
+  background-color: var(--theme-card) !important;
+  border-color: var(--theme-border) !important;
+}
