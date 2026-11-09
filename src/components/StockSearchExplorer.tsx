@@ -50,7 +50,7 @@ import {
 } from "recharts";
 import { CompanyLogo, getTickerSector, getSectorSpanish, getSectorColor, getTypeBadgeConfig } from "./HoldingsTable";
 import { CompanyFinancials } from "./CompanyFinancials";
-import SingleStockBogleAnalysis from "./SingleStockBogleAnalysis";
+import BogleAnalysisDashboard from "./BogleAnalysisDashboard";
 import ThreeStatementModel from "./ThreeStatementModel";
 import SegmentBreakdown from "./SegmentBreakdown";
 import ValuationMultiples from "./ValuationMultiples";
@@ -2417,9 +2417,8 @@ export default function StockSearchExplorer({
                 <ThreeStatementModel initialTicker={stockData.symbol} portfolioTickers={[stockData.symbol]} language={language} theme={theme} />
               )}
               {valuationView === "bogle" && (
-                <div className="bg-theme-card border border-theme-border rounded-3xl p-6">
-                  <SingleStockBogleAnalysis ticker={stockData.symbol} language={language} theme={theme} />
-                </div>
+                // Mismo modelo y vista que los 3 motores de la pestaña Analysis de Your Portfolio
+                <BogleAnalysisDashboard singleTicker={stockData.symbol} language={language} theme={theme} />
               )}
             </div>
           )}

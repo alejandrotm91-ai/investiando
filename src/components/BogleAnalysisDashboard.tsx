@@ -35,23 +35,36 @@ import { TICKER_CLASSIFICATION } from "../data/tickerClassification";
 import ThreeStatementModel from "./ThreeStatementModel";
 
 interface BogleAnalysisDashboardProps {
-  portfolio: PortfolioData;
+  portfolio?: PortfolioData;
   language?: "EN" | "ES";
   theme?: "dark" | "light";
+  /** Solo los 3 motores de este valor, sin cabecera, selector de vista ni selector de acción
+   *  (Stock Explorer › Valuation › Engines of Return) */
+  singleTicker?: string;
 }
 
 
 export default function BogleAnalysisDashboard({
-  portfolio,
+  portfolio: portfolioProp,
   language = "ES",
-  theme = "dark"
+  theme = "dark",
+  singleTicker
 }: BogleAnalysisDashboardProps) {
+  const portfolio: PortfolioData = portfolioProp ?? ({ positions: [] } as unknown as PortfolioData);
+  const embedded = !!singleTicker;
   // Tabs: 3-Statement Model vs. Single Stock Analysis vs. Portfolio-Wide 3 Engines Rollup
-  const [viewMode, setViewMode] = useState<"three-statement" | "single" | "portfolio">("three-statement");
+  const [viewMode, setViewMode] = useState<"three-statement" | "single" | "portfolio">(embedded ? "single" : "three-statement");
 
   // Selected Ticker for single analysis
-  const initialTicker = portfolio.positions.find(p => !p.isCash)?.ticker || "NVDA";
+  const initialTicker = singleTicker || portfolio.positions.find(p => !p.isCash)?.ticker || "NVDA";
   const [selectedTicker, setSelectedTicker] = useState<string>(initialTicker);
+  // Integrado en Stock Explorer: sigue al ticker buscado
+  useEffect(() => {
+    if (singleTicker) {
+      setSelectedTicker(singleTicker);
+      setViewMode("single");
+    }
+  }, [singleTicker]);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [activeScenario, setActiveScenario] = useState<"bear" | "base" | "bull">("base");
   const [loading, setLoading] = useState<boolean>(false);
@@ -423,6 +436,7 @@ No constituye asesoría de inversión.`;
   return (
     <div className="space-y-6 w-full max-w-[1580px] mx-auto pb-12">
       {/* Top Banner Header */}
+      {!embedded && (
       <div className="bg-[#0f111a]/70 border border-slate-900/60 p-6 sm:p-8 rounded-3xl flex flex-col md:flex-row md:items-center md:justify-between gap-6 shadow-xl backdrop-blur-md relative overflow-hidden">
         <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-emerald-500/20 via-emerald-500/70 to-emerald-500/20" />
         
@@ -479,6 +493,8 @@ No constituye asesoría de inversión.`;
         </div>
       </div>
 
+      )}
+
       {/* ========================================================
           VIEW 0: 3-STATEMENT MODEL & DCF VALUATION (INTEGRATED)
           ======================================================== */}
@@ -497,6 +513,7 @@ No constituye asesoría de inversión.`;
       {viewMode === "single" && (
         <div className="space-y-6">
           {/* Ticker Selector Bar & Quick Presets */}
+          {!embedded && (
           <div className="bg-[#0f111a]/40 border border-slate-900/50 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-4 backdrop-blur-sm shadow-md">
             <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
               <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-slate-400">
@@ -539,6 +556,7 @@ No constituye asesoría de inversión.`;
 
             {/* Direct Ticker Search Input */}
           </div>
+          )}
 
           {loading ? (
             <div className="py-20 flex flex-col items-center justify-center gap-3 text-slate-400">
