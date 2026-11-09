@@ -1,7 +1,7 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import type { AppEnv } from "../env";
 import { readSession } from "../auth/session";
-import { sendEmail } from "../email";
+import { sendEmail, deliverEmail, emailProvider, emailSender } from "../email";
 
 // Panel de administración (Fase 5). Mismo contrato que server.ts, con dos cambios de seguridad:
 // - Quién es admin lo decide la sesión firmada y la columna users.role de D1, no el campo
@@ -110,8 +110,8 @@ function broadcastHtml(name: string, message: string): string {
 adminRoutes.post("/broadcast-email", async (c) => {
   const { recipientEmail, subject, message } = await c.req.json().catch(() => ({} as any));
   if (!subject || !message) return c.json({ error: "El asunto y el contenido del mensaje son obligatorios." }, 400);
-  if (!c.env.RESEND_API_KEY || !c.env.EMAIL_FROM) {
-    return c.json({ error: "El correo no está configurado (faltan RESEND_API_KEY y EMAIL_FROM en el Worker)." }, 503);
+  if (!emailProvider(c.env)) {
+    return c.json({ error: "El correo no está configurado: faltan los secretos SMTP_HOST, SMTP_USER y SMTP_PASS en el Worker." }, 503);
   }
 
   let targets: { name: string; email: string }[];
@@ -140,34 +140,41 @@ adminRoutes.post("/broadcast-email", async (c) => {
 export const smtpRoutes = new Hono<AppEnv>();
 smtpRoutes.use("*", requireAdmin);
 
-smtpRoutes.get("/config", (c) => c.json({
-  host: "api.resend.com",
-  port: "443",
-  secure: true,
-  user: "resend",
-  pass: c.env.RESEND_API_KEY ? MASK : "",
-  from: c.env.EMAIL_FROM || "",
-  provider: "resend",
-  configured: !!(c.env.RESEND_API_KEY && c.env.EMAIL_FROM),
-}));
+smtpRoutes.get("/config", (c) => {
+  const provider = emailProvider(c.env);
+  if (provider === "resend") {
+    return c.json({ host: "api.resend.com", port: "443", secure: true, user: "resend", pass: MASK, from: c.env.EMAIL_FROM || "", provider, configured: true });
+  }
+  const port = c.env.SMTP_PORT || "465";
+  return c.json({
+    host: c.env.SMTP_HOST || "",
+    port,
+    secure: port === "465",
+    user: c.env.SMTP_USER || "",
+    pass: c.env.SMTP_PASS ? MASK : "",
+    from: emailSender(c.env),
+    provider: provider ?? "none",
+    configured: provider === "smtp",
+  });
+});
 
 smtpRoutes.post("/config", (c) => c.json({
-  error: "El correo se configura con los secretos RESEND_API_KEY y EMAIL_FROM del Worker (npx wrangler secret put), no desde aquí.",
+  error: "El correo se configura con los secretos SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS y SMTP_FROM del Worker (npx wrangler secret put), no desde aquí.",
 }, 400));
 
 smtpRoutes.post("/test", async (c) => {
   const { testEmail } = await c.req.json().catch(() => ({} as any));
   const to = cleanEmailOf(testEmail);
   if (!to) return c.json({ error: "El correo de prueba es obligatorio" }, 400);
-  if (!c.env.RESEND_API_KEY || !c.env.EMAIL_FROM) {
-    return c.json({ error: "El correo no está configurado (faltan RESEND_API_KEY y EMAIL_FROM en el Worker)." }, 503);
+  if (!emailProvider(c.env)) {
+    return c.json({ error: "El correo no está configurado: faltan los secretos SMTP_HOST, SMTP_USER y SMTP_PASS en el Worker." }, 503);
   }
   const html = `
     <div style="font-family: sans-serif; background-color: #0b0f19; color: #e2e8f0; padding: 40px; border-radius: 16px; max-width: 500px; margin: 0 auto; text-align: center;">
       <span style="font-size: 24px; font-weight: bold; color: #10b981; font-family: monospace;">INVESTIANDO.AI</span>
       <h3 style="color: #10b981;">¡Correo configurado correctamente!</h3>
-      <p style="font-size: 12px; color: #94a3b8;">Remitente: ${escapeHtml(c.env.EMAIL_FROM)}</p>
+      <p style="font-size: 12px; color: #94a3b8;">Remitente: ${escapeHtml(emailSender(c.env))}</p>
     </div>`;
-  const ok = await sendEmail(c.env, to, "🧪 Prueba de correo - investiando.ai", html);
-  return ok ? c.json({ success: true }) : c.json({ error: "Resend rechazó el envío. Revisa el registro del Worker (npx wrangler tail)." }, 502);
+  const sent = await deliverEmail(c.env, to, "🧪 Prueba de correo - investiando.ai", html);
+  return sent.ok ? c.json({ success: true, provider: sent.provider }) : c.json({ error: `El envío falló (${sent.provider}): ${sent.error}` }, 502);
 });

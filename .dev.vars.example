@@ -1,9 +1,16 @@
 # Copiar como .dev.vars para desarrollo local (npm run cf:dev). Nunca subir .dev.vars al repositorio.
 # En Cloudflare se guardan como secretos: npx wrangler secret put NOMBRE
 SESSION_SECRET="texto-largo-y-aleatorio"
-# Correo (opcional en local): sin estas dos, los correos solo se registran en la consola.
-RESEND_API_KEY="re_..."
-EMAIL_FROM="investiando <no-reply@tudominio.com>"
+# Correo (opcional en local): sin SMTP ni Resend, los correos solo se registran en la consola.
+# SMTP, p. ej. Gmail con contraseña de aplicación (465 = TLS directo; 587 = STARTTLS)
+SMTP_HOST="smtp.gmail.com"
+SMTP_PORT="465"
+SMTP_USER="cuenta@gmail.com"
+SMTP_PASS="contraseña-de-aplicación"
+SMTP_FROM="investiando <cuenta@gmail.com>"
+# Alternativa si no hay SMTP: Resend
+# RESEND_API_KEY="re_..."
+# EMAIL_FROM="investiando <no-reply@tudominio.com>"
 # URL pública para los enlaces de los correos (opcional; por defecto, la del propio Worker)
 APP_URL="https://investiando.alejandrotm91.workers.dev"
 # Fase 4

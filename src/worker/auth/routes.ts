@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono";
 import type { AppEnv } from "../env";
 import { hashPassword, verifyPassword, sixDigitCode } from "./password";
 import { createSession, clearSession, readSession, verifyToken, requireUser } from "./session";
-import { sendEmail } from "../email";
+import { deliverEmail } from "../email";
 
 // Registro, verificación, inicio de sesión, recuperación de contraseña y datos del usuario.
 // Mismo contrato (rutas, cuerpos, respuestas y códigos de error) que server.ts, pero con
@@ -159,6 +159,8 @@ const TOO_MANY = "Demasiados intentos con este código. Solicita uno nuevo.";
 
 export const authRoutes = new Hono<AppEnv>();
 
+const EMAIL_FAILED = "No pudimos enviar el correo en este momento. Inténtalo de nuevo en unos minutos o escribe al soporte.";
+
 authRoutes.post("/signup", async (c) => {
   const { name, email, password } = await c.req.json().catch(() => ({} as any));
   if (!name || !email || !password) return c.json({ error: "Todos los campos son obligatorios" }, 400);
@@ -176,8 +178,10 @@ authRoutes.post("/signup", async (c) => {
   ).bind(cleanEmail, id, String(name).trim(), await hashPassword(String(password)), code, JSON.stringify(data), now(), now()).run();
 
   const verifyUrl = `${appUrl(c)}/api/auth/verify-link?email=${encodeURIComponent(cleanEmail)}&code=${code}`;
-  c.executionCtx.waitUntil(sendEmail(c.env, cleanEmail, "🔑 Verifica tu cuenta en investiando.ai", verificationEmail(String(name), code, verifyUrl, false)));
-  return c.json({ success: true, email: cleanEmail });
+  // Se espera al envío para que la pantalla sepa si el correo salió (la cuenta queda creada igualmente
+  // y el código se puede reenviar)
+  const sent = await deliverEmail(c.env, cleanEmail, "🔑 Verifica tu cuenta en investiando.ai", verificationEmail(String(name), code, verifyUrl, false));
+  return c.json({ success: true, email: cleanEmail, emailSent: sent.ok });
 });
 
 authRoutes.post("/verify", async (c) => {
@@ -217,7 +221,8 @@ authRoutes.post("/resend", async (c) => {
   const code = sixDigitCode();
   await c.env.DB.prepare("UPDATE users SET verification_code = ?, code_attempts = 0, updated_at = ? WHERE email = ?").bind(code, now(), row.email).run();
   const verifyUrl = `${appUrl(c)}/api/auth/verify-link?email=${encodeURIComponent(row.email)}&code=${code}`;
-  c.executionCtx.waitUntil(sendEmail(c.env, row.email, "🔑 [Nuevo Código] Verifica tu cuenta en investiando.ai", verificationEmail(row.name, code, verifyUrl, true)));
+  const sent = await deliverEmail(c.env, row.email, "🔑 [Nuevo Código] Verifica tu cuenta en investiando.ai", verificationEmail(row.name, code, verifyUrl, true));
+  if (!sent.ok) return c.json({ error: EMAIL_FAILED, code: "EMAIL_NOT_SENT" }, 502);
   return c.json({ success: true, message: "Verification code resent." });
 });
 
@@ -259,7 +264,8 @@ authRoutes.post("/forgot-request", async (c) => {
   const code = sixDigitCode();
   await c.env.DB.prepare("UPDATE users SET reset_code = ?, reset_expires = ?, code_attempts = 0, updated_at = ? WHERE email = ?")
     .bind(code, Date.now() + RESET_CODE_TTL_MS, now(), row.email).run();
-  c.executionCtx.waitUntil(sendEmail(c.env, row.email, "🔒 Restablecer Contraseña - investiando.ai", resetEmail(row.name, code)));
+  const sent = await deliverEmail(c.env, row.email, "🔒 Restablecer Contraseña - investiando.ai", resetEmail(row.name, code));
+  if (!sent.ok) return c.json({ error: EMAIL_FAILED, code: "EMAIL_NOT_SENT" }, 502);
   return c.json({ success: true, email: row.email, message: "Código de restablecimiento enviado." });
 });
 

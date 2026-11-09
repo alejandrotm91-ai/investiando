@@ -164,7 +164,15 @@ export default function LandingPage({ onAuthSuccess, language, theme = "dark", o
       }
 
       setEmailToVerify(data.email);
-      setSuccessMsg(language === "EN" ? "Account created! Verification email sent to your inbox." : "¡Cuenta creada! Correo de verificación enviado a tu bandeja de entrada.");
+      if (data.emailSent === false) {
+        // La cuenta existe, pero el correo no salió: se puede pedir otro código desde esta pantalla
+        setSuccessMsg(null);
+        setError(language === "EN"
+          ? "Account created, but we couldn't send the verification email. Tap \"Resend\" in a few minutes."
+          : "Cuenta creada, pero no pudimos enviar el correo de verificación. Pulsa \"Reenviar\" en unos minutos.");
+      } else {
+        setSuccessMsg(language === "EN" ? "Account created! Verification email sent to your inbox." : "¡Cuenta creada! Correo de verificación enviado a tu bandeja de entrada.");
+      }
       setMode("verify");
     } catch (err) {
       setError(language === "EN" ? "Connection error" : "Error de conexión");
