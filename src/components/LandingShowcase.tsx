@@ -270,24 +270,10 @@ export default function LandingShowcase({ language, theme, onThemeChange, onLang
                       </span>
                     ))}
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
-                    <div style={{ padding: 16, borderRadius: 16, background: "var(--card-2)", border: "1px solid var(--line)" }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", color: "var(--muted)", textTransform: "uppercase" }}>{t("Portfolio value", "Valor de la cartera")}</div>
-                      <div className="lp-h" style={{ fontSize: 30, marginTop: 6 }}>$121,139</div>
-                      <div className="lp-mono" style={{ fontSize: 12, color: "var(--up-text)", marginTop: 4 }}>{t("+21.2% all time", "+21,2 % desde el inicio")}</div>
-                    </div>
-                    <div style={{ padding: 16, borderRadius: 16, background: "var(--card-2)", border: "1px solid var(--line)" }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", color: "var(--muted)", textTransform: "uppercase" }}>{t("Vs S&P 500 · YTD", "Vs S&P 500 · en el año")}</div>
-                      <svg viewBox="0 0 200 60" style={{ width: "100%", height: 56, marginTop: 8 }} aria-hidden="true">
-                        <polyline points="0,46 20,44 40,40 60,42 80,34 100,30 120,32 140,22 160,18 180,20 200,10" fill="none" stroke="var(--accent-text)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                        <polyline points="0,48 20,47 40,45 60,46 80,41 100,40 120,39 140,34 160,32 180,33 200,28" fill="none" stroke="var(--muted)" strokeWidth="2" strokeDasharray="4 4" strokeLinecap="round" />
-                      </svg>
-                    </div>
-                  </div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12 }}>
-                    {/* Distribución de la cartera (como la tarjeta de Summary) */}
+                    {/* Valor de la cartera con su distribución (como la tarjeta Portfolio Distribution de Summary) */}
                     <div style={{ padding: 16, borderRadius: 16, background: "var(--card-2)", border: "1px solid var(--line)", minWidth: 0 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", color: "var(--muted)", textTransform: "uppercase", whiteSpace: "nowrap" }}>{t("Distribution", "Distribución")}</div>
+                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", color: "var(--muted)", textTransform: "uppercase", whiteSpace: "nowrap" }}>{t("Portfolio value", "Valor de la cartera")}</div>
                       <div>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 8 }}>
                           <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 7px", borderRadius: 999, color: "var(--up-text)", border: "1px solid var(--accent-line)", whiteSpace: "nowrap" }}>{t("Growth Compounder", "Compounder")}</span>
@@ -330,6 +316,32 @@ export default function LandingShowcase({ language, theme, onThemeChange, onLang
                           ))}
                           <div style={{ fontSize: 10, color: "var(--muted)" }}>{t("+10 more · 14 assets", "+10 más · 14 activos")}</div>
                         </div>
+                      </div>
+                    </div>
+                    <div style={{ padding: 16, borderRadius: 16, background: "var(--card-2)", border: "1px solid var(--line)" }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", color: "var(--muted)", textTransform: "uppercase" }}>{t("Vs S&P 500 · YTD", "Vs S&P 500 · en el año")}</div>
+                      <svg viewBox="0 0 200 60" style={{ width: "100%", height: 56, marginTop: 8 }} aria-hidden="true">
+                        <polyline points="0,46 20,44 40,40 60,42 80,34 100,30 120,32 140,22 160,18 180,20 200,10" fill="none" stroke="var(--accent-text)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                        <polyline points="0,48 20,47 40,45 60,46 80,41 100,40 120,39 140,34 160,32 180,33 200,28" fill="none" stroke="var(--muted)" strokeWidth="2" strokeDasharray="4 4" strokeLinecap="round" />
+                      </svg>
+                    </div>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12 }}>
+                    {/* Valor futuro de la cartera (como la tarjeta Portfolio Future Value de Summary) */}
+                    <div style={{ padding: 16, borderRadius: 16, background: "var(--card-2)", border: "1px solid var(--line)", minWidth: 0 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", color: "var(--muted)", textTransform: "uppercase", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t("Portfolio future value", "Valor futuro de la cartera")}</div>
+                      <div style={{ display: "flex", flexDirection: "column", marginTop: 6 }}>
+                        {[
+                          { l: t("52wk High", "Máx. 52 sem."), v: "$164,870", p: "+36.1%" },
+                          { l: t("Avg Target", "Objetivo medio"), v: "$154,210", p: "+27.3%" },
+                          { l: t("High Target", "Objetivo alto"), v: "$182,920", p: "+51.0%" },
+                        ].map((x, i) => (
+                          <div key={x.p} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 0", borderTop: i ? "1px solid var(--line)" : "none" }}>
+                            <span style={{ fontSize: 12, color: "var(--muted)", flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{x.l}</span>
+                            <span className="lp-mono" style={{ fontSize: 14, fontWeight: 700, color: "var(--text)" }}>{x.v}</span>
+                            <span className="lp-mono" style={{ fontSize: 10, fontWeight: 700, padding: "3px 6px", borderRadius: 6, color: "var(--up-text)", background: "var(--accent-soft)" }}>{x.p}</span>
+                          </div>
+                        ))}
                       </div>
                     </div>
                     {/* Múltiplo P/E histórico (como Valuation Multiples de Stock Explorer) */}
