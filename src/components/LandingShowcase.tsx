@@ -284,26 +284,91 @@ export default function LandingShowcase({ language, theme, onThemeChange, onLang
                       </svg>
                     </div>
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gridAutoRows: 38, gap: 3, borderRadius: 14, overflow: "hidden" }}>
-                    {(
-                      [
-                        { s: "NVDA", tone: "up-2", col: 2, row: 2, pct: "+2.78%", fs: 15 },
-                        { s: "AAPL", tone: "dn-1", col: 2, row: 2, pct: "−0.52%", fs: 15 },
-                        { s: "AVGO", tone: "up-1" },
-                        { s: "AMD", tone: "up-2" },
-                        { s: "ORCL", tone: "dn-2" },
-                        { s: "CSCO", tone: "flat" },
-                        { s: "MSFT −0.99%", tone: "dn-1", col: 2, fs: 12 },
-                        { s: "META +0.84%", tone: "up-1", col: 2, fs: 12 },
-                        { s: "TSLA", tone: "up-2" },
-                        { s: "AMZN", tone: "dn-1" },
-                      ] as Tile[]
-                    ).map((x) => (
-                      <div key={x.s} style={{ ...tileStyle(x), borderRadius: 0 }}>
-                        {x.s}
-                        {x.pct && <span style={{ fontSize: 11, fontWeight: 500 }}>{x.pct}</span>}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12 }}>
+                    {/* Distribución de la cartera (como la tarjeta de Summary) */}
+                    <div style={{ padding: 16, borderRadius: 16, background: "var(--card-2)", border: "1px solid var(--line)", minWidth: 0 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", color: "var(--muted)", textTransform: "uppercase", whiteSpace: "nowrap" }}>{t("Distribution", "Distribución")}</div>
+                      <div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 8 }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 7px", borderRadius: 999, color: "var(--up-text)", border: "1px solid var(--accent-line)", whiteSpace: "nowrap" }}>{t("Growth Compounder", "Compounder")}</span>
+                          <span className="lp-mono" style={{ fontSize: 10, fontWeight: 700, padding: "3px 7px", borderRadius: 999, color: "var(--text)", border: "1px solid var(--line-strong)", whiteSpace: "nowrap" }}>56 {t("Health", "Salud")}</span>
+                        </div>
                       </div>
-                    ))}
+                      <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 8 }}>
+                        <svg viewBox="0 0 120 120" style={{ width: 96, height: 96, flexShrink: 0 }} aria-hidden="true">
+                          {(() => {
+                            const segs = [
+                              { v: 20, c: "#84cc16" }, { v: 12, c: "#a8a29e" }, { v: 10, c: "#f97316" }, { v: 10, c: "#3730a3" },
+                              { v: 9.8, c: "#2563eb" }, { v: 9, c: "#e11d48" }, { v: 6.3, c: "#10b981" }, { v: 5.6, c: "#ea580c" },
+                              { v: 4.3, c: "#0891b2" }, { v: 4, c: "#7c3aed" }, { v: 3.8, c: "#dc2626" }, { v: 5.2, c: "#14b8a6" },
+                            ];
+                            const r = 46;
+                            const C = 2 * Math.PI * r;
+                            let acc = 0;
+                            return segs.map((g, i) => {
+                              const len = (g.v / 100) * C;
+                              const el = <circle key={i} cx="60" cy="60" r={r} fill="none" stroke={g.c} strokeWidth="18" strokeDasharray={`${Math.max(0, len - 1.2)} ${C}`} strokeDashoffset={-acc} transform="rotate(-90 60 60)" />;
+                              acc += len;
+                              return el;
+                            });
+                          })()}
+                          <text x="60" y="56" textAnchor="middle" style={{ fontSize: 8, fontWeight: 700, letterSpacing: ".08em", fill: "var(--muted)" }}>{t("TOTAL", "TOTAL")}</text>
+                          <text x="60" y="70" textAnchor="middle" className="lp-mono" style={{ fontSize: 13, fontWeight: 700, fill: "var(--up-text)" }}>$121.1k</text>
+                        </svg>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 5, minWidth: 0, flex: 1 }}>
+                          {[
+                            { s: "SMH", w: "20%", c: "#84cc16" },
+                            { s: "GOOGL", w: "12%", c: "#a8a29e" },
+                            { s: "AMZN", w: "10%", c: "#f97316" },
+                            { s: "AVGO", w: "10%", c: "#3730a3" },
+                          ].map((x) => (
+                            <div key={x.s} className="lp-mono" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11 }}>
+                              <span style={{ width: 8, height: 8, borderRadius: 999, background: x.c, flexShrink: 0 }} />
+                              <span style={{ color: "var(--text)", fontWeight: 700 }}>{x.s}</span>
+                              <span style={{ marginLeft: "auto", color: "var(--muted)" }}>{x.w}</span>
+                            </div>
+                          ))}
+                          <div style={{ fontSize: 10, color: "var(--muted)" }}>{t("+10 more · 14 assets", "+10 más · 14 activos")}</div>
+                        </div>
+                      </div>
+                    </div>
+                    {/* Múltiplo P/E histórico (como Valuation Multiples de Stock Explorer) */}
+                    <div style={{ padding: 16, borderRadius: 16, background: "var(--card-2)", border: "1px solid var(--line)", minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", color: "var(--muted)", textTransform: "uppercase", whiteSpace: "nowrap" }}>P/E · NVDA</div>
+                        <span className="lp-mono" style={{ fontSize: 10, fontWeight: 700, padding: "3px 7px", borderRadius: 8, background: "var(--selected)", color: "var(--text)" }}>5Y</span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 6 }}>
+                        <span className="lp-h" style={{ fontSize: 24 }}>23.6×</span>
+                        <span className="lp-mono" style={{ fontSize: 11, color: "var(--muted)" }}>
+                          {t("avg", "media")} 54.7× · <span style={{ color: "var(--up-text)" }}>−56.9%</span>
+                        </span>
+                      </div>
+                      <svg viewBox="0 0 200 72" preserveAspectRatio="none" style={{ width: "100%", height: 72, marginTop: 6 }} aria-hidden="true">
+                        {(() => {
+                          const vals = [105, 92, 80, 70, 52, 42, 40, 44, 38, 45, 62, 128, 158, 196, 245, 112, 104, 118, 62, 72, 92, 70, 60, 56, 62, 58, 50, 47, 55, 46, 40, 36, 31, 28, 23.6];
+                          const y = (v: number) => 68 - (v / 260) * 64;
+                          const pts = vals.map((v, i) => `${((i / (vals.length - 1)) * 200).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+                          const avgY = y(54.7);
+                          return (
+                            <>
+                              <defs>
+                                <linearGradient id="lp-pe-fill" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="0%" stopColor="var(--accent-text)" stopOpacity="0.28" />
+                                  <stop offset="100%" stopColor="var(--accent-text)" stopOpacity="0" />
+                                </linearGradient>
+                              </defs>
+                              <polygon points={`0,72 ${pts} 200,72`} fill="url(#lp-pe-fill)" />
+                              <line x1="0" x2="200" y1={avgY} y2={avgY} stroke="var(--muted)" strokeWidth="1" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
+                              <polyline points={pts} fill="none" stroke="var(--accent-text)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+                            </>
+                          );
+                        })()}
+                      </svg>
+                      <div className="lp-mono" style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "var(--muted)", marginTop: 2 }}>
+                        <span>2022</span><span>2024</span><span>2026</span>
+                      </div>
+                    </div>
                   </div>
                   <div style={{ fontSize: 11, color: "var(--muted)", textAlign: "right" }}>{t("Illustrative data", "Datos ilustrativos")}</div>
                 </div>
