@@ -3497,13 +3497,10 @@ Respond strictly with valid JSON conforming to this schema:
       const firstSym = tickerList[0];
       const firstData = results[firstSym] || { annual: [], quarterly: [], avgPe: null, peHistory: [] };
 
+      // Todos los campos del primero (medianas de PER, fuente SEC…), no solo los estados: Holdings pide
+      // con 'ticker' y el modelo de Bogle necesita peMedian10Y igual que en la pestaña Analysis.
       res.json({
-        annual: firstData.annual,
-        annualAll: (firstData as any).annualAll,
-        quarterly: firstData.quarterly,
-        quarterlyAll: (firstData as any).quarterlyAll,
-        avgPe: firstData.avgPe,
-        peHistory: firstData.peHistory,
+        ...firstData,
         ...results
       });
     } catch (err: any) {

@@ -1,13 +1,13 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { motion } from "motion/react";
 import { Position } from "../types";
 import { getRawFeatures, buildScores, overrideFeaturesWithFinancials } from "../utils/engine";
 import { getStockScore, calculatePortfolioScoreFromMatrix } from "../utils/stockScoresMatrix";
 import { useScoreBenchmarks } from "../utils/useScoreBenchmarks";
 import { dcfPerShare, epsFairValue, FV_RANGES, type DcfScenario, type FvRange } from "../utils/holdingsValuation";
+import { expectedAnnualReturn, type ExpectedReturn } from "../utils/expectedReturn";
 import { getCachedFinancials, getAllCachedFinancials, setCachedFinancials } from "../utils/financialsCache";
 import { CompanyFinancials } from "./CompanyFinancials";
-import { getQuarterlyBasicEpsCagrFromFinancials } from "./WhatIfSimulator";
 import { Table, LayoutGrid, Edit, Plus, Trash2, Search, Loader2, Briefcase, PieChart, PieChart as PieChartIcon, TrendingUp, TrendingDown, Sparkles, Activity, Rocket, Target, ChevronDown, ChevronRight, Info, Award, BarChart3, FileText, Percent, Layers } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line, ReferenceLine, ComposedChart, BarChart, Bar, Cell } from "recharts";
 
@@ -2411,45 +2411,51 @@ export default function HoldingsTable({
     return acc + (rate !== null ? rate * pos.shares : 0);
   }, 0);
 
-  // Valuation: DCF (escenario Bajista/Base/Alcista) y valor razonable por múltiplos (BPA × PER mediano
-  // del rango), con los mismos cálculos que Stock Explorer (utils/holdingsValuation.ts). Los datos
-  // (/api/stock y /api/valuation de cada valor) se cargan solo al abrir la vista Valuation.
+  // Datos por valor para Valuation y para la proyección de Basis: /api/stock (cotización, beta, deuda…)
+  // y /api/valuation (serie de precio y múltiplos). Basis solo necesita la serie de los fondos/ETF.
   const [dcfScenario, setDcfScenario] = useState<DcfScenario>("base");
   const [fvRange, setFvRange] = useState<FvRange>("10Y");
-  const [valData, setValData] = useState<Record<string, { stock?: any; points?: any[]; done?: boolean }>>({});
+  const [valData, setValData] = useState<Record<string, { stock?: any; stockDone?: boolean; points?: any[]; pointsDone?: boolean }>>({});
+  const valRequested = useRef<Set<string>>(new Set());
   const valTickers = useMemo(
     () => Array.from(new Set(activePositions.filter((p) => !p.isCash && p.ticker && p.ticker.toUpperCase() !== "CASH").map((p) => p.ticker.toUpperCase()))),
     [activePositions]
   );
-  const valLoading = holdingsTabMode === "valuation" && valTickers.some((t) => !valData[t]?.done);
+  const finOf = (t: string) => effectiveFinancialsMap[t] || effectiveFinancialsMap[t.replace("-", ".")];
+  // Sin estados financieros (fondos, ETF): su rentabilidad esperada sale de la historia del precio
+  const fundKey = valTickers.map((t) => `${t}:${finOf(t) ? (finOf(t)?.annual?.length ? "s" : "f") : "?"}`).join(",");
+  const valLoading = holdingsTabMode === "valuation" && valTickers.some((t) => !valData[t]?.stockDone || !valData[t]?.pointsDone);
   useEffect(() => {
-    if (holdingsTabMode !== "valuation") return;
-    const todo = valTickers.filter((t) => !valData[t]);
-    if (!todo.length) return;
-    let alive = true;
-    setValData((prev) => ({ ...prev, ...Object.fromEntries(todo.map((t) => [t, { done: false }])) }));
-    const loadOne = async (t: string) => {
-      const [stock, val] = await Promise.all([
-        fetch(`/api/stock/${encodeURIComponent(t)}`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
-        fetch(`/api/valuation/${encodeURIComponent(t)}`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
-      ]);
-      if (alive) setValData((prev) => ({ ...prev, [t]: { stock, points: Array.isArray(val?.points) ? val.points : [], done: true } }));
+    if (holdingsTabMode !== "valuation" && holdingsTabMode !== "basis") return;
+    const jobs: { t: string; kind: "stock" | "points" }[] = [];
+    for (const t of valTickers) {
+      if (!valRequested.current.has(`stock:${t}`)) jobs.push({ t, kind: "stock" });
+      const fin = finOf(t);
+      const wantPoints = holdingsTabMode === "valuation" || (fin !== undefined && !(fin?.annual?.length > 0));
+      if (wantPoints && !valRequested.current.has(`points:${t}`)) jobs.push({ t, kind: "points" });
+    }
+    if (!jobs.length) return;
+    jobs.forEach((j) => valRequested.current.add(`${j.kind}:${j.t}`));
+    const run = async ({ t, kind }: { t: string; kind: "stock" | "points" }) => {
+      const url = kind === "stock" ? `/api/stock/${encodeURIComponent(t)}` : `/api/valuation/${encodeURIComponent(t)}`;
+      const j = await fetch(url).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      setValData((prev) => ({
+        ...prev,
+        [t]: kind === "stock" ? { ...prev[t], stock: j, stockDone: true } : { ...prev[t], points: Array.isArray(j?.points) ? j.points : [], pointsDone: true },
+      }));
     };
     // De 4 en 4 para no saturar al servidor
     (async () => {
-      for (let i = 0; i < todo.length; i += 4) await Promise.all(todo.slice(i, i + 4).map(loadOne));
+      for (let i = 0; i < jobs.length; i += 4) await Promise.all(jobs.slice(i, i + 4).map(run));
     })();
-    return () => {
-      alive = false;
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [holdingsTabMode, valTickers.join(",")]);
+  }, [holdingsTabMode, valTickers.join(","), fundKey]);
   const valuationByTicker = useMemo(() => {
     const out: Record<string, { dcf: number | null; fv: number | null; fvMultiple: number | null }> = {};
     for (const t of valTickers) {
       const d = valData[t];
-      if (!d?.done) continue;
-      const fin = effectiveFinancialsMap[t] || effectiveFinancialsMap[t.replace("-", ".")];
+      if (!d?.stockDone || !d?.pointsDone) continue;
+      const fin = finOf(t);
       let dcf: number | null = null;
       try {
         dcf = dcfPerShare(fin?.annual, fin?.quarterly, d.stock, dcfScenario);
@@ -2460,7 +2466,24 @@ export default function HoldingsTable({
       out[t] = { dcf, fv: fv?.value ?? null, fvMultiple: fv?.multiple ?? null };
     }
     return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [valTickers, valData, effectiveFinancialsMap, dcfScenario, fvRange]);
+
+  // Rentabilidad anual esperada de cada posición (utils/expectedReturn.ts): acciones con el modelo de
+  // Bogle (escenario base a 5 años, como la pestaña Analysis); fondos/ETF con su historia de precio.
+  const expectedReturns = useMemo(() => {
+    const out: Record<string, ExpectedReturn | null> = {};
+    for (const t of valTickers) {
+      const d = valData[t];
+      const fin = finOf(t);
+      if (!d?.stockDone || fin === undefined) continue; // aún cargando
+      const isFund = !(fin?.annual?.length > 0);
+      if (isFund && !d.pointsDone) continue;
+      out[t] = expectedAnnualReturn(t, fin, d.stock, d.points, activePositions.find((p) => p.ticker.toUpperCase() === t)?.price);
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [valTickers, valData, effectiveFinancialsMap]);
 
   // Scorecard / Health mode calculations using unified Master Stock Score Matrix
   const scoreV = useScoreBenchmarks();
@@ -2524,53 +2547,41 @@ export default function HoldingsTable({
     return map;
   }, [activePositions, effectiveFinancialsMap, scoreV]);
 
-  const getPositionCagr = (ticker: string): number => {
-    const sym = ticker.toUpperCase();
-    if (sym === "CASH" || sym === "USD") return 0;
-
-    // 1. Calculate directly from fetched financials map (quarterly basicEPS CAGR)
-    const finData = effectiveFinancialsMap[sym] || effectiveFinancialsMap[ticker];
-    const finCagr = getQuarterlyBasicEpsCagrFromFinancials(finData);
-    if (finCagr !== null && !isNaN(finCagr)) {
-      return finCagr;
-    }
-
-    // 2. Try scoredRowsMap (which uses overrideFeaturesWithFinancials or baseline eps_cagr)
-    const scoredRow = scoredRowsMap.get(sym);
-    if (scoredRow?.raw?.eps_cagr !== undefined && scoredRow.raw.eps_cagr !== null && !isNaN(scoredRow.raw.eps_cagr)) {
-      return Number(Number(scoredRow.raw.eps_cagr).toFixed(2));
-    }
-
-    // 3. Fallback to baseline features for ticker (getRawFeatures)
-    const raw = getRawFeatures(sym, "", "");
-    if (raw.eps_cagr !== undefined && raw.eps_cagr !== null && !isNaN(raw.eps_cagr)) {
-      return Number(Number(raw.eps_cagr).toFixed(2));
-    }
-
-    return 12.0;
-  };
-
-  const portfolioWeightedCagr = useMemo(() => {
+  // CAGR de la proyección = media de la rentabilidad esperada de cada posición ponderada por su valor
+  // de mercado. Las posiciones sin dato (aún cargando o sin historia) no cuentan.
+  const projectionCagr = useMemo(() => {
     const stockPositions = activePositions.filter((p) => !p.isCash && p.ticker.toUpperCase() !== "CASH");
-    if (stockPositions.length === 0) return 0;
-    let sumWeightedCagr = 0;
-    let sumWeights = 0;
-
+    let sum = 0;
+    let w = 0;
+    let pending = 0;
+    const missing: string[] = [];
+    const byTicker: { ticker: string; rate: number; source: string; weight: number; capped?: boolean }[] = [];
     stockPositions.forEach((p) => {
-      const weight = p.mktValue || (p.shares * p.price) || 0;
-      const cagrVal = getPositionCagr(p.ticker);
-      sumWeightedCagr += weight * cagrVal;
-      sumWeights += weight;
+      const t = p.ticker.toUpperCase();
+      const mv = p.mktValue || p.shares * p.price || 0;
+      if (!(t in expectedReturns)) {
+        pending++;
+        return;
+      }
+      const er = expectedReturns[t];
+      if (!er) {
+        missing.push(t);
+        return;
+      }
+      sum += er.rate * mv;
+      w += mv;
+      byTicker.push({ ticker: t, rate: er.rate, source: er.source, weight: mv, capped: er.capped });
     });
+    const total = byTicker.reduce((a, b) => a + b.weight, 0) || 1;
+    byTicker.forEach((b) => (b.weight = (b.weight / total) * 100));
+    return { rate: w > 0 ? Number((sum / w).toFixed(1)) : null, pending, missing, byTicker: byTicker.sort((a, b) => b.weight - a.weight) };
+  }, [activePositions, expectedReturns]);
+  const portfolioWeightedCagr = projectionCagr.pending === 0 ? projectionCagr.rate ?? 0 : 0;
 
-    return sumWeights > 0 ? Number((sumWeightedCagr / sumWeights).toFixed(1)) : 0;
-  }, [activePositions, effectiveFinancialsMap, scoredRowsMap]);
-
-  // Synchronize CAGR input with portfolio weighted Basic EPS CAGR
+  // El campo CAGR toma la rentabilidad esperada de la cartera cuando termina de cargar (el usuario
+  // puede cambiarlo a mano después)
   useEffect(() => {
-    if (portfolioWeightedCagr > 0) {
-      setCagr(portfolioWeightedCagr);
-    }
+    if (portfolioWeightedCagr !== 0) setCagr(portfolioWeightedCagr);
   }, [portfolioWeightedCagr]);
 
   const portfolioHealth = useMemo(() => {
@@ -2992,6 +3003,33 @@ export default function HoldingsTable({
                       <span className="text-slate-500 font-mono">%</span>
                     </div>
                   </div>
+                </div>
+
+                {/* De dónde sale el CAGR (rentabilidad esperada de la cartera) */}
+                <div
+                  className="text-[10px] text-slate-500 leading-snug -mt-1"
+                  title={projectionCagr.byTicker
+                    .map((b) => `${b.ticker} ${b.rate >= 0 ? "+" : ""}${b.rate.toFixed(1)}% (${b.source === "bogle" ? "Bogle" : language === "EN" ? `price history${b.capped ? ", capped" : ""}` : `historia del precio${b.capped ? ", con tope" : ""}`}) · ${b.weight.toFixed(1)}%`)
+                    .join("\n")}
+                >
+                  {projectionCagr.pending > 0 ? (
+                    <span className="inline-flex items-center gap-1">
+                      <Loader2 size={10} className="animate-spin" />
+                      {language === "EN" ? "Computing the portfolio's expected return…" : "Calculando la rentabilidad esperada de la cartera…"}
+                    </span>
+                  ) : projectionCagr.rate !== null ? (
+                    <>
+                      {language === "EN"
+                        ? `Expected return ${projectionCagr.rate.toFixed(1)}%/yr: stocks with the Bogle model (base, 5y); ETFs with their price history (max 25%).`
+                        : `Rentabilidad esperada ${projectionCagr.rate.toFixed(1)} %/año: acciones con el modelo de Bogle (base, 5 años); ETF con su historia de precio (máx. 25 %).`}
+                      {projectionCagr.missing.length > 0 && ` ${language === "EN" ? "Without data" : "Sin datos"}: ${projectionCagr.missing.join(", ")}.`}
+                      {Math.abs(cagr - projectionCagr.rate) > 0.05 && (
+                        <button type="button" onClick={() => setCagr(projectionCagr.rate as number)} className="ml-1.5 underline text-emerald-400 hover:text-emerald-300 cursor-pointer">
+                          {language === "EN" ? "Reset" : "Restablecer"}
+                        </button>
+                      )}
+                    </>
+                  ) : null}
                 </div>
 
                 {/* Main Value Display */}
