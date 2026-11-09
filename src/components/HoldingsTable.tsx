@@ -4,6 +4,7 @@ import { Position } from "../types";
 import { getRawFeatures, buildScores, overrideFeaturesWithFinancials } from "../utils/engine";
 import { getStockScore, calculatePortfolioScoreFromMatrix } from "../utils/stockScoresMatrix";
 import { useScoreBenchmarks } from "../utils/useScoreBenchmarks";
+import { dcfPerShare, epsFairValue, FV_RANGES, type DcfScenario, type FvRange } from "../utils/holdingsValuation";
 import { getCachedFinancials, getAllCachedFinancials, setCachedFinancials } from "../utils/financialsCache";
 import { CompanyFinancials } from "./CompanyFinancials";
 import { getQuarterlyBasicEpsCagrFromFinancials } from "./WhatIfSimulator";
@@ -1578,6 +1579,28 @@ const ScoreDonut = ({ score, label, colorClass }: { score: number, label: string
   );
 };
 
+/** Potencial frente al precio actual, en %. */
+const upsideOf = (value: number | null | undefined, price: number): number | null =>
+  typeof value === "number" && value > 0 && price > 0 ? (value / price - 1) * 100 : null;
+
+/** Potencial en verde (sube) o rojo (baja). */
+function UpsidePill({ value }: { value: number | null }) {
+  if (value === null || !Number.isFinite(value)) return <span className="text-slate-500">—</span>;
+  const up = value >= 0;
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded font-bold font-mono text-[10px] md:text-xs border ${up ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-rose-500/10 text-rose-400 border-rose-500/20"}`}>
+      {up ? <TrendingUp size={11} className="flex-shrink-0" /> : <TrendingDown size={11} className="flex-shrink-0" />}
+      {up ? "+" : ""}{value.toFixed(1)}%
+    </span>
+  );
+}
+
+/** Valor por acción ("…" mientras carga, "—" sin dato). */
+function ValueCell({ loading, value, format }: { loading: boolean; value: number | null; format: (v: number) => string }) {
+  if (value !== null) return <>{format(value)}</>;
+  return <span className="text-slate-500">{loading ? "…" : "—"}</span>;
+}
+
 export default function HoldingsTable({
   positions,
   loading,
@@ -2388,6 +2411,57 @@ export default function HoldingsTable({
     return acc + (rate !== null ? rate * pos.shares : 0);
   }, 0);
 
+  // Valuation: DCF (escenario Bajista/Base/Alcista) y valor razonable por múltiplos (BPA × PER mediano
+  // del rango), con los mismos cálculos que Stock Explorer (utils/holdingsValuation.ts). Los datos
+  // (/api/stock y /api/valuation de cada valor) se cargan solo al abrir la vista Valuation.
+  const [dcfScenario, setDcfScenario] = useState<DcfScenario>("base");
+  const [fvRange, setFvRange] = useState<FvRange>("10Y");
+  const [valData, setValData] = useState<Record<string, { stock?: any; points?: any[]; done?: boolean }>>({});
+  const valTickers = useMemo(
+    () => Array.from(new Set(activePositions.filter((p) => !p.isCash && p.ticker && p.ticker.toUpperCase() !== "CASH").map((p) => p.ticker.toUpperCase()))),
+    [activePositions]
+  );
+  const valLoading = holdingsTabMode === "valuation" && valTickers.some((t) => !valData[t]?.done);
+  useEffect(() => {
+    if (holdingsTabMode !== "valuation") return;
+    const todo = valTickers.filter((t) => !valData[t]);
+    if (!todo.length) return;
+    let alive = true;
+    setValData((prev) => ({ ...prev, ...Object.fromEntries(todo.map((t) => [t, { done: false }])) }));
+    const loadOne = async (t: string) => {
+      const [stock, val] = await Promise.all([
+        fetch(`/api/stock/${encodeURIComponent(t)}`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        fetch(`/api/valuation/${encodeURIComponent(t)}`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      ]);
+      if (alive) setValData((prev) => ({ ...prev, [t]: { stock, points: Array.isArray(val?.points) ? val.points : [], done: true } }));
+    };
+    // De 4 en 4 para no saturar al servidor
+    (async () => {
+      for (let i = 0; i < todo.length; i += 4) await Promise.all(todo.slice(i, i + 4).map(loadOne));
+    })();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [holdingsTabMode, valTickers.join(",")]);
+  const valuationByTicker = useMemo(() => {
+    const out: Record<string, { dcf: number | null; fv: number | null; fvMultiple: number | null }> = {};
+    for (const t of valTickers) {
+      const d = valData[t];
+      if (!d?.done) continue;
+      const fin = effectiveFinancialsMap[t] || effectiveFinancialsMap[t.replace("-", ".")];
+      let dcf: number | null = null;
+      try {
+        dcf = dcfPerShare(fin?.annual, fin?.quarterly, d.stock, dcfScenario);
+      } catch {
+        dcf = null;
+      }
+      const fv = epsFairValue(d.points || [], fvRange);
+      out[t] = { dcf, fv: fv?.value ?? null, fvMultiple: fv?.multiple ?? null };
+    }
+    return out;
+  }, [valTickers, valData, effectiveFinancialsMap, dcfScenario, fvRange]);
+
   // Scorecard / Health mode calculations using unified Master Stock Score Matrix
   const scoreV = useScoreBenchmarks();
   const scoredRowsMap = useMemo(() => {
@@ -2747,6 +2821,55 @@ export default function HoldingsTable({
           )}
         </div>
       </div>
+
+      {/* Valuation: escenario del DCF y rango del valor razonable por múltiplos */}
+      {holdingsTabMode === "valuation" && valTickers.length > 0 && (
+        <div id="holdings-valuation-controls" className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[11px] font-bold">
+          <div className="flex items-center gap-2">
+            <span className="text-slate-500 uppercase tracking-wider">DCF</span>
+            <div data-toggle className="flex bg-[#121420] p-1 rounded-xl border border-slate-800/60">
+              {(["bear", "base", "bull"] as DcfScenario[]).map((sc) => (
+                <button
+                  key={sc}
+                  type="button"
+                  aria-pressed={dcfScenario === sc}
+                  onClick={() => setDcfScenario(sc)}
+                  className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${dcfScenario === sc ? "bg-[#1c1e29] text-white shadow-inner" : "text-slate-500 hover:text-slate-300"}`}
+                >
+                  {sc === "bear" ? (language === "EN" ? "Bear" : "Bajista") : sc === "base" ? "Base" : language === "EN" ? "Bull" : "Alcista"}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-slate-500 uppercase tracking-wider">{language === "EN" ? "Fair value (P/E)" : "Valor razonable (PER)"}</span>
+            <div data-toggle className="flex bg-[#121420] p-1 rounded-xl border border-slate-800/60">
+              {FV_RANGES.map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  aria-pressed={fvRange === r}
+                  onClick={() => setFvRange(r)}
+                  className={`px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${fvRange === r ? "bg-[#1c1e29] text-white shadow-inner" : "text-slate-500 hover:text-slate-300"}`}
+                >
+                  {r === "ALL" ? (language === "EN" ? "All" : "Todo") : r}
+                </button>
+              ))}
+            </div>
+          </div>
+          {valLoading && (
+            <span className="flex items-center gap-1.5 text-slate-500 font-medium">
+              <Loader2 size={12} className="animate-spin" />
+              {language === "EN" ? "Loading valuations…" : "Cargando valoraciones…"}
+            </span>
+          )}
+          <span className="text-slate-500 font-normal text-[10px] basis-full">
+            {language === "EN"
+              ? "DCF: same model as Stock Explorer, by scenario. Fair value: diluted EPS TTM × median P/E of the selected range."
+              : "DCF: el mismo modelo que Stock Explorer, según el escenario. Valor razonable: BPA diluido TTM × PER mediano del rango elegido."}
+          </span>
+        </div>
+      )}
 
       {/* 2.5 PROYECCIÓN, VALOR FUTURO Y SECTORES: solo en Basis, encima de la tabla */}
       {holdingsTabMode === "basis" && activePositions.length > 0 && (
@@ -3569,12 +3692,12 @@ export default function HoldingsTable({
                     <th className="py-2 px-1 md:px-2 text-center">P/E</th>
                     <th className="py-2 px-1 md:px-2 text-center">Fwd P/E</th>
                     <th className="py-2 px-1 md:px-2 text-center border-r border-slate-700/50">PEG</th>
-                    <th className="py-2 px-1 md:px-2 text-right">{language === "EN" ? "Avg Target" : "Target Prom."}</th>
-                    <th className="py-2 px-1 md:px-2 text-right">{language === "EN" ? "Avg Value" : "Val. Prom."}</th>
-                    <th className="py-2 px-1 md:px-2 text-center border-r border-slate-700/50">{language === "EN" ? "Avg Upside" : "Upside Prom."}</th>
-                    <th className="py-2 px-1 md:px-2 text-right">{language === "EN" ? "High Target" : "Target Alto"}</th>
-                    <th className="py-2 px-1 md:px-2 text-right">{language === "EN" ? "High Value" : "Val. Alto"}</th>
+                    <th className="py-2 px-1 md:px-2 text-center">{language === "EN" ? "Avg Upside" : "Upside Prom."}</th>
                     <th className="py-2 px-1 md:px-2 text-center border-r border-slate-700/50">{language === "EN" ? "High Upside" : "Upside Alto"}</th>
+                    <th className="py-2 px-1 md:px-2 text-right whitespace-nowrap">DCF ({dcfScenario === "bear" ? (language === "EN" ? "Bear" : "Bajista") : dcfScenario === "base" ? "Base" : language === "EN" ? "Bull" : "Alcista"})</th>
+                    <th className="py-2 px-1 md:px-2 text-center border-r border-slate-700/50">{language === "EN" ? "DCF Upside" : "Upside DCF"}</th>
+                    <th className="py-2 px-1 md:px-2 text-right whitespace-nowrap">{language === "EN" ? "Fair Value" : "Valor razonable"} ({fvRange === "ALL" ? (language === "EN" ? "All" : "Todo") : fvRange})</th>
+                    <th className="py-2 px-1 md:px-2 text-center border-r border-slate-700/50">{language === "EN" ? "FV Upside" : "Upside VR"}</th>
                     <th className="py-2 px-1 md:px-2 text-right whitespace-nowrap">200d MA Price</th>
                     <th className="py-2 px-1 md:px-2 text-right whitespace-nowrap">50d MA Price</th>
                   </>
@@ -3641,11 +3764,9 @@ export default function HoldingsTable({
                 }
                 const dcfValue = dcfIntrinsic !== null ? dcfIntrinsic * pos.shares : null;
 
-                const avgValue = hasAvgTarget ? pos.shares * (analystData.avgTarget || 0) : null;
                 const upsideAvg = hasAvgTarget ? (((analystData.avgTarget || 0) - pos.price) / pos.price) * 100 : null;
 
                 const hasHighTarget = analystData.highTarget !== null && analystData.highTarget > 0;
-                const highValue = hasHighTarget ? pos.shares * (analystData.highTarget || 0) : null;
                 const upsideHigh = hasHighTarget ? (((analystData.highTarget || 0) - pos.price) / pos.price) * 100 : null;
 
                 const scoredRow = scoredRowsMap.get(pos.ticker.toUpperCase());
@@ -3821,44 +3942,30 @@ export default function HoldingsTable({
                           {pos.isCash ? "—" : formatNumber(pos.peg, 2)}
                         </td>
 
-                        {/* Avg Target */}
-                        <td className="py-2.5 px-1 md:px-2 text-right font-mono text-slate-300">
-                          {hasAvgTarget ? formatCurrency(analystData.avgTarget || 0) : "—"}
-                        </td>
-
-                        {/* Avg Value */}
-                        <td className="py-2.5 px-1 md:px-2 text-right font-mono text-slate-400">
-                          {avgValue !== null ? formatValuation(avgValue) : "—"}
-                        </td>
-
                         {/* Upside (Avg) */}
-                        <td className="py-2.5 px-1 md:px-2 text-center border-r border-slate-700/50">
-                          {upsideAvg !== null ? (
-                            <span className="inline-flex items-center gap-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded font-bold font-mono text-[10px] md:text-xs">
-                              <TrendingUp size={11} className="flex-shrink-0" />
-                              {upsideAvg.toFixed(1)}%
-                            </span>
-                          ) : "—"}
-                        </td>
-
-                        {/* High Target */}
-                        <td className="py-2.5 px-1 md:px-2 text-right font-mono text-slate-300">
-                          {hasHighTarget ? formatCurrency(analystData.highTarget || 0) : "—"}
-                        </td>
-
-                        {/* High Value */}
-                        <td className="py-2.5 px-1 md:px-2 text-right font-mono text-slate-400">
-                          {highValue !== null ? formatValuation(highValue) : "—"}
+                        <td className="py-2.5 px-1 md:px-2 text-center">
+                          <UpsidePill value={upsideAvg} />
                         </td>
 
                         {/* Upside (High) */}
                         <td className="py-2.5 px-1 md:px-2 text-center border-r border-slate-700/50">
-                          {upsideHigh !== null ? (
-                            <span className="inline-flex items-center gap-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded font-bold font-mono text-[10px] md:text-xs">
-                              <TrendingUp size={11} className="flex-shrink-0" />
-                              {upsideHigh.toFixed(1)}%
-                            </span>
-                          ) : "—"}
+                          <UpsidePill value={upsideHigh} />
+                        </td>
+
+                        {/* DCF */}
+                        <td className="py-2.5 px-1 md:px-2 text-right font-mono text-slate-300 whitespace-nowrap">
+                          <ValueCell loading={!pos.isCash && valLoading && !valuationByTicker[pos.ticker.toUpperCase()]} value={pos.isCash ? null : valuationByTicker[pos.ticker.toUpperCase()]?.dcf ?? null} format={formatCurrency} />
+                        </td>
+                        <td className="py-2.5 px-1 md:px-2 text-center border-r border-slate-700/50">
+                          <UpsidePill value={upsideOf(pos.isCash ? null : valuationByTicker[pos.ticker.toUpperCase()]?.dcf ?? null, pos.price)} />
+                        </td>
+
+                        {/* Valor razonable por múltiplos */}
+                        <td className="py-2.5 px-1 md:px-2 text-right font-mono text-slate-300 whitespace-nowrap" title={valuationByTicker[pos.ticker.toUpperCase()]?.fvMultiple ? `${language === "EN" ? "Median P/E" : "PER mediano"} ${valuationByTicker[pos.ticker.toUpperCase()]!.fvMultiple!.toFixed(1)}×` : undefined}>
+                          <ValueCell loading={!pos.isCash && valLoading && !valuationByTicker[pos.ticker.toUpperCase()]} value={pos.isCash ? null : valuationByTicker[pos.ticker.toUpperCase()]?.fv ?? null} format={formatCurrency} />
+                        </td>
+                        <td className="py-2.5 px-1 md:px-2 text-center border-r border-slate-700/50">
+                          <UpsidePill value={upsideOf(pos.isCash ? null : valuationByTicker[pos.ticker.toUpperCase()]?.fv ?? null, pos.price)} />
                         </td>
 
                         {/* 200d MA */}
@@ -4424,38 +4531,39 @@ export default function HoldingsTable({
                       </div>
                     </div>
                   ) : holdingsTabMode === "valuation" ? (
-                    <div className="border-t border-slate-800 pt-3 flex items-center justify-between mt-auto">
-                      <div>
-                        <span className="text-[10px] text-slate-500 block">
-                          {language === "EN" ? "AVG TARGET" : "TARGET PROM."}
-                        </span>
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          <span className="text-xs font-mono font-bold text-slate-300">
-                            {avgTarget ? formatCurrency(avgTarget) : "—"}
-                          </span>
-                          {upsideAvg !== null && (
-                            <span className={`text-[10px] font-mono font-bold ${upsideAvg >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                              ({upsideAvg >= 0 ? "+" : ""}{upsideAvg.toFixed(1)}%)
-                            </span>
-                          )}
+                    <div className="border-t border-slate-800 pt-3 grid grid-cols-2 gap-x-3 gap-y-2.5 mt-auto">
+                      {[
+                        { label: language === "EN" ? "AVG UPSIDE" : "UPSIDE PROM.", value: null as number | null, up: upsideAvg },
+                        { label: language === "EN" ? "HIGH UPSIDE" : "UPSIDE ALTO", value: null as number | null, up: upsideHigh },
+                        {
+                          label: `DCF (${dcfScenario === "bear" ? (language === "EN" ? "BEAR" : "BAJISTA") : dcfScenario === "base" ? "BASE" : language === "EN" ? "BULL" : "ALCISTA"})`,
+                          value: valuationByTicker[pos.ticker.toUpperCase()]?.dcf ?? null,
+                          up: upsideOf(valuationByTicker[pos.ticker.toUpperCase()]?.dcf ?? null, pos.price),
+                        },
+                        {
+                          label: `${language === "EN" ? "FAIR VALUE" : "VALOR RAZ."} (${fvRange === "ALL" ? (language === "EN" ? "ALL" : "TODO") : fvRange})`,
+                          value: valuationByTicker[pos.ticker.toUpperCase()]?.fv ?? null,
+                          up: upsideOf(valuationByTicker[pos.ticker.toUpperCase()]?.fv ?? null, pos.price),
+                        },
+                      ].map((c, i) => (
+                        <div key={i} className={i % 2 ? "text-right" : ""}>
+                          <span className="text-[10px] text-slate-500 block">{c.label}</span>
+                          <div className={`flex items-center gap-1.5 mt-0.5 ${i % 2 ? "justify-end" : ""}`}>
+                            {i >= 2 && (
+                              <span className="text-xs font-mono font-bold text-slate-300">
+                                {c.value !== null ? formatCurrency(c.value) : valLoading && !valuationByTicker[pos.ticker.toUpperCase()] ? "…" : "—"}
+                              </span>
+                            )}
+                            {c.up !== null ? (
+                              <span className={`text-[10px] font-mono font-bold ${c.up >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                                {i >= 2 ? "(" : ""}{c.up >= 0 ? "+" : ""}{c.up.toFixed(1)}%{i >= 2 ? ")" : ""}
+                              </span>
+                            ) : i < 2 ? (
+                              <span className="text-xs font-mono text-slate-500">—</span>
+                            ) : null}
+                          </div>
                         </div>
-                      </div>
-
-                      <div className="text-right">
-                        <span className="text-[10px] text-slate-500 block">
-                          {language === "EN" ? "HIGH TARGET" : "TARGET ALTO"}
-                        </span>
-                        <div className="flex items-center justify-end gap-1.5 mt-0.5">
-                          <span className="text-xs font-mono font-bold text-slate-300">
-                            {highTarget ? formatCurrency(highTarget) : "—"}
-                          </span>
-                          {upsideHigh !== null && (
-                            <span className={`text-[10px] font-mono font-bold ${upsideHigh >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                              ({upsideHigh >= 0 ? "+" : ""}{upsideHigh.toFixed(1)}%)
-                            </span>
-                          )}
-                        </div>
-                      </div>
+                      ))}
                     </div>
                   ) : (
                     <div className="border-t border-slate-800 pt-3 flex items-center justify-between mt-auto">

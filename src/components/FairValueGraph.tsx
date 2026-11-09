@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Info, Scale, Pencil, RotateCcw } from "lucide-react";
+import { FV_RANGES, multipleStats, rangeStart, type FvRange } from "../utils/holdingsValuation";
 
 // Valor razonable según la historia de valoración de la empresa: cifra por acción (BPA, dividendo,
 // FCF, flujo operativo, ventas, EBITDA o valor contable) × su múltiplo mediano histórico (o el que
@@ -15,7 +16,7 @@ export interface FvPoint {
 }
 
 type BaseKey = "eps" | "div" | "fcf" | "ocf" | "rev" | "ebitda" | "book";
-type RangeKey = "YTD" | "1Y" | "3Y" | "5Y" | "10Y" | "ALL";
+type RangeKey = FvRange;
 
 const BASES: {
   key: BaseKey;
@@ -33,21 +34,8 @@ const BASES: {
   { key: "ebitda", tab: { EN: "EBITDA", ES: "EBITDA" }, mult: "ev", multName: { EN: "EV/EBITDA", ES: "EV/EBITDA" }, perShare: "ebps", psName: { EN: "EBITDA per share TTM", ES: "EBITDA por acción TTM" } },
   { key: "book", tab: { EN: "Book", ES: "Valor contable" }, mult: "pb", multName: { EN: "P/B", ES: "P/VC" }, perShare: "bvps", psName: { EN: "book value per share", ES: "valor contable por acción" } },
 ];
-const RANGES: RangeKey[] = ["YTD", "1Y", "3Y", "5Y", "10Y", "ALL"];
+const RANGES: RangeKey[] = FV_RANGES;
 const DAY = 86400000;
-
-/** Inicio de la ventana del rango (ms) contando hacia atrás desde la última fecha. */
-const rangeStart = (range: RangeKey, lastD: string): number => {
-  if (range === "ALL") return 0;
-  if (range === "YTD") return Date.parse(`${lastD.slice(0, 4)}-01-01T00:00:00Z`);
-  return new Date(lastD).getTime() - { "1Y": 1, "3Y": 3, "5Y": 5, "10Y": 10 }[range] * 365.25 * DAY;
-};
-
-const median = (xs: number[]) => {
-  const s = [...xs].sort((a, b) => a - b);
-  const m = Math.floor(s.length / 2);
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-};
 
 /** Valor razonable por acción con un múltiplo dado (EV/EBITDA descuenta la deuda neta). */
 function fairValue(base: (typeof BASES)[number], p: FvPoint, mult: number): number | null {
@@ -89,18 +77,13 @@ export default function FairValueGraph({ ticker, points, forwardPE, currency, la
   const stats = useMemo(() => {
     if (!base || !points.length) return null;
     const last = points[points.length - 1];
-    const from = rangeStart(range, last.d);
-    const win = points.filter((p) => new Date(p.d).getTime() >= from && typeof p[base.mult] === "number" && (p[base.mult] as number) > 0);
-    if (!win.length) return null;
-    const vals = win.map((p) => p[base.mult] as number);
-    const byMonth = new Map<string, number>();
-    win.forEach((p) => byMonth.set(p.d.slice(0, 7), p[base.mult] as number));
-    const monthly = [...byMonth.values()];
+    const ms = multipleStats(points, base.mult, range);
+    if (!ms) return null;
     const cur = [...points].reverse().find((p) => typeof p[base.mult] === "number" && (p[base.mult] as number) > 0);
     const lastPs = [...points].reverse().find((p) => typeof p[base.perShare] === "number");
-    const d0 = new Date(`${win[0].d}T12:00:00Z`);
+    const d0 = new Date(`${ms.first}T12:00:00Z`);
     const since = d0.toLocaleDateString(isES ? "es-ES" : "en-US", { month: "short", year: "numeric", timeZone: "UTC" });
-    return { min: Math.min(...vals), max: Math.max(...vals), median: median(monthly.length >= 6 ? monthly : vals), current: cur?.[base.mult] as number | undefined, price: last.p, lastPs, since };
+    return { min: ms.min, max: ms.max, median: ms.median, current: cur?.[base.mult] as number | undefined, price: last.p, lastPs, since };
   }, [points, base, range, isES]);
 
   if (!base || !stats) return null;
