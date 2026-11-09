@@ -72,6 +72,10 @@ export default function ThreeStatementModel({
   theme = "dark"
 }: ThreeStatementModelProps) {
   const [selectedTicker, setSelectedTicker] = useState<string>(initialTicker);
+  // Sigue al ticker que llega de fuera (Stock Explorer o Analysis): sin esto se quedaba con el primero
+  useEffect(() => {
+    if (initialTicker) setSelectedTicker(initialTicker);
+  }, [initialTicker]);
   const [searchInput, setSearchInput] = useState<string>("");
   const [activeSubTab, setActiveSubTab] = useState<"dcf" | "statements">("dcf");
   // Siempre los tres estados juntos (se quitó el filtro por estado)

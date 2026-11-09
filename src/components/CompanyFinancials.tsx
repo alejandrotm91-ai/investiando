@@ -33,6 +33,11 @@ export function CompanyFinancials({
   onViewModeChange
 }: CompanyFinancialsProps) {
   const [selectedTicker, setSelectedTicker] = useState<string>(tickers[0] || "");
+  // Sigue al ticker que llega de fuera (Stock Explorer): sin esto se quedaba con el primero
+  const externalTicker = tickers[0] || "";
+  useEffect(() => {
+    if (externalTicker) setSelectedTicker(externalTicker);
+  }, [externalTicker]);
   const [internalViewMode, setInternalViewMode] = useState<"cards" | "table">("cards");
   const [searchInput, setSearchInput] = useState("");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
