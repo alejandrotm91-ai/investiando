@@ -68,12 +68,15 @@ interface GenerationResult {
   dilutedEpsCagrPositiveVerified?: boolean;
   holdings: GeneratedHolding[];
   summaryMetrics: {
-    weightedPe: number;
+    weightedPe: number | null;
     weightedDivYield: number;
     sectorWeights: Record<string, number>;
     topHolding: string;
   };
   aiRationale: string;
+  /** false: la IA no respondió y la cartera sale del ranking cuantitativo */
+  aiUsed?: boolean;
+  notice?: string | null;
 }
 
 const STRATEGY_OPTIONS = [
@@ -86,7 +89,8 @@ const STRATEGY_OPTIONS = [
     titleES: "Portafolio Equilibrado Todo-Terreno",
     descEN: "Strategic multi-sector balance with strict Diluted EPS CAGR > 15% threshold across all compounders.",
     descES: "Diversificación multisectorial estratégica con CAGR de BPA Diluido > 15% en todos los activos.",
-    examples: "MSFT, AAPL, AMZN, GOOGL, V, COST"
+    examples: "EPS · ROIC · Beta · P/E · FCF",
+    examplesES: "BPA · ROIC · Beta · PER · FCF"
   },
   {
     id: "compounders",
@@ -97,7 +101,8 @@ const STRATEGY_OPTIONS = [
     titleES: "Compounders de Alta Calidad",
     descEN: "Focus on high-ROIC industry leaders with wide moats, pricing power, and Diluted EPS CAGR > 15%.",
     descES: "Líderes con altos retornos sobre capital (ROIC), ventajas competitivas y CAGR BPA Diluido > 15%.",
-    examples: "MSFT, AAPL, GOOGL, NVDA, V, COST"
+    examples: "ROIC · Margins · EPS · FCF",
+    examplesES: "ROIC · Márgenes · BPA · FCF"
   },
   {
     id: "hypergrowth",
@@ -108,7 +113,8 @@ const STRATEGY_OPTIONS = [
     titleES: "Hipercrecimiento & Líderes de IA",
     descEN: "Fast-growing leaders in AI and cloud (> $20B). Exempt from the 15% Diluted EPS CAGR threshold.",
     descES: "Líderes de rápida expansión en infraestructura de IA y nube (> $20B). Exento de regla CAGR EPS > 15%.",
-    examples: "NVDA, AMZN, META, AVGO, TSM, NOW"
+    examples: "Revenue · EPS · Gross margin",
+    examplesES: "Ventas · BPA · Margen bruto"
   },
   {
     id: "garp",
@@ -119,7 +125,8 @@ const STRATEGY_OPTIONS = [
     titleES: "Crecimiento a Precio Razonable (GARP)",
     descEN: "Companies with Diluted EPS CAGR > 15% trading at rational valuation multiples (attractive PEG).",
     descES: "Empresas con CAGR BPA Diluido > 15% cotizando a múltiplos razonables (PEG atractivo).",
-    examples: "GOOGL, META, QCOM, AMAT, BKNG, TXN"
+    examples: "EPS growth vs fwd P/E · ROIC",
+    examplesES: "Crec. BPA vs PER previsto · ROIC"
   },
   {
     id: "buffett",
@@ -130,7 +137,8 @@ const STRATEGY_OPTIONS = [
     titleES: "Negocios Extraordinarios a Precio Justo",
     descEN: "Durable franchises with heavy free cash flow conversion, high retention, and Diluted EPS CAGR > 15%.",
     descES: "Negocios con alto flujo de caja libre, fidelidad de clientes y CAGR BPA Diluido superior al 15%.",
-    examples: "AAPL, AXP, BKNG, MSFT, GOOGL, V"
+    examples: "ROIC · FCF yield · Stability · P/E",
+    examplesES: "ROIC · Rent. FCF · Estabilidad · PER"
   },
   {
     id: "dividends",
@@ -141,7 +149,8 @@ const STRATEGY_OPTIONS = [
     titleES: "Dividendos Crecientes & Defensivos",
     descEN: "Consistent dividend growers backed by solid Diluted EPS CAGR > 15% and fortress balance sheets.",
     descES: "Líderes de dividendo seguro y creciente respaldados por CAGR de BPA Diluido superior al 15%.",
-    examples: "AVGO, MSFT, AAPL, V, COST, LLY"
+    examples: "Dividend · EPS growth · Low beta",
+    examplesES: "Dividendo · Crec. BPA · Beta baja"
   },
   {
     id: "deepvalue",
@@ -152,7 +161,8 @@ const STRATEGY_OPTIONS = [
     titleES: "Valor Profundo & Alto Flujo de Caja",
     descEN: "Large-cap leaders trading at attractive valuation multiples while maintaining Diluted EPS CAGR > 15%.",
     descES: "Líderes cotizando con múltiplos atractivos y manteniendo un CAGR BPA Diluido superior al 15%.",
-    examples: "GOOGL, META, QCOM, AMAT, BKNG, AXP"
+    examples: "FCF yield · P/E · EV/EBITDA",
+    examplesES: "Rent. FCF · PER · EV/EBITDA"
   }
 ];
 
@@ -294,7 +304,7 @@ export default function CreatePortfolioAIModal({
     try {
       // Periodic status updates for UI feedback
       const timer1 = setTimeout(() => {
-        setGeneratingStepText(isES ? "Priorizando análisis fundamental: verificando CAGR de BPA Diluido estrictamente positivo (> 0%)..." : "Prioritizing fundamental analysis: verifying strictly positive Diluted EPS CAGR (> 0%)...");
+        setGeneratingStepText(isES ? "Priorizando análisis fundamental: verificando el crecimiento del BPA diluido (> 15 %)." : "Prioritizing fundamental analysis: verifying diluted EPS growth (> 15%).");
       }, 1400);
 
       const timer2 = setTimeout(() => {
@@ -448,13 +458,13 @@ export default function CreatePortfolioAIModal({
                         ? "bg-emerald-500/20 text-emerald-800 border-emerald-600/40" 
                         : "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
                     }`}>
-                      CAGR BPA &gt; 0% ✓
+                      CAGR BPA &gt; 15% ✓
                     </span>
                   </div>
                   <p className={`text-xs leading-relaxed ${isLight ? "text-[#3a3730]" : "text-slate-300"}`}>
                     {isES
-                      ? "Todo activo seleccionado debe contar con un Crecimiento Compuesto Anual de BPA Diluido (Diluted EPS CAGR) estrictamente positivo (> 0.0%). Las empresas con contracción o decrecimiento en beneficios por acción son descalificadas automáticamente."
-                      : "Every selected asset must have a strictly positive Diluted EPS Compound Annual Growth Rate (Diluted EPS CAGR > 0.0%). Companies with contracting or negative earnings per share growth are disqualified automatically."}
+                      ? "Solo empresas de EE. UU. de más de 20.000 M$ con un crecimiento del BPA diluido superior al 15 % anual en 3 años (Hipercrecimiento: BPA creciente, > 0 %), según sus informes de la SEC. Cada estilo ordena a los candidatos con sus métricas reales y la IA elige entre los mejores."
+                      : "Only US companies above $20B whose diluted EPS grew more than 15% a year over 3 years (Hyper-Growth: growing EPS, > 0%), per their SEC filings. Each style ranks the candidates on real metrics and the AI picks among the best."}
                   </p>
                 </div>
               </div>
@@ -699,8 +709,8 @@ export default function CreatePortfolioAIModal({
                                 {isES ? strat.descES : strat.descEN}
                               </p>
                               <div className={`mt-2 pt-2 border-t text-[10px] ${isLight ? "border-[#ded9cb]" : "border-slate-800"}`}>
-                                <span className={`font-semibold ${isLight ? "text-[#787366]" : "text-slate-400"}`}>{isES ? "Ejemplos: " : "Examples: "}</span>
-                                <span className={`font-mono font-bold ${isLight ? "text-emerald-700" : "text-emerald-300"}`}>{strat.examples}</span>
+                                <span className={`font-semibold ${isLight ? "text-[#787366]" : "text-slate-400"}`}>{isES ? "Ordena por: " : "Ranks by: "}</span>
+                                <span className={`font-mono font-bold ${isLight ? "text-emerald-700" : "text-emerald-300"}`}>{isES ? strat.examplesES : strat.examples}</span>
                               </div>
                             </div>
                           </div>
@@ -744,8 +754,8 @@ export default function CreatePortfolioAIModal({
                         <div className={`pt-2 mt-2 border-t flex items-center justify-between text-[10px] ${
                           isLight ? "border-[#ded9cb]/60 text-[#787366]" : "border-slate-800/50 text-slate-400"
                         }`}>
-                          <span className="font-medium">{isES ? "Universo:" : "Universe:"}</span>
-                          <span className={`font-mono truncate max-w-[170px] sm:max-w-[210px] ${isLight ? "text-[#3a3730] font-medium" : "text-slate-300"}`}>{strat.examples}</span>
+                          <span className="font-medium">{isES ? "Ordena por:" : "Ranks by:"}</span>
+                          <span className={`font-mono truncate max-w-[170px] sm:max-w-[210px] ${isLight ? "text-[#3a3730] font-medium" : "text-slate-300"}`}>{isES ? strat.examplesES : strat.examples}</span>
                         </div>
                       </div>
                     );
@@ -889,6 +899,12 @@ export default function CreatePortfolioAIModal({
                   {result.aiRationale || result.strategyDescription}
                 </p>
 
+                {result.notice && (
+                  <div className={`text-[11px] leading-relaxed rounded-lg px-3 py-2 border ${isLight ? "bg-amber-50 border-amber-200 text-amber-800" : "bg-amber-500/10 border-amber-500/30 text-amber-300"}`}>
+                    {result.notice}
+                  </div>
+                )}
+
                 {/* Quick stats ribbon */}
                 <div className={`grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-3 border-t ${
                   isLight ? "border-[#ded9cb]" : "border-slate-800/80"
@@ -942,7 +958,7 @@ export default function CreatePortfolioAIModal({
                   }`}>
                     <span className={`text-[10px] font-medium block ${isLight ? "text-[#787366]" : "text-slate-400"}`}>{isES ? "P/E Ponderado" : "Weighted P/E"}</span>
                     <span className={`text-base font-mono font-bold mt-1 ${isLight ? "text-emerald-700" : "text-emerald-400"}`}>
-                      {result.summaryMetrics?.weightedPe ? `${result.summaryMetrics.weightedPe.toFixed(1)}x` : "24.2x"}
+                      {result.summaryMetrics?.weightedPe ? `${result.summaryMetrics.weightedPe.toFixed(1)}x` : "—"}
                     </span>
                   </div>
 
@@ -953,7 +969,7 @@ export default function CreatePortfolioAIModal({
                   }`}>
                     <span className={`text-[10px] font-medium block ${isLight ? "text-[#787366]" : "text-slate-400"}`}>{isES ? "Div. Yield Estimado" : "Est. Div Yield"}</span>
                     <span className={`text-base font-mono font-bold mt-1 ${isLight ? "text-teal-700" : "text-teal-400"}`}>
-                      {result.summaryMetrics?.weightedDivYield ? `${result.summaryMetrics.weightedDivYield.toFixed(2)}%` : "1.65%"}
+                      {result.summaryMetrics?.weightedDivYield ? `${result.summaryMetrics.weightedDivYield.toFixed(2)}%` : "—"}
                     </span>
                   </div>
                 </div>

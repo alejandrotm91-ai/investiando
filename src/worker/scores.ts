@@ -128,7 +128,14 @@ async function build(db: D1Database): Promise<void> {
       beta: beta[r.ticker] ?? null,
     };
     const { metrics, flags } = computeScoreMetrics(JSON.parse(r.a || "[]"), JSON.parse(r.q || "[]"), market);
-    return { symbol: r.ticker, sector: gicsSector(cls?.sector) ?? null, metrics, flags };
+    const divYield = typeof q?.trailingAnnualDividendYield === "number" ? Number((q.trailingAnnualDividendYield * 100).toFixed(2)) : null;
+    return {
+      symbol: r.ticker,
+      sector: gicsSector(cls?.sector) ?? null,
+      metrics,
+      flags,
+      quote: { name: q?.longName || q?.shortName || null, price: q?.regularMarketPrice ?? null, marketCap: q?.marketCap ?? null, divYield },
+    };
   });
   const asOf = new Date().toISOString();
   cache = { rows, asOf, at: Date.now() };
@@ -160,6 +167,15 @@ export async function ensureServerScoreBenchmarks(waitUntil?: (p: Promise<unknow
     const p = refreshOnce(db);
     if (waitUntil) waitUntil(p);
   }
+}
+
+/** Filas de la referencia con cotización (el generador de carteras las necesita); si las guardadas son
+ *  de antes de incluir la cotización, espera a recalcularlas. */
+export async function getServerBenchmarkRows(waitUntil?: (p: Promise<unknown>) => void): Promise<BenchmarkRow[]> {
+  await ensureServerScoreBenchmarks(waitUntil);
+  const db = (cfEnv as any)?.DB as D1Database | undefined;
+  if (db && cache && !cache.rows.some((r) => r.quote?.price)) await refreshOnce(db);
+  return cache?.rows ?? [];
 }
 
 export const scoreRoutes = new Hono<AppEnv>();

@@ -8,6 +8,7 @@ import { adminRoutes, smtpRoutes } from "./admin/routes";
 import { secRoutes } from "./sec/routes";
 import { sectorMapRoutes } from "./sectorMap";
 import { scoreRoutes } from "./scores";
+import { generateAiPortfolio } from "./aiPortfolio";
 import { runSecCron } from "./sec/sync";
 import { runSegmentsCron } from "./sec/segmentSync";
 import { runPreviewsCron } from "./sec/earnings";
@@ -55,6 +56,18 @@ const AI_ROUTES = [
   "/api/watchlist/scan-sector",
 ];
 for (const path of AI_ROUTES) app.use(path, requireUser);
+
+// Crear portafolio con IA: universo y métricas reales (referencia del score) + Claude; sin IA, ranking
+// cuantitativo (aiPortfolio.ts). Va antes de las rutas antiguas, que tenían su versión con listas fijas.
+app.post("/api/portfolio/generate-ai", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  try {
+    return c.json(await generateAiPortfolio(body, (p) => c.executionCtx.waitUntil(p)));
+  } catch (e: any) {
+    console.error("generate-ai", e);
+    return c.json({ error: String(e?.message || e) }, 503);
+  }
+});
 
 // Fases 2 y 4: rutas de datos de server.ts (mercado con Yahoo Finance e IA con Claude).
 registerLegacyRoutes(legacyApp(app));

@@ -10,6 +10,8 @@ export interface BenchmarkRow {
   sector: string | null;
   metrics: Partial<Record<ScoreMetric, number | null>>;
   flags?: ScoreFlags;
+  /** Cotización de Yahoo al calcular la referencia (para el generador de carteras). */
+  quote?: { name: string | null; price: number | null; marketCap: number | null; divYield: number | null };
 }
 
 const store = new Map<string, BenchmarkRow>();
