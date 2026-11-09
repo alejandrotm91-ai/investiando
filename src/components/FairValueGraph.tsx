@@ -15,7 +15,7 @@ export interface FvPoint {
 }
 
 type BaseKey = "eps" | "div" | "fcf" | "ocf" | "rev" | "ebitda" | "book";
-type RangeKey = "1Y" | "3Y" | "5Y" | "10Y" | "ALL";
+type RangeKey = "YTD" | "1Y" | "3Y" | "5Y" | "10Y" | "ALL";
 
 const BASES: {
   key: BaseKey;
@@ -33,8 +33,15 @@ const BASES: {
   { key: "ebitda", tab: { EN: "EBITDA", ES: "EBITDA" }, mult: "ev", multName: { EN: "EV/EBITDA", ES: "EV/EBITDA" }, perShare: "ebps", psName: { EN: "EBITDA per share TTM", ES: "EBITDA por acción TTM" } },
   { key: "book", tab: { EN: "Book", ES: "Valor contable" }, mult: "pb", multName: { EN: "P/B", ES: "P/VC" }, perShare: "bvps", psName: { EN: "book value per share", ES: "valor contable por acción" } },
 ];
-const RANGES: RangeKey[] = ["1Y", "3Y", "5Y", "10Y", "ALL"];
+const RANGES: RangeKey[] = ["YTD", "1Y", "3Y", "5Y", "10Y", "ALL"];
 const DAY = 86400000;
+
+/** Inicio de la ventana del rango (ms) contando hacia atrás desde la última fecha. */
+const rangeStart = (range: RangeKey, lastD: string): number => {
+  if (range === "ALL") return 0;
+  if (range === "YTD") return Date.parse(`${lastD.slice(0, 4)}-01-01T00:00:00Z`);
+  return new Date(lastD).getTime() - { "1Y": 1, "3Y": 3, "5Y": 5, "10Y": 10 }[range] * 365.25 * DAY;
+};
 
 const median = (xs: number[]) => {
   const s = [...xs].sort((a, b) => a - b);
@@ -76,15 +83,25 @@ export default function FairValueGraph({ ticker, points, forwardPE, currency, la
   const available = BASES.filter((b) => points.some((p) => typeof p[b.mult] === "number" && (p[b.mult] as number) > 0 && typeof p[b.perShare] === "number" && (p[b.perShare] as number) > 0));
   const base = available.find((b) => b.key === baseKey) ?? available[0];
 
+  // Mín./mediana/máx. del múltiplo dentro del rango elegido. La serie es diaria en los 2 últimos años
+  // y semanal antes: la mediana usa el último valor de cada mes para que todos los años pesen igual
+  // (con menos de 6 meses, todos los valores).
   const stats = useMemo(() => {
-    if (!base) return null;
-    const vals = points.map((p) => p[base.mult]).filter((v): v is number => typeof v === "number" && v > 0);
-    if (!vals.length) return null;
+    if (!base || !points.length) return null;
     const last = points[points.length - 1];
+    const from = rangeStart(range, last.d);
+    const win = points.filter((p) => new Date(p.d).getTime() >= from && typeof p[base.mult] === "number" && (p[base.mult] as number) > 0);
+    if (!win.length) return null;
+    const vals = win.map((p) => p[base.mult] as number);
+    const byMonth = new Map<string, number>();
+    win.forEach((p) => byMonth.set(p.d.slice(0, 7), p[base.mult] as number));
+    const monthly = [...byMonth.values()];
     const cur = [...points].reverse().find((p) => typeof p[base.mult] === "number" && (p[base.mult] as number) > 0);
     const lastPs = [...points].reverse().find((p) => typeof p[base.perShare] === "number");
-    return { min: Math.min(...vals), max: Math.max(...vals), median: median(vals), current: cur?.[base.mult] as number | undefined, price: last.p, lastPs, firstYear: points.find((p) => typeof p[base.mult] === "number")?.d.slice(0, 4) };
-  }, [points, base]);
+    const d0 = new Date(`${win[0].d}T12:00:00Z`);
+    const since = d0.toLocaleDateString(isES ? "es-ES" : "en-US", { month: "short", year: "numeric", timeZone: "UTC" });
+    return { min: Math.min(...vals), max: Math.max(...vals), median: median(monthly.length >= 6 ? monthly : vals), current: cur?.[base.mult] as number | undefined, price: last.p, lastPs, since };
+  }, [points, base, range, isES]);
 
   if (!base || !stats) return null;
   const isDiv = base.key === "div";
@@ -96,8 +113,7 @@ export default function FairValueGraph({ ticker, points, forwardPE, currency, la
   const status = gap === null ? null : gap > 0.1 ? "expensive" : gap < -0.1 ? "cheap" : "fair";
 
   // Serie del gráfico: precio frente a valor razonable (con el múltiplo objetivo) en el rango
-  const lastT = new Date(points[points.length - 1].d).getTime();
-  const from = range === "ALL" ? 0 : lastT - { "1Y": 1, "3Y": 3, "5Y": 5, "10Y": 10 }[range] * 365.25 * DAY;
+  const from = rangeStart(range, points[points.length - 1].d);
   const rows = points
     .filter((p) => new Date(p.d).getTime() >= from)
     .map((p) => {
@@ -203,7 +219,7 @@ export default function FairValueGraph({ ticker, points, forwardPE, currency, la
           {isES ? "Valor razonable" : "Fair value"} · {ticker}
         </h3>
         <span className="text-[11px] text-theme-text-muted">
-          {isES ? `Múltiplo mediano desde ${stats.firstYear}` : `Median multiple since ${stats.firstYear}`}
+          {isES ? `Múltiplo mediano desde ${stats.since} (${range === "ALL" ? "todo" : range})` : `Median multiple since ${stats.since} (${range === "ALL" ? "all" : range})`}
         </span>
       </div>
 
@@ -283,7 +299,7 @@ export default function FairValueGraph({ ticker, points, forwardPE, currency, la
               />
               <span className="text-theme-text-muted text-sm">{isDiv ? "%" : "×"}</span>
             </div>
-            <div className="text-[10px] text-theme-text-muted mt-1">{target === null ? (isES ? "Mediana histórica" : "Historical median") : isES ? "Personalizado" : "Custom"}</div>
+            <div className="text-[10px] text-theme-text-muted mt-1">{target === null ? (isES ? `Mediana ${range === "ALL" ? "histórica" : range}` : `${range === "ALL" ? "Historical" : range} median`) : isES ? "Personalizado" : "Custom"}</div>
           </div>
           <div className={tile}>
             <div className={tileLabel}>{isES ? "Valor razonable" : "Fair value"}</div>
@@ -413,8 +429,8 @@ export default function FairValueGraph({ ticker, points, forwardPE, currency, la
       <p className="text-[11px] text-theme-text-muted flex items-start gap-1.5">
         <Info size={12} className="mt-0.5 shrink-0" />
         {isES
-          ? `Valor razonable = ${base.psName.ES} × ${base.multName.ES} objetivo (por defecto, la mediana desde ${stats.firstYear}). Fundamentales de la SEC desde la fecha de cada informe; precio de Yahoo ajustado por splits.${base.key === "ebitda" ? " En EV/EBITDA se resta la deuda neta por acción." : ""}${isDiv ? " Con dividendo, más rentabilidad significa más barata." : ""}${fwd !== null ? " FWD solo cambia el valor actual: no hay histórico de estimaciones." : ""}`
-          : `Fair value = ${base.psName.EN} × target ${base.multName.EN} (by default the median since ${stats.firstYear}). SEC fundamentals from each filing date; Yahoo price, split-adjusted.${base.key === "ebitda" ? " EV/EBITDA subtracts net debt per share." : ""}${isDiv ? " For dividends, a higher yield means cheaper." : ""}${fwd !== null ? " FWD only changes today's value: there is no estimate history." : ""}`}
+          ? `Valor razonable = ${base.psName.ES} × ${base.multName.ES} objetivo (por defecto, la mediana del rango elegido, desde ${stats.since}). Fundamentales de la SEC desde la fecha de cada informe; precio de Yahoo ajustado por splits.${base.key === "ebitda" ? " En EV/EBITDA se resta la deuda neta por acción." : ""}${isDiv ? " Con dividendo, más rentabilidad significa más barata." : ""}${fwd !== null ? " FWD solo cambia el valor actual: no hay histórico de estimaciones." : ""}`
+          : `Fair value = ${base.psName.EN} × target ${base.multName.EN} (by default the median of the selected range, since ${stats.since}). SEC fundamentals from each filing date; Yahoo price, split-adjusted.${base.key === "ebitda" ? " EV/EBITDA subtracts net debt per share." : ""}${isDiv ? " For dividends, a higher yield means cheaper." : ""}${fwd !== null ? " FWD only changes today's value: there is no estimate history." : ""}`}
       </p>
     </div>
   );
