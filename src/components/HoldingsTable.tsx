@@ -2548,9 +2548,12 @@ export default function HoldingsTable({
   }, [activePositions, effectiveFinancialsMap, scoreV]);
 
   // CAGR de la proyección = media de la rentabilidad esperada de cada posición ponderada por su valor
-  // de mercado. Las posiciones sin dato (aún cargando o sin historia) no cuentan.
+  // de mercado; el efectivo cuenta al 0 % (como en Simulation). Las posiciones sin dato (aún cargando
+  // o sin historia) no cuentan.
   const projectionCagr = useMemo(() => {
-    const stockPositions = activePositions.filter((p) => !p.isCash && p.ticker.toUpperCase() !== "CASH");
+    // Posiciones de la pestaña elegida (Portfolio / Margin / Total)
+    const stockPositions = selectedPositions.filter((p) => !p.isCash && p.ticker.toUpperCase() !== "CASH");
+    const cashValue = selectedPositions.filter((p) => p.isCash || p.ticker.toUpperCase() === "CASH").reduce((a, p) => a + (p.mktValue || 0), 0);
     let sum = 0;
     let w = 0;
     let pending = 0;
@@ -2572,10 +2575,14 @@ export default function HoldingsTable({
       w += mv;
       byTicker.push({ ticker: t, rate: er.rate, source: er.source, weight: mv, capped: er.capped });
     });
+    if (cashValue > 0) {
+      w += cashValue; // al 0 %
+      byTicker.push({ ticker: "CASH", rate: 0, source: "cash", weight: cashValue });
+    }
     const total = byTicker.reduce((a, b) => a + b.weight, 0) || 1;
     byTicker.forEach((b) => (b.weight = (b.weight / total) * 100));
     return { rate: w > 0 ? Number((sum / w).toFixed(1)) : null, pending, missing, byTicker: byTicker.sort((a, b) => b.weight - a.weight) };
-  }, [activePositions, expectedReturns]);
+  }, [selectedPositions, expectedReturns]);
   const portfolioWeightedCagr = projectionCagr.pending === 0 ? projectionCagr.rate ?? 0 : 0;
 
   // El campo CAGR toma la rentabilidad esperada de la cartera cuando termina de cargar (el usuario
@@ -3009,7 +3016,7 @@ export default function HoldingsTable({
                 <div
                   className="text-[10px] text-slate-500 leading-snug -mt-1"
                   title={projectionCagr.byTicker
-                    .map((b) => `${b.ticker} ${b.rate >= 0 ? "+" : ""}${b.rate.toFixed(1)}% (${b.source === "bogle" ? "Bogle" : language === "EN" ? `price history${b.capped ? ", capped" : ""}` : `historia del precio${b.capped ? ", con tope" : ""}`}) · ${b.weight.toFixed(1)}%`)
+                    .map((b) => `${b.ticker} ${b.rate >= 0 ? "+" : ""}${b.rate.toFixed(1)}% (${b.source === "cash" ? (language === "EN" ? "cash" : "efectivo") : b.source === "bogle" ? "Bogle" : language === "EN" ? `price history${b.capped ? ", capped" : ""}` : `historia del precio${b.capped ? ", con tope" : ""}`}) · ${b.weight.toFixed(1)}%`)
                     .join("\n")}
                 >
                   {projectionCagr.pending > 0 ? (
@@ -3020,8 +3027,8 @@ export default function HoldingsTable({
                   ) : projectionCagr.rate !== null ? (
                     <>
                       {language === "EN"
-                        ? `Expected return ${projectionCagr.rate.toFixed(1)}%/yr: stocks with the Bogle model (base, 5y); ETFs with their price history (max 25%).`
-                        : `Rentabilidad esperada ${projectionCagr.rate.toFixed(1)} %/año: acciones con el modelo de Bogle (base, 5 años); ETF con su historia de precio (máx. 25 %).`}
+                        ? `Expected return ${projectionCagr.rate.toFixed(1)}%/yr: stocks with the Bogle model (base, 5y); ETFs with their price history (max 25%); cash 0%.`
+                        : `Rentabilidad esperada ${projectionCagr.rate.toFixed(1)} %/año: acciones con el modelo de Bogle (base, 5 años); ETF con su historia de precio (máx. 25 %); efectivo 0 %.`}
                       {projectionCagr.missing.length > 0 && ` ${language === "EN" ? "Without data" : "Sin datos"}: ${projectionCagr.missing.join(", ")}.`}
                       {Math.abs(cagr - projectionCagr.rate) > 0.05 && (
                         <button type="button" onClick={() => setCagr(projectionCagr.rate as number)} className="ml-1.5 underline text-emerald-400 hover:text-emerald-300 cursor-pointer">

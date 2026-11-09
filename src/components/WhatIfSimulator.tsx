@@ -31,67 +31,7 @@ import { CompanyFinancials } from "./CompanyFinancials";
 import { saveUserCloudData, subscribeUserCloudData } from "../lib/cloudData";
 import { getRawFeatures, buildScores, overrideFeaturesWithFinancials } from "../utils/engine";
 import { useScoreBenchmarks } from "../utils/useScoreBenchmarks";
-
-// Function to calculate Quarterly Compound Growth Rate (CAGR) of basicEPS from Financials
-export const getQuarterlyBasicEpsCagrFromFinancials = (financialsData: { annual?: any[]; quarterly?: any[] } | null | undefined): number | null => {
-  if (!financialsData) return null;
-  const quarterly = financialsData.quarterly || [];
-  if (quarterly.length >= 2) {
-    const sorted = [...quarterly].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    const validCols = sorted
-      .map((col, idx) => ({ val: col.basicEPS, idx }))
-      .filter(item => typeof item.val === "number" && !isNaN(item.val as number));
-
-    if (validCols.length >= 2) {
-      const latestItem = validCols[0];
-      if (latestItem.val > 0) {
-        const oldestPositive = [...validCols].reverse().find(item => item.val > 0 && item.idx > latestItem.idx);
-        if (oldestPositive) {
-          const n = oldestPositive.idx - latestItem.idx;
-          if (n > 0) {
-            const cagr = (Math.pow(latestItem.val / oldestPositive.val, 1 / n) - 1) * 100;
-            return Number(cagr.toFixed(2));
-          }
-        }
-      }
-
-      // If CAGR couldn't be calculated due to non-positive base, check YoY AGR (1 year / 4 quarters ago)
-      let priorYearItem = validCols.find(item => item.idx === latestItem.idx + 4);
-      if (!priorYearItem && validCols.length > 1) {
-        priorYearItem = validCols[1];
-      }
-      if (priorYearItem && priorYearItem.val !== 0 && latestItem.val !== undefined) {
-        const agr = ((latestItem.val - priorYearItem.val) / Math.abs(priorYearItem.val)) * 100;
-        return Number(agr.toFixed(2));
-      }
-    }
-  }
-
-  // Fallback to annual basicEPS CAGR if quarterly not available
-  const annual = financialsData.annual || [];
-  if (annual.length >= 2) {
-    const sorted = [...annual].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    const validCols = sorted
-      .map((col, idx) => ({ val: col.basicEPS, idx }))
-      .filter(item => typeof item.val === "number" && !isNaN(item.val as number));
-
-    if (validCols.length >= 2) {
-      const latestItem = validCols[0];
-      if (latestItem.val > 0) {
-        const oldestPositive = [...validCols].reverse().find(item => item.val > 0 && item.idx > latestItem.idx);
-        if (oldestPositive) {
-          const n = oldestPositive.idx - latestItem.idx;
-          if (n > 0) {
-            const cagr = (Math.pow(latestItem.val / oldestPositive.val, 1 / n) - 1) * 100;
-            return Number(cagr.toFixed(2));
-          }
-        }
-      }
-    }
-  }
-
-  return null;
-};
+import { expectedAnnualReturn, type ExpectedReturn } from "../utils/expectedReturn";
 
 // Fixed analyst target data to match the screenshot precisely for the default holdings
 const TICKER_ANALYST_DATA: Record<string, {
@@ -173,31 +113,29 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const getPositionCagr = (ticker: string): number => {
+  // CAGR de cada posición: el que escriba el usuario o su rentabilidad anual esperada (como en
+  // Holdings → Portfolio Projection: acciones con el modelo de Bogle, fondos/ETF con su historia de
+  // precio). null = aún cargando o sin datos (no cuenta en las medias). El efectivo, 0 %.
+  const getPositionCagrOrNull = (ticker: string): number | null => {
     const sym = ticker.toUpperCase();
     if (sym === "CASH" || sym === "USD") return 0;
     if (customCagrs[sym] !== undefined) return customCagrs[sym];
-
-    // 1. Calculate directly from fetched financials map (quarterly basicEPS CAGR)
-    const finData = financialsMap[sym] || financialsMap[ticker];
-    const finCagr = getQuarterlyBasicEpsCagrFromFinancials(finData);
-    if (finCagr !== null && !isNaN(finCagr)) {
-      return finCagr;
-    }
-
-    // 2. Try scoredRowsMap (which uses overrideFeaturesWithFinancials or baseline eps_cagr)
-    const scoredRow = scoredRowsMap.get(sym);
-    if (scoredRow?.raw?.eps_cagr !== undefined && scoredRow.raw.eps_cagr !== null && !isNaN(scoredRow.raw.eps_cagr)) {
-      return Number(Number(scoredRow.raw.eps_cagr).toFixed(2));
-    }
-
-    // 3. Fallback to baseline features for ticker (getRawFeatures)
-    const raw = getRawFeatures(sym, "", "");
-    if (raw.eps_cagr !== undefined && raw.eps_cagr !== null && !isNaN(raw.eps_cagr)) {
-      return Number(Number(raw.eps_cagr).toFixed(2));
-    }
-
-    return 12.0;
+    const er = expectedReturns[sym];
+    return er ? Number(er.rate.toFixed(2)) : null;
+  };
+  const getPositionCagr = (ticker: string): number => getPositionCagrOrNull(ticker) ?? 0;
+  /** De dónde sale el CAGR de la posición (texto de ayuda del campo). */
+  const cagrSourceTitle = (ticker: string): string => {
+    const sym = ticker.toUpperCase();
+    const isEN = language === "EN";
+    if (sym === "CASH" || sym === "USD") return isEN ? "Cash: 0%" : "Efectivo: 0 %";
+    if (customCagrs[sym] !== undefined) return isEN ? "Edited by you" : "Editado por ti";
+    const er = expectedReturns[sym];
+    if (!er) return isEN ? "Expected return: no data" : "Rentabilidad esperada: sin datos";
+    if (er.source === "bogle") return isEN ? "Expected return: Bogle model, base scenario, 5 years" : "Rentabilidad esperada: modelo de Bogle, escenario base, 5 años";
+    return isEN
+      ? `Expected return: ${er.years?.toFixed(1)}-year price history${er.capped ? " (capped at 25%)" : ""}`
+      : `Rentabilidad esperada: historia del precio de ${er.years?.toFixed(1)} años${er.capped ? " (con tope del 25 %)" : ""}`;
   };
 
   const getTabColor = (tab: "portfolio" | "margin" | "total"): string => {
@@ -257,6 +195,52 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
       fetchAllFinancials();
     }
   }, [simPositions, marginPositions]);
+
+  // Datos para la rentabilidad esperada: /api/stock de cada valor y, para fondos/ETF (sin estados
+  // financieros), la serie de precio de /api/valuation. Cada cosa se pide una vez.
+  const [expData, setExpData] = useState<Record<string, { stock?: any; stockDone?: boolean; points?: any[]; pointsDone?: boolean }>>({});
+  const expRequested = useRef<Set<string>>(new Set());
+  const expTickers = Array.from(
+    new Set([...simPositions, ...marginPositions].filter((p) => !p.isCash && p.ticker && p.ticker.toUpperCase() !== "CASH").map((p) => p.ticker.toUpperCase()))
+  );
+  const expFundKey = expTickers.map((t) => `${t}:${financialsMap[t] ? (financialsMap[t]?.annual?.length ? "s" : "f") : "?"}`).join(",");
+  useEffect(() => {
+    const jobs: { t: string; kind: "stock" | "points" }[] = [];
+    for (const t of expTickers) {
+      if (!expRequested.current.has(`stock:${t}`)) jobs.push({ t, kind: "stock" });
+      const fin = financialsMap[t];
+      if (fin !== undefined && !(fin?.annual?.length > 0) && !expRequested.current.has(`points:${t}`)) jobs.push({ t, kind: "points" });
+    }
+    if (!jobs.length) return;
+    jobs.forEach((j) => expRequested.current.add(`${j.kind}:${j.t}`));
+    const run = async ({ t, kind }: { t: string; kind: "stock" | "points" }) => {
+      const url = kind === "stock" ? `/api/stock/${encodeURIComponent(t)}` : `/api/valuation/${encodeURIComponent(t)}`;
+      const j = await fetch(url).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      setExpData((prev) => ({
+        ...prev,
+        [t]: kind === "stock" ? { ...prev[t], stock: j, stockDone: true } : { ...prev[t], points: Array.isArray(j?.points) ? j.points : [], pointsDone: true },
+      }));
+    };
+    (async () => {
+      for (let i = 0; i < jobs.length; i += 4) await Promise.all(jobs.slice(i, i + 4).map(run));
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expTickers.join(","), expFundKey]);
+  const expectedReturns = useMemo(() => {
+    const out: Record<string, ExpectedReturn | null> = {};
+    for (const t of expTickers) {
+      const d = expData[t];
+      const fin = financialsMap[t];
+      if (!d?.stockDone || fin === undefined) continue;
+      const isFund = !(fin?.annual?.length > 0);
+      if (isFund && !d.pointsDone) continue;
+      const price = [...simPositions, ...marginPositions].find((p) => p.ticker.toUpperCase() === t)?.price;
+      out[t] = expectedAnnualReturn(t, fin, d.stock, d.points, price);
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expTickers.join(","), expData, financialsMap]);
+  const expPending = expTickers.some((t) => customCagrs[t] === undefined && !(t in expectedReturns));
 
   // Projection state (reactive to simPositions)
   const [years, setYears] = useState<5 | 10>(5);
@@ -1281,7 +1265,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
     }
 
     return [...stocks, ...cashArr];
-  }, [simPositions, sortField, sortDirection, customCagrs]);
+  }, [simPositions, sortField, sortDirection, customCagrs, expectedReturns]);
 
   const processedMarginPositions = useMemo(() => {
     const validMargin = marginPositions.filter(p => p.ticker && p.ticker.toUpperCase() !== "MARGIN_PAID");
@@ -1330,7 +1314,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
     }
 
     return [...stocks, ...cashArr];
-  }, [marginPositions, sortField, sortDirection, customCagrs]);
+  }, [marginPositions, sortField, sortDirection, customCagrs, expectedReturns]);
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(val);
@@ -1364,13 +1348,14 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
     let sumWeightedCagr = 0;
 
     simPositions.forEach(p => {
-      const cagr = getPositionCagr(p.ticker);
-      sumWeightedCagr += (p.weight / 100) * cagr;
+      const cagr = getPositionCagrOrNull(p.ticker);
+      if (cagr === null) return; // sin dato: no cuenta
+      sumWeightedCagr += p.weight * cagr;
       sumWeights += p.weight;
     });
 
-    return sumWeights > 0 ? sumWeightedCagr : 0;
-  }, [simPositions, customCagrs, financialsMap, scoredRowsMap]);
+    return sumWeights > 0 ? sumWeightedCagr / sumWeights : 0;
+  }, [simPositions, customCagrs, expectedReturns]);
 
   // Average CAGR calculation for margin portfolio
   const weightedMarginCagr = useMemo(() => {
@@ -1378,13 +1363,14 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
     let sumWeightedCagr = 0;
 
     marginPositions.forEach(p => {
-      const cagr = getPositionCagr(p.ticker);
-      sumWeightedCagr += (p.weight / 100) * cagr;
+      const cagr = getPositionCagrOrNull(p.ticker);
+      if (cagr === null) return;
+      sumWeightedCagr += p.weight * cagr;
       sumWeights += p.weight;
     });
 
-    return sumWeights > 0 ? sumWeightedCagr : 0;
-  }, [marginPositions, customCagrs, financialsMap, scoredRowsMap]);
+    return sumWeights > 0 ? sumWeightedCagr / sumWeights : 0;
+  }, [marginPositions, customCagrs, expectedReturns]);
 
   // Combined weighted CAGR of entire active + margin portfolios
   const combinedWeightedCagr = useMemo(() => {
@@ -1392,16 +1378,15 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
     if (totalVal === 0) return 0;
 
     let sumWeightedCagr = 0;
-    simPositions.forEach(p => {
-      const cagr = getPositionCagr(p.ticker);
-      sumWeightedCagr += (p.mktValue / totalVal) * cagr;
+    let sumVal = 0;
+    [...simPositions, ...marginPositions].forEach(p => {
+      const cagr = getPositionCagrOrNull(p.ticker);
+      if (cagr === null) return;
+      sumWeightedCagr += p.mktValue * cagr;
+      sumVal += p.mktValue;
     });
-    marginPositions.forEach(p => {
-      const cagr = getPositionCagr(p.ticker);
-      sumWeightedCagr += (p.mktValue / totalVal) * cagr;
-    });
-    return sumWeightedCagr;
-  }, [simPositions, marginPositions, customCagrs, totalSimMktValue, totalMarginMktValue, financialsMap, scoredRowsMap]);
+    return sumVal > 0 ? sumWeightedCagr / sumVal : 0;
+  }, [simPositions, marginPositions, customCagrs, totalSimMktValue, totalMarginMktValue, expectedReturns]);
 
   // Synchronize CAGR projection input with the selected tab's weighted CAGR
   useEffect(() => {
@@ -2276,7 +2261,9 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                             <input
                               type="number"
                               step="0.01"
-                              value={cagrVal.toFixed(2)}
+                              value={getPositionCagrOrNull(pos.ticker) === null ? "" : cagrVal.toFixed(2)}
+                              placeholder={expPending ? "…" : "—"}
+                              title={cagrSourceTitle(pos.ticker)}
                               onChange={(e) => handleCagrChange(pos.ticker, e.target.value)}
                               className="bg-[#121420] border border-slate-800 focus:border-emerald-500 rounded-xl px-2.5 py-1 text-center font-mono font-bold text-white w-20 outline-none transition-all text-xs"
                             />
@@ -2322,7 +2309,9 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                             <input
                               type="number"
                               step="0.01"
-                              value={cagrVal.toFixed(2)}
+                              value={getPositionCagrOrNull(pos.ticker) === null ? "" : cagrVal.toFixed(2)}
+                              placeholder={expPending ? "…" : "—"}
+                              title={cagrSourceTitle(pos.ticker)}
                               onChange={(e) => handleCagrChange(pos.ticker, e.target.value)}
                               className="bg-[#121420] border border-slate-800 focus:border-emerald-500 rounded-xl px-2.5 py-1 text-center font-mono font-bold text-white w-20 outline-none transition-all text-xs"
                             />
@@ -2941,7 +2930,9 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                                 <input
                                   type="number"
                                   step="0.01"
-                                  value={cagrVal.toFixed(2)}
+                                  value={getPositionCagrOrNull(pos.ticker) === null ? "" : cagrVal.toFixed(2)}
+                                  placeholder={expPending ? "…" : "—"}
+                                  title={cagrSourceTitle(pos.ticker)}
                                   onChange={(e) => handleCagrChange(pos.ticker, e.target.value)}
                                   className="bg-[#121420] border border-slate-800 focus:border-amber-500 rounded-xl px-2.5 py-1 text-center font-mono font-bold text-white w-20 outline-none transition-all text-xs"
                                 />
@@ -2983,7 +2974,9 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                                 <input
                                   type="number"
                                   step="0.01"
-                                  value={cagrVal.toFixed(2)}
+                                  value={getPositionCagrOrNull(pos.ticker) === null ? "" : cagrVal.toFixed(2)}
+                                  placeholder={expPending ? "…" : "—"}
+                                  title={cagrSourceTitle(pos.ticker)}
                                   onChange={(e) => handleCagrChange(pos.ticker, e.target.value)}
                                   className="bg-[#121420] border border-slate-800 focus:border-amber-500 rounded-xl px-2.5 py-1 text-center font-mono font-bold text-white w-20 outline-none transition-all text-xs"
                                 />
