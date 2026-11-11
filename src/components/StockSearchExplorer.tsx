@@ -276,11 +276,10 @@ export default function StockSearchExplorer({
   const [loadingBenchmarkChart, setLoadingBenchmarkChart] = useState<boolean>(false);
 
   // Active sub-tab in Stock View
-  const [activeSubTab, setActiveSubTab] = useState<"overview" | "financials" | "valuation">("overview");
+  const [activeSubTab, setActiveSubTab] = useState<"overview" | "financials" | "kpis" | "valuation">("overview");
   // Dentro de Valuation: múltiplos (y valor razonable), modelo de 3 estados y DCF, o motores de retorno
   const [valuationView, setValuationView] = useState<"multiples" | "threestatements" | "bogle">("multiples");
   // Dentro de Financials: estados financieros o segmentos (con los KPIs)
-  const [financialsView, setFinancialsView] = useState<"statements" | "segments">("statements");
 
   // Chart timeframe state
   const [chartRange, setChartRange] = useState<"1W" | "1M" | "6M" | "YTD" | "1Y" | "5Y" | "ALL">("1M");
@@ -1195,6 +1194,7 @@ export default function StockSearchExplorer({
               {([
                 { id: "overview", label: language === "EN" ? "Fundamental" : "Fundamental", icon: Layers },
                 { id: "financials", label: language === "EN" ? "Financials" : "Finanzas", icon: FileText },
+                { id: "kpis", label: "KPIs", icon: PieChartIcon },
                 { id: "valuation", label: language === "EN" ? "Valuation" : "Valoración", icon: Gauge },
               ] as const).map((tab) => {
                 const IconComponent = tab.icon;
@@ -2376,41 +2376,18 @@ export default function StockSearchExplorer({
             </div>
           )}
 
-          {/* 7. TAB CONTENT: FINANCIAL STATEMENTS */}
-          {/* 7. FINANCIALS: estados financieros o segmentos (capa 2 de la SEC) con los KPIs */}
+          {/* 7. FINANCIALS: estados financieros */}
           {activeSubTab === "financials" && (
             <div className="space-y-6">
-              <div className="flex justify-center">
-                <div data-toggle className="flex bg-theme-input border border-theme-border rounded-xl p-0.5">
-                  {([
-                    { id: "statements", label: language === "EN" ? "Financial Statements" : "Estados financieros", icon: FileText },
-                    { id: "segments", label: language === "EN" ? "Segments" : "Segmentos", icon: PieChartIcon },
-                  ] as const).map((v) => {
-                    const Icon = v.icon;
-                    return (
-                      <button aria-pressed={!!(financialsView === v.id)}
-                        key={v.id}
-                        onClick={() => setFinancialsView(v.id)}
-                        className={`px-4 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all flex items-center gap-1.5 ${
-                          financialsView === v.id ? "bg-emerald-500 text-slate-950" : "text-theme-text-muted hover:text-theme-text-bright"
-                        }`}
-                      >
-                        <Icon size={13} />
-                        {v.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              {financialsView === "statements" ? (
-                <CompanyFinancials language={language} tickers={[stockData.symbol]} />
-              ) : (
-                <>
-                  <SegmentBreakdown ticker={stockData.symbol} language={language} theme={theme} />
-                  {/* KPIs operativos de los comunicados (solo empresas con KPIs definidos: Uber, Netflix…) */}
-                  <KpiPanel ticker={stockData.symbol} language={language} theme={theme} />
-                </>
-              )}
+              <CompanyFinancials language={language} tickers={[stockData.symbol]} />
+            </div>
+          )}
+
+          {/* 7b. KPIS: segmentos (capa 2 de la SEC) y KPIs operativos de los comunicados (Uber, Netflix…) */}
+          {activeSubTab === "kpis" && (
+            <div className="space-y-6">
+              <SegmentBreakdown ticker={stockData.symbol} language={language} theme={theme} />
+              <KpiPanel ticker={stockData.symbol} language={language} theme={theme} />
             </div>
           )}
 
