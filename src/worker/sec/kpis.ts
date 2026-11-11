@@ -639,6 +639,28 @@ export const KPI_DEFS: Record<string, CompanyKpis> = {
       { id: "arm", en: "Average revenue per membership (monthly)", es: "Ingreso medio por suscripción (mensual)", type: "line", keys: ["arm", "arm_ucan", "arm_emea", "arm_latam", "arm_apac"] },
     ],
   },
+  // Hims & Hers: tabla "Key Business Metrics" (suscriptores en miles y ingreso mensual por suscriptor
+  // medio), ingresos de EE. UU. y del resto del mundo, EBITDA ajustado, flujo de caja libre y previsión
+  // de ingresos del trimestre siguiente
+  HIMS: {
+    from: "2021-03-01",
+    kpis: [
+      { key: "subscribers", en: "Subscribers", es: "Suscriptores", unit: "M", kind: "stock", range: [0.2, 30], hint: "Subscribers at end of period, in millions; the Key Business Metrics table shows thousands (2,788 -> 2.788); use Subscribers, not Subscriptions" },
+      { key: "arpu", en: "Monthly revenue per average subscriber", es: "Ingreso mensual por suscriptor", unit: "$", kind: "avg", range: [20, 400], hint: "Monthly Revenue per Average Subscriber (or Monthly Online Revenue per Average Subscriber) for the three months, in USD" },
+      { key: "rev_us", en: "Revenue · United States", es: "Ingresos · EE. UU.", unit: "$M", kind: "flow", range: [20, 20000], hint: "United States revenue for the three months, in millions of USD (table in thousands: 657,089 -> 657.089); only if stated" },
+      { key: "rev_row", en: "Revenue · Rest of the world", es: "Ingresos · Resto del mundo", unit: "$M", kind: "flow", range: [0, 20000], hint: "Rest of the World revenue for the three months, in millions of USD; only if stated" },
+      { key: "adj_ebitda", en: "Adjusted EBITDA", es: "EBITDA ajustado", unit: "$M", kind: "flow", range: [-500, 5000], hint: "Adjusted EBITDA for the three months, in millions of USD (negative if a loss)" },
+      { key: "fcf", en: "Free cash flow", es: "Flujo de caja libre", unit: "$M", kind: "flow", range: [-2000, 5000], hint: "Free Cash Flow for the three months, in millions of USD (negative if outflow)" },
+      { key: "guidance_next", en: "Revenue outlook for next quarter", es: "Previsión de ingresos del trimestre siguiente", unit: "$M", kind: "flow", range: [50, 30000], hint: "Revenue guidance for the NEXT quarter given in this release (midpoint if a range), in millions of USD; attach it to the quarter being reported; omit if only full-year guidance is given" },
+    ],
+    charts: [
+      { id: "subs", en: "Subscribers", es: "Suscriptores", type: "bar", keys: ["subscribers"] },
+      { id: "arpu", en: "Monthly revenue per average subscriber", es: "Ingreso mensual por suscriptor", type: "line", keys: ["arpu"] },
+      { id: "geo", en: "Revenue by region", es: "Ingresos por región", type: "stack", keys: ["rev_us", "rev_row"] },
+      { id: "guide", en: "Revenue vs. prior-quarter outlook", es: "Ingresos frente a la previsión del trimestre anterior", type: "bar", keys: ["revenue", "guidance_next"], derived: "guidance" },
+      { id: "profit", en: "Adjusted EBITDA and free cash flow", es: "EBITDA ajustado y flujo de caja libre", type: "bar", keys: ["adj_ebitda", "fcf"] },
+    ],
+  },
 };
 
 const MAX_TEXT = 120_000;
