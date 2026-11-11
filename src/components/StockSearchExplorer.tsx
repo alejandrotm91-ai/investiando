@@ -252,6 +252,9 @@ export default function StockSearchExplorer({
     }
   }, [initialTicker]);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchResultsQuery, setSearchResultsQuery] = useState<string>(""); // texto al que corresponden los resultados
+  const latestSearchInput = useRef("");
+  latestSearchInput.current = searchInput;
   const [isSearching, setIsSearching] = useState<boolean>(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
@@ -393,7 +396,10 @@ export default function StockSearchExplorer({
         const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
         if (res.ok) {
           const data = await res.json();
+          // Si el texto cambió mientras llegaba la respuesta (o ya se eligió un valor), se descarta
+          if (latestSearchInput.current.trim() !== query) return;
           setSearchResults(data);
+          setSearchResultsQuery(query);
           setIsDropdownOpen(true);
         }
       } catch (err) {
@@ -413,7 +419,7 @@ export default function StockSearchExplorer({
     setErrorDetails(null);
     try {
       const cleanTicker = ticker.trim().toUpperCase();
-      const res = await fetch(`/api/stock/${cleanTicker}`);
+      const res = await fetch(`/api/stock/${encodeURIComponent(cleanTicker)}`);
       if (!res.ok) {
         throw new Error(`Failed to load stock data for ${cleanTicker}`);
       }
@@ -443,7 +449,7 @@ export default function StockSearchExplorer({
     setLoadingChart(true);
     try {
       const cleanTicker = ticker.trim().toUpperCase();
-      const res = await fetch(`/api/chart/${cleanTicker}?range=${range}`);
+      const res = await fetch(`/api/chart/${encodeURIComponent(cleanTicker)}?range=${range}`);
       if (res.ok) {
         const data = await res.json();
         setChartData(Array.isArray(data) ? data : []);
@@ -727,6 +733,30 @@ export default function StockSearchExplorer({
     }
   }, [chartRange]);
 
+  // Enter en el buscador: usa los resultados de exactamente lo escrito (si aún no han llegado, los pide
+  // ahora) y prefiere el ticker que coincide con el texto; así "Hims & Hers" lleva a HIMS y no se usa
+  // el texto como ticker ni los resultados de una búsqueda anterior.
+  const resolveAndSelect = async (text: string) => {
+    const q = text.trim();
+    if (!q) return;
+    let results: any[] = searchResultsQuery === q ? searchResults : [];
+    if (!results.length) {
+      try {
+        const r = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+        if (r.ok) results = await r.json();
+      } catch {
+        results = [];
+      }
+    }
+    const up = q.toUpperCase();
+    const exact = results.find((x) => String(x.symbol).toUpperCase() === up);
+    const equity = results.find((x) => x.type === "EQUITY") ?? results[0];
+    const pick = exact ?? equity;
+    // Sin resultados: si parece un ticker (sin espacios), se prueba tal cual
+    if (pick?.symbol) handleSelectTicker(pick.symbol);
+    else if (/^[A-Za-z0-9.\-^=]{1,12}$/.test(q)) handleSelectTicker(q);
+  };
+
   const handleSelectTicker = (ticker: string) => {
     const upper = ticker.trim().toUpperCase();
     setSelectedTicker(upper);
@@ -883,21 +913,19 @@ export default function StockSearchExplorer({
     return undefined;
   }, [combinedChartData, chartRange]);
 
-  // 52-Week Range & Ath Recovery Calculation: 1 - ((high - price) / price)
+  // Canal de 52 semanas: posición del precio entre el mínimo (0 %) y el máximo (100 %), cuánto está por
+  // debajo del máximo y cuánto tendría que subir para volver a él
   const athProgressMetrics = useMemo(() => {
-    if (!stockData) return { athScorePct: 50, distToHighPct: 0, high: 0, low: 0 };
-    const low = stockData.fiftyTwoWeekLow ?? 0;
-    const high = stockData.fiftyTwoWeekHigh ?? stockData.price;
+    if (!stockData) return { athScorePct: 50, belowHighPct: 0, toRecoverPct: 0, high: 0, low: 0 };
     const cur = stockData.price ?? 0;
-
-    // Dist to high: (high - price) / price
-    const distToHighRatio = cur > 0 && high >= cur ? (high - cur) / cur : 0;
-    // Score: 1 - ((high - price) / price)
-    const score = Math.max(0, 1 - distToHighRatio);
-
+    const low = stockData.fiftyTwoWeekLow ?? cur;
+    const high = Math.max(stockData.fiftyTwoWeekHigh ?? cur, cur);
+    const range = high - low;
+    const pos = range > 0 ? (cur - low) / range : 1;
     return {
-      athScorePct: Number((score * 100).toFixed(1)),
-      distToHighPct: Number((distToHighRatio * 100).toFixed(1)),
+      athScorePct: Number((Math.max(0, Math.min(1, pos)) * 100).toFixed(1)),
+      belowHighPct: high > 0 ? Number(((1 - cur / high) * 100).toFixed(1)) : 0,
+      toRecoverPct: cur > 0 ? Number(((high / cur - 1) * 100).toFixed(1)) : 0,
       high,
       low,
     };
@@ -1049,11 +1077,7 @@ export default function StockSearchExplorer({
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
-                  if (searchResults.length > 0) {
-                    handleSelectTicker(searchResults[0].symbol);
-                  } else if (searchInput.trim()) {
-                    handleSelectTicker(searchInput.trim());
-                  }
+                  resolveAndSelect(searchInput);
                 } else if (e.key === "Escape") {
                   setIsDropdownOpen(false);
                 }
@@ -1325,20 +1349,28 @@ export default function StockSearchExplorer({
                     {language === "EN" ? "Low:" : "Mín:"} <strong className="text-theme-text-bright">{formatCurrency(stockData.fiftyTwoWeekLow)}</strong>
                   </span>
                   <span className="text-theme-text-muted">
-                    {language === "EN" ? "High (ATH):" : "Máx (ATH):"} <strong className="text-theme-text-bright">{formatCurrency(stockData.fiftyTwoWeekHigh)}</strong>
+                    {language === "EN" ? "52w High:" : "Máx 52 sem:"} <strong className="text-theme-text-bright">{formatCurrency(stockData.fiftyTwoWeekHigh)}</strong>
                   </span>
                   <div className="flex items-center gap-1.5 pl-2 border-l border-theme-border">
-                    <span className="text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                    <span
+                      className="text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20"
+                      title={language === "EN" ? "Position in the 52-week range (0% = low, 100% = high)" : "Posición en el rango de 52 semanas (0 % = mínimo, 100 % = máximo)"}
+                    >
                       {athProgressMetrics.athScorePct}%
                     </span>
-                    <span className="text-[11px] text-amber-400 font-medium">
-                      ({language === "EN" ? "To high:" : "Por recuperar:"} <strong className="text-rose-400">-{athProgressMetrics.distToHighPct}%</strong>)
-                    </span>
+                    {athProgressMetrics.belowHighPct > 0 ? (
+                      <span className="text-[11px] text-amber-400 font-medium">
+                        (<strong className="text-rose-400">-{athProgressMetrics.belowHighPct}%</strong> {language === "EN" ? "from high · to recover" : "desde el máx. · por recuperar"}{" "}
+                        <strong className="text-emerald-400">+{athProgressMetrics.toRecoverPct}%</strong>)
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-emerald-400 font-medium">{language === "EN" ? "(at its 52-week high)" : "(en máximos de 52 semanas)"}</span>
+                    )}
                   </div>
                 </div>
               </div>
 
-              {/* Progress bar track representing 1 - ((high - price) / price) */}
+              {/* Barra: posición del precio en el rango de 52 semanas */}
               <div className="relative w-full h-2.5 bg-theme-input rounded-full overflow-hidden border border-theme-border">
                 <div 
                   className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-emerald-400 rounded-full transition-all duration-700"
