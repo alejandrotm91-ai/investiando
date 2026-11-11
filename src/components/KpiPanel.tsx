@@ -11,6 +11,8 @@ interface KpiChart {
   id: string; en: string; es: string; type: "bar" | "stack" | "line"; keys: string[];
   derived?: "per_user_month" | "take_rate" | "margins" | "guidance";
   series?: { key: string; en: string; es: string; rev: string; cost: string }[];
+  total?: string; // KPI con la suma de las líneas (para comparar si el periodo anterior no las trae)
+  newLines?: boolean; // una línea que falta antes es un producto que aún no existía (= 0)
 }
 interface KpiPoint { date: string; values: Record<string, number>; confirmed: Record<string, boolean> }
 interface KpiData {
@@ -82,7 +84,9 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
   const [growthMode, setGrowthMode] = useState<"QoQ" | "YoY">("YoY");
   useEffect(() => setSelected({}), [ticker]);
   const meta = useMemo(() => Object.fromEntries((data?.kpis ?? []).map((k) => [k.key, k])), [data]);
-  const points = useMemo(() => (data?.points ?? []).slice(-MAX_QUARTERS), [data]);
+  // Todo el histórico (el crecimiento de las primeras barras visibles necesita los trimestres de antes);
+  // cada gráfico muestra los últimos MAX_QUARTERS
+  const points = useMemo(() => data?.points ?? [], [data]);
 
   if (loading) return null;
   if (!data) return null; // empresa sin KPIs definidos
@@ -104,6 +108,7 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
     points
       .map((p, i) => {
         const row: Record<string, any> = { name: quarterLabel(p.date), date: p.date, confirmed: p.confirmed };
+        if (c.total && typeof p.values[c.total] === "number") row.__total = p.values[c.total];
         if (c.derived === "guidance") {
           // Real del trimestre frente a la previsión dada en el trimestre anterior (si es el inmediato)
           const prev = points[i - 1];
@@ -151,6 +156,9 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
     return { label: last.name, value: fmt(v, unit), change, noYoY: false };
   };
 
+  // % encima de las barras: sin decimales si hay muchas barras o si es grande
+  const pctLabel = (v: number, bars: number) => `${v >= 0 ? "+" : ""}${(v * 100).toFixed(Math.abs(v) >= 0.995 || bars > 8 ? 0 : 1)}%`;
+  let usedQoQFallback = false;
   const growthColor = (up: boolean) => (up ? (theme === "light" ? "#15803d" : "#34d399") : theme === "light" ? "#b91c1c" : "#fb7185");
 
   const Tip = ({ active, payload, label, chart }: any) => {
@@ -241,33 +249,81 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
             const sel = selected[c.id] ?? [];
             const filterable = !c.derived && c.keys.length > 1;
             const shown = (k: string) => !filterable || sel.length === 0 || sel.includes(k);
-            // Barras: las líneas no seleccionadas quedan sin dato; el total y el crecimiento son de lo visible
+            const allShown = c.keys.every(shown);
+            // Barras con una etiqueta por barra (suma de lo visible): apiladas o de una sola serie
             const barGrowth = c.type === "stack" || (c.type === "bar" && !c.derived && c.keys.filter(shown).length === 1);
-            const rows = allRows.map((r) => {
+            // Barras agrupadas (varias series lado a lado): una etiqueta por serie
+            const grouped = c.type === "bar" && !c.derived && !barGrowth;
+            const fullRows = allRows.map((r) => {
               if (c.type === "line" || c.derived) return r;
               const o: Record<string, any> = { ...r };
               for (const k of c.keys) if (!shown(k)) o[k] = undefined;
               const vis = c.keys.filter(shown);
               const present = vis.filter((k) => typeof o[k] === "number");
               o.__keys = present.join("|");
+              o.__full = present.length === vis.length;
               o.__vis = present.length ? present.reduce((a, k) => a + o[k], 0) : undefined;
               o.__pos = present.reduce((a, k) => a + Math.max(0, o[k]), 0);
               if (c.type === "stack") o.total = present.length === vis.length ? o.__vis : undefined;
               return o;
             });
-            // Crecimiento de lo visible frente al trimestre anterior (70-110 días) o al del año anterior
-            // (340-390 días), solo con las mismas líneas en los dos periodos
-            if (barGrowth)
-              for (const r of rows) {
-                const t = new Date(r.date).getTime();
-                const [lo, hi] = growthMode === "QoQ" ? [70, 110] : [340, 390];
-                const prev = rows.find((q) => {
-                  const d = (t - new Date(q.date).getTime()) / 86400000;
-                  return d >= lo && d <= hi;
-                });
-                r.growth = prev && prev.__keys === r.__keys && prev.__vis > 0 && r.__vis >= 0 ? r.__vis / prev.__vis - 1 : null;
+            // Periodo de comparación: el trimestre anterior (70-110 días) o el del año anterior (340-390)
+            const prevOf = (r: Record<string, any>, kind: "QoQ" | "YoY") => {
+              const t = new Date(r.date).getTime();
+              const [lo, hi] = kind === "QoQ" ? [70, 110] : [340, 390];
+              return fullRows.find((q) => {
+                const d = (t - new Date(q.date).getTime()) / 86400000;
+                return d >= lo && d <= hi;
+              });
+            };
+            // Total declarado del periodo de comparación aunque ese trimestre no tenga ninguna línea del gráfico
+            const prevTotalOf = (r: Record<string, any>, kind: "QoQ" | "YoY") => {
+              if (!c.total) return undefined;
+              const t = new Date(r.date).getTime();
+              const [lo, hi] = kind === "QoQ" ? [70, 110] : [340, 390];
+              const p = points.find((q) => {
+                const d = (t - new Date(q.date).getTime()) / 86400000;
+                return d >= lo && d <= hi;
+              });
+              const v = p?.values[c.total];
+              return typeof v === "number" ? v : undefined;
+            };
+            const ratio = (a: any, b: any) => (typeof a === "number" && typeof b === "number" && b > 0 && a >= 0 ? a / b - 1 : null);
+            // Crecimiento de lo visible: mismas líneas; si no, el total declarado o (productos nuevos) las que
+            // falten como 0. Sin dato del año anterior: frente al trimestre anterior (en gris)
+            const stackGrowth = (r: Record<string, any>, kind: "QoQ" | "YoY") => {
+              const prev = prevOf(r, kind);
+              if (r.__vis === undefined) return null;
+              if (prev && prev.__keys === r.__keys) return ratio(r.__vis, prev.__vis);
+              if (!allShown || !r.__full) return null;
+              if (c.total) return ratio(r.__vis, prev?.__full ? prev.__vis : prevTotalOf(r, kind));
+              if (c.newLines && prev && prev.__vis !== undefined) return ratio(r.__vis, prev.__vis);
+              return null;
+            };
+            const keyGrowth = (r: Record<string, any>, k: string, kind: "QoQ" | "YoY") => {
+              const prev = prevOf(r, kind);
+              return prev ? ratio(r[k], prev[k]) : null;
+            };
+            for (const r of fullRows) {
+              if (barGrowth) {
+                const g = stackGrowth(r, growthMode);
+                const q = g === null && growthMode === "YoY" ? stackGrowth(r, "QoQ") : null;
+                r.growth = g ?? q;
+                r.__growthQoQ = g === null && q !== null;
               }
-            const h = headline(c, rows);
+              if (grouped)
+                for (const k of c.keys) {
+                  const g = keyGrowth(r, k, growthMode);
+                  const q = g === null && growthMode === "YoY" ? keyGrowth(r, k, "QoQ") : null;
+                  r[`__g_${k}`] = g ?? q;
+                  r[`__q_${k}`] = g === null && q !== null;
+                }
+              // Previsión: % del real sobre la previsión dada el trimestre anterior
+              if (c.derived === "guidance") r.__beat = typeof r.actual === "number" && typeof r.guided === "number" && r.guided > 0 ? r.actual / r.guided - 1 : null;
+            }
+            const rows = fullRows.slice(-MAX_QUARTERS);
+            if (rows.some((r) => r.__growthQoQ || c.keys.some((k) => r[`__q_${k}`]))) usedQoQFallback = true;
+            const h = headline(c, fullRows);
             const unit: any = c.derived === "guidance" ? "$M" : c.derived === "per_user_month" ? "x" : c.derived === "take_rate" || c.derived === "margins" ? "frac" : meta[c.keys[0]]?.unit ?? "M";
             // Claves con dato (de las filas sin filtrar: la leyenda sigue mostrando las no seleccionadas)
             const keys = c.derived === "guidance" ? ["actual", "guided"] : c.derived === "margins" ? (c.series ?? []).map((x) => x.key).filter((k) => allRows.some((r) => r[k] !== undefined)) : c.derived ? ["value"] : c.keys.filter((k) => allRows.some((r) => r[k] !== undefined));
@@ -336,7 +392,7 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
                         ))}
                       </LineChart>
                     ) : (
-                      <BarChart data={rows} margin={{ top: barGrowth ? 16 : 6, right: 6, left: 0, bottom: 0 }} barCategoryGap="22%" stackOffset="sign">
+                      <BarChart data={rows} margin={{ top: barGrowth || grouped || c.derived === "guidance" ? 16 : 6, right: 6, left: 0, bottom: 0 }} barCategoryGap="22%" stackOffset="sign">
                         <CartesianGrid vertical={false} stroke={gridColor} />
                         <XAxis dataKey="name" tick={{ fill: axisColor, fontSize: 10 }} axisLine={false} tickLine={false} interval="preserveStartEnd" minTickGap={16} />
                         <YAxis tickFormatter={(v) => fmt(v, unit)} tick={{ fill: axisColor, fontSize: 10 }} axisLine={false} tickLine={false} width={50} />
@@ -351,7 +407,23 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
                             strokeWidth={c.type === "stack" ? 1 : 0}
                             radius={i === keys.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]}
                             isAnimationActive={false}
-                          />
+                          >
+                            {(grouped || (c.derived === "guidance" && k === "actual")) && (
+                              <LabelList
+                                dataKey={c.derived === "guidance" ? "__beat" : `__g_${k}`}
+                                content={({ x, y, width, height, value, index }: any) => {
+                                  if (value === null || value === undefined || x === undefined || y === undefined) return null;
+                                  const top = Number(height) < 0 ? Number(y) + Number(height) : Number(y);
+                                  const muted = c.derived !== "guidance" && rows[index]?.[`__q_${k}`];
+                                  return (
+                                    <text x={Number(x) + Number(width) / 2} y={top - 3} textAnchor="middle" fontSize={8} fontWeight={700} fill={muted ? axisColor : growthColor(value >= 0)} style={{ fontVariantNumeric: "tabular-nums" }}>
+                                      {pctLabel(value, rows.length * keys.length)}
+                                    </text>
+                                  );
+                                }}
+                              />
+                            )}
+                          </Bar>
                         ))}
                         {/* Crecimiento encima de cada barra: barra transparente con la altura de lo visible,
                             en un eje X propio (oculto) para no ocupar sitio junto a las de verdad */}
@@ -360,10 +432,10 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
                           <Bar xAxisId="growth" dataKey="__pos" fill="transparent" isAnimationActive={false} legendType="none" activeBar={false}>
                             <LabelList
                               dataKey="growth"
-                              content={({ x, y, width, value }: any) =>
+                              content={({ x, y, width, value, index }: any) =>
                                 value === null || value === undefined || x === undefined || y === undefined ? null : (
-                                  <text x={Number(x) + Number(width) / 2} y={Number(y) - 4} textAnchor="middle" fontSize={9.5} fontWeight={700} fill={growthColor(value >= 0)} style={{ fontVariantNumeric: "tabular-nums" }}>
-                                    {`${value >= 0 ? "+" : ""}${(value * 100).toFixed(Math.abs(value) >= 0.995 || rows.length > 8 ? 0 : 1)}%`}
+                                  <text x={Number(x) + Number(width) / 2} y={Number(y) - 4} textAnchor="middle" fontSize={9.5} fontWeight={700} fill={rows[index]?.__growthQoQ ? axisColor : growthColor(value >= 0)} style={{ fontVariantNumeric: "tabular-nums" }}>
+                                    {pctLabel(value, rows.length)}
                                   </text>
                                 )
                               }
@@ -378,6 +450,15 @@ export default function KpiPanel({ ticker, language, theme }: Props) {
             );
           })}
         </div>
+      )}
+
+      {growthMode === "YoY" && usedQoQFallback && (
+        <p className="text-[11px] text-theme-text-muted flex items-start gap-1.5">
+          <Info size={12} className="mt-0.5 shrink-0" />
+          {isES
+            ? "En gris: crecimiento frente al trimestre anterior, cuando no hay dato del mismo trimestre del año anterior."
+            : "In grey: growth vs. the previous quarter, where the same quarter of the prior year isn't available."}
+        </p>
       )}
 
       {data.note && (

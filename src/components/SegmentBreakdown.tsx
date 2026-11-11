@@ -154,6 +154,10 @@ export default function SegmentBreakdown({ ticker, language, theme }: Props) {
       row.visibleSum = cur;
       row.rowIndex = rowIndex;
       row.growth = cur !== null && before !== null && before > 0 && cur >= 0 ? cur / before - 1 : null;
+      // Distintas líneas (reorganización, desglose nuevo) sin filtro: si los dos periodos suman los
+      // ingresos consolidados, se compara el total
+      if (row.growth === null && !selected.size && prev && p.matched && prev.matched && typeof p.total === "number" && typeof prev.total === "number" && prev.total > 0 && p.total >= 0)
+        row.growth = p.total / prev.total - 1;
       // Altura de la parte positiva de la pila: ahí va la etiqueta de crecimiento
       row[POS] = visible.reduce((a, s) => a + Math.max(0, row[s.id] ?? 0), 0);
       return row;

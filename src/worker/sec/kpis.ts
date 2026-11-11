@@ -39,6 +39,11 @@ export interface KpiChart {
   // "guidance": ingresos reales de cada trimestre (keys[0]) frente a la previsión que la empresa dio
   // para él en el trimestre anterior (keys[1] de ese trimestre)
   derived?: "per_user_month" | "take_rate" | "margins" | "guidance";
+  // Para el crecimiento de las barras apiladas cuando el periodo de comparación no trae todas las líneas:
+  // total = KPI que es la suma de las líneas (se compara el total); newLines = una línea que falta en
+  // el periodo anterior es un producto que aún no existía (cuenta como 0)
+  total?: string;
+  newLines?: boolean;
   series?: { key: string; en: string; es: string; rev: string; cost: string }[];
 }
 export interface CompanyKpis {
@@ -64,7 +69,7 @@ export const KPI_DEFS: Record<string, CompanyKpis> = {
       { key: "gb_freight", en: "Gross bookings · Freight", es: "Reservas · Freight", unit: "$M", kind: "flow", range: [100, 50000], hint: "Gross Bookings of the Freight segment, in millions of USD" },
     ],
     charts: [
-      { id: "gb", en: "Gross bookings by segment", es: "Reservas brutas por segmento", type: "stack", keys: ["gb_mobility", "gb_delivery", "gb_freight"] },
+      { id: "gb", en: "Gross bookings by segment", es: "Reservas brutas por segmento", type: "stack", keys: ["gb_mobility", "gb_delivery", "gb_freight"], total: "gross_bookings" },
       { id: "trips", en: "Trips", es: "Viajes y pedidos", type: "bar", keys: ["trips"] },
       { id: "mapcs", en: "Monthly active consumers", es: "Usuarios activos mensuales", type: "bar", keys: ["mapcs"] },
       { id: "freq", en: "Trips per user per month", es: "Viajes por usuario al mes", type: "line", keys: ["trips", "mapcs"], derived: "per_user_month" },
@@ -97,7 +102,7 @@ export const KPI_DEFS: Record<string, CompanyKpis> = {
       { key: "switched_growth", en: "Switched transactions growth", es: "Crecimiento de transacciones procesadas", unit: "%", kind: "avg", range: [-50, 100], hint: "Switched transactions year-over-year growth in the quarter, in %" },
     ],
     charts: [
-      { id: "gdv", en: "Gross dollar volume by region", es: "Volumen bruto (GDV) por región", type: "stack", keys: ["gdv_us", "gdv_intl"] },
+      { id: "gdv", en: "Gross dollar volume by region", es: "Volumen bruto (GDV) por región", type: "stack", keys: ["gdv_us", "gdv_intl"], total: "gdv" },
       { id: "tx", en: "Purchase transactions", es: "Transacciones de compra", type: "bar", keys: ["purchase_tx"] },
       { id: "cards", en: "Cards", es: "Tarjetas", type: "bar", keys: ["cards"] },
       { id: "growth", en: "Year-over-year growth", es: "Crecimiento interanual", type: "line", keys: ["cb_growth", "switched_growth"] },
@@ -114,7 +119,7 @@ export const KPI_DEFS: Record<string, CompanyKpis> = {
       { key: "gb_agency", en: "Gross bookings · Agency", es: "Reservas · Agencia", unit: "$M", kind: "flow", range: [1000, 200000], hint: "Agency gross bookings in the quarter, in millions of USD" },
     ],
     charts: [
-      { id: "gb", en: "Gross bookings (merchant / agency)", es: "Reservas brutas (merchant / agencia)", type: "stack", keys: ["gb_merchant", "gb_agency"] },
+      { id: "gb", en: "Gross bookings (merchant / agency)", es: "Reservas brutas (merchant / agencia)", type: "stack", keys: ["gb_merchant", "gb_agency"], total: "gross_bookings" },
       { id: "nights", en: "Room nights", es: "Noches de hotel", type: "bar", keys: ["room_nights"] },
       { id: "cars", en: "Rental car days", es: "Días de alquiler de coche", type: "bar", keys: ["car_days"] },
       { id: "flights", en: "Flight tickets", es: "Billetes de avión", type: "bar", keys: ["flights"] },
@@ -138,7 +143,7 @@ export const KPI_DEFS: Record<string, CompanyKpis> = {
           { key: "gm_services", en: "Services", es: "Servicios", rev: "services_rev", cost: "services_cost" },
         ],
       },
-      { id: "mix", en: "Net sales: products / services", es: "Ventas: productos / servicios", type: "stack", keys: ["products_rev", "services_rev"] },
+      { id: "mix", en: "Net sales: products / services", es: "Ventas: productos / servicios", type: "stack", keys: ["products_rev", "services_rev"], total: "revenue" },
     ],
   },
   AMZN: {
@@ -174,7 +179,7 @@ export const KPI_DEFS: Record<string, CompanyKpis> = {
       { key: "inventory_days", en: "Vehicle inventory (days of supply)", es: "Inventario (días de suministro)", unit: "d", kind: "avg", range: [1, 200], hint: "Global vehicle inventory, days of supply" },
     ],
     charts: [
-      { id: "del", en: "Deliveries (Model 3/Y / other)", es: "Entregas (Model 3/Y / otros)", type: "stack", keys: ["del_3y", "del_other"] },
+      { id: "del", en: "Deliveries (Model 3/Y / other)", es: "Entregas (Model 3/Y / otros)", type: "stack", keys: ["del_3y", "del_other"], total: "deliveries" },
       { id: "storage", en: "Energy storage deployed", es: "Almacenamiento de energía instalado", type: "bar", keys: ["storage_gwh"] },
       { id: "prod", en: "Production", es: "Producción", type: "bar", keys: ["production"] },
       { id: "sc", en: "Supercharger connectors", es: "Conectores Supercharger", type: "bar", keys: ["sc_connectors"] },
@@ -373,7 +378,7 @@ export const KPI_DEFS: Record<string, CompanyKpis> = {
       { key: "price_effect", en: "Price effect on revenue growth", es: "Efecto precio en el crecimiento", unit: "%", kind: "avg", range: [-60, 60], hint: "Worldwide revenue change due to realized prices, year-over-year, in % (negative if decrease)" },
     ],
     charts: [
-      { id: "tirz", en: "Tirzepatide: Mounjaro + Zepbound", es: "Tirzepatida: Mounjaro + Zepbound", type: "stack", keys: ["mounjaro", "zepbound"] },
+      { id: "tirz", en: "Tirzepatide: Mounjaro + Zepbound", es: "Tirzepatida: Mounjaro + Zepbound", type: "stack", keys: ["mounjaro", "zepbound"], newLines: true },
       { id: "others", en: "Other key products", es: "Otros productos clave", type: "line", keys: ["verzenio", "trulicity", "taltz", "kisunla"] },
       { id: "pv", en: "Revenue growth: volume vs. price", es: "Crecimiento: volumen frente a precio", type: "line", keys: ["volume_effect", "price_effect"] },
     ],
@@ -586,7 +591,7 @@ export const KPI_DEFS: Record<string, CompanyKpis> = {
     ],
     charts: [
       { id: "keytruda", en: "Keytruda", es: "Keytruda", type: "bar", keys: ["keytruda"] },
-      { id: "vax", en: "Vaccines (Gardasil / Capvaxive)", es: "Vacunas (Gardasil / Capvaxive)", type: "stack", keys: ["gardasil", "capvaxive"] },
+      { id: "vax", en: "Vaccines (Gardasil / Capvaxive)", es: "Vacunas (Gardasil / Capvaxive)", type: "stack", keys: ["gardasil", "capvaxive"], newLines: true },
       { id: "new", en: "Growth products", es: "Productos en crecimiento", type: "line", keys: ["winrevair", "welireg", "bridion", "lynparza"] },
       { id: "ah", en: "Animal Health", es: "Salud animal", type: "bar", keys: ["animal_health"] },
     ],
@@ -634,7 +639,7 @@ export const KPI_DEFS: Record<string, CompanyKpis> = {
       { key: "arm_apac", en: "ARM · APAC", es: "ARM · APAC", unit: "$", kind: "avg", range: [2, 30], hint: "APAC average revenue per membership per month, in USD" },
     ],
     charts: [
-      { id: "mem", en: "Paid memberships by region", es: "Suscripciones de pago por región", type: "stack", keys: ["mem_ucan", "mem_emea", "mem_latam", "mem_apac"] },
+      { id: "mem", en: "Paid memberships by region", es: "Suscripciones de pago por región", type: "stack", keys: ["mem_ucan", "mem_emea", "mem_latam", "mem_apac"], total: "memberships" },
       { id: "adds", en: "Paid net additions", es: "Altas netas", type: "bar", keys: ["net_adds"] },
       { id: "arm", en: "Average revenue per membership (monthly)", es: "Ingreso medio por suscripción (mensual)", type: "line", keys: ["arm", "arm_ucan", "arm_emea", "arm_latam", "arm_apac"] },
     ],
@@ -656,7 +661,7 @@ export const KPI_DEFS: Record<string, CompanyKpis> = {
     charts: [
       { id: "subs", en: "Subscribers", es: "Suscriptores", type: "bar", keys: ["subscribers"] },
       { id: "arpu", en: "Monthly revenue per average subscriber", es: "Ingreso mensual por suscriptor", type: "line", keys: ["arpu"] },
-      { id: "geo", en: "Revenue by region", es: "Ingresos por región", type: "stack", keys: ["rev_us", "rev_row"] },
+      { id: "geo", en: "Revenue by region", es: "Ingresos por región", type: "stack", keys: ["rev_us", "rev_row"], total: "revenue" },
       { id: "guide", en: "Revenue vs. prior-quarter outlook", es: "Ingresos frente a la previsión del trimestre anterior", type: "bar", keys: ["revenue", "guidance_next"], derived: "guidance" },
       { id: "profit", en: "Adjusted EBITDA and free cash flow", es: "EBITDA ajustado y flujo de caja libre", type: "bar", keys: ["adj_ebitda", "fcf"] },
     ],
