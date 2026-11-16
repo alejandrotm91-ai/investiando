@@ -9,6 +9,7 @@ import { secRoutes } from "./sec/routes";
 import { sectorMapRoutes } from "./sectorMap";
 import { scoreRoutes } from "./scores";
 import { generateAiPortfolio } from "./aiPortfolio";
+import { billingRoutes, requirePro } from "./billing";
 import { runSecCron } from "./sec/sync";
 import { runSegmentsCron } from "./sec/segmentSync";
 import { runPreviewsCron } from "./sec/earnings";
@@ -55,7 +56,10 @@ const AI_ROUTES = [
   "/api/hedgefund-analysis",
   "/api/watchlist/scan-sector",
 ];
-for (const path of AI_ROUTES) app.use(path, requireUser);
+for (const path of AI_ROUTES) app.use(path, requireUser, requirePro);
+
+// Cobros con Paddle: configuración, estado del plan, portal de cliente y webhook (billing.ts)
+app.route("/api/billing", billingRoutes);
 
 // Crear portafolio con IA: universo y métricas reales (referencia del score) + Claude; sin IA, ranking
 // cuantitativo (aiPortfolio.ts). Va antes de las rutas antiguas, que tenían su versión con listas fijas.

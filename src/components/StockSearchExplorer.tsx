@@ -1,3 +1,4 @@
+import { ProGate, ProBadge } from "./ProUpgrade";
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { 
   Search, 
@@ -287,8 +288,6 @@ export default function StockSearchExplorer({
   const [loadingChart, setLoadingChart] = useState<boolean>(false);
 
   // News state
-  const [newsList, setNewsList] = useState<NewsItem[]>([]);
-  const [loadingNews, setLoadingNews] = useState<boolean>(false);
 
   // Watchlist state
   const [watchlist, setWatchlist] = useState<string[]>([]);
@@ -461,34 +460,6 @@ export default function StockSearchExplorer({
     }
   };
 
-  // Fetch news for the ticker
-  const fetchStockNews = async (ticker: string) => {
-    if (!ticker) return;
-    setLoadingNews(true);
-    try {
-      const cleanTicker = ticker.trim().toUpperCase();
-      const res = await fetch("/api/news", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tickers: [cleanTicker],
-          language,
-          filterTicker: cleanTicker
-        })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        // La API devuelve { news: [...], liveGrounded }; se acepta también una lista directa.
-        setNewsList(Array.isArray(data) ? data : Array.isArray(data?.news) ? data.news : []);
-      }
-    } catch (err) {
-      console.error("Error loading stock news:", err);
-      setNewsList([]);
-    } finally {
-      setLoadingNews(false);
-    }
-  };
-
   // Fetch live benchmark quotes on mount
   useEffect(() => {
     const fetchLiveBenchmarks = async () => {
@@ -591,7 +562,6 @@ export default function StockSearchExplorer({
     if (selectedTicker) {
       fetchStockDetails(selectedTicker);
       fetchChartData(selectedTicker, chartRange);
-      fetchStockNews(selectedTicker);
 
       // Fetch financials for sector-normalized score
       let isMounted = true;
@@ -1215,6 +1185,7 @@ export default function StockSearchExplorer({
                   >
                     <IconComponent size={14} className={`shrink-0 transition-colors ${isActive ? (theme === "light" ? "text-emerald-600" : "text-emerald-400") : "opacity-80"}`} />
                     <span>{tab.label}</span>
+                    {(tab.id === "kpis" || tab.id === "valuation") && <ProBadge theme={theme} />}
                   </button>
                 );
               })}
@@ -2385,14 +2356,17 @@ export default function StockSearchExplorer({
 
           {/* 7b. KPIS: segmentos (capa 2 de la SEC) y KPIs operativos de los comunicados (Uber, Netflix…) */}
           {activeSubTab === "kpis" && (
-            <div className="space-y-6">
-              <SegmentBreakdown ticker={stockData.symbol} language={language} theme={theme} />
-              <KpiPanel ticker={stockData.symbol} language={language} theme={theme} />
-            </div>
+            <ProGate language={language} theme={theme} feature="kpis" title={language === "EN" ? `Segments and KPIs of ${stockData.symbol}` : `Segmentos y KPIs de ${stockData.symbol}`}>
+              <div className="space-y-6">
+                <SegmentBreakdown ticker={stockData.symbol} language={language} theme={theme} />
+                <KpiPanel ticker={stockData.symbol} language={language} theme={theme} />
+              </div>
+            </ProGate>
           )}
 
           {/* 8. VALUATION: múltiplos (y valor razonable), modelo de 3 estados y DCF, o motores de retorno */}
           {activeSubTab === "valuation" && stockData && (
+            <ProGate language={language} theme={theme} feature="valuation" title={language === "EN" ? `Valuation of ${stockData.symbol}: multiples, fair value, DCF and Bogle engines` : `Valoración de ${stockData.symbol}: múltiplos, valor razonable, DCF y motores de Bogle`}>
             <div className="space-y-6">
               <div className="flex justify-center">
                 <div data-toggle className="flex flex-wrap justify-center bg-theme-input border border-theme-border rounded-xl p-0.5">
@@ -2426,6 +2400,7 @@ export default function StockSearchExplorer({
                 <BogleAnalysisDashboard singleTicker={stockData.symbol} language={language} theme={theme} />
               )}
             </div>
+            </ProGate>
           )}
 
         </>

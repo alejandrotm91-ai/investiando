@@ -1559,3 +1559,12 @@ html.light [data-toggle]:not(#_t):not(#_t):not(#_t):not(#_t) button[aria-pressed
   background-color: var(--theme-card) !important;
   border-color: var(--theme-border) !important;
 }
+
+/* Cuenta, modo claro: la tarjeta de suscripción lleva sus colores en línea; las reglas posicionales
+   (main > … > div:nth-of-type(2) > div) no deben pintar sus bloques internos. */
+.light #subscription-card:not(#_t):not(#_t):not(#_t):not(#_t) div:not([style]) {
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  border-color: transparent !important;
+}

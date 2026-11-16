@@ -75,6 +75,9 @@ export const DEFAULT_COMPOUNDERS_HOLDINGS: Holding[] = [
 const DEFAULT_HOLDINGS: Holding[] = DEFAULT_COMPOUNDERS_HOLDINGS;
 
 import { SUPERINVESTORS } from "./superinvestors";
+import { PricingModal, ProGate, ProBadge } from "./components/ProUpgrade";
+import LegalPage, { legalKindFromPath } from "./components/LegalPage";
+import { installProInterceptor, openUpgrade, refreshPlan, usePlan } from "./lib/billing";
 
 function sanitizeUserPortfolios(ports: any[], fallbackLanguage: "EN" | "ES" = "ES"): UserPortfolio[] {
   if (!Array.isArray(ports)) return [];
@@ -251,6 +254,12 @@ export default function App() {
 
   // User session state variables
   const [user, setUser] = useState<{ id: string; name: string; email: string } | null>(null);
+  // Plan (gratuito / Pro con Paddle): se consulta al iniciar sesión; un 402 de la API abre el selector
+  const { isPro } = usePlan();
+  useEffect(() => {
+    installProInterceptor();
+    if (user?.id) refreshPlan();
+  }, [user?.id]);
   const [token, setToken] = useState<string | null>(null);
   const [checkingAuth, setCheckingAuth] = useState<boolean>(true);
   const [showWelcomeModal, setShowWelcomeModal] = useState<boolean>(false);
@@ -1084,6 +1093,10 @@ export default function App() {
     }
   };
 
+  // Páginas legales públicas (/terms, /privacy, /refunds), con o sin sesión
+  const legalKind = typeof window !== "undefined" ? legalKindFromPath(window.location.pathname) : null;
+  if (legalKind) return <LegalPage kind={legalKind} language={language} theme={theme} />;
+
   if (checkingAuth) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center gap-4">
@@ -1366,6 +1379,11 @@ export default function App() {
                             id="add-portfolio-btn"
                             type="button"
                             onClick={() => {
+                              // Plan gratuito: una cartera
+                              if (!isPro && userPortfolios.length >= 1) {
+                                openUpgrade("portfolios");
+                                return;
+                              }
                               const defaultName = userPortfolios.length === 0
                                 ? (language === "EN" ? "Main Portfolio" : "Portafolio Principal")
                                 : (language === "EN" ? `Portfolio ${userPortfolios.length + 1}` : `Portafolio ${userPortfolios.length + 1}`);
@@ -1502,6 +1520,7 @@ export default function App() {
                                 >
                                   <IconComponent size={14} className={`shrink-0 transition-colors ${isActive ? (theme === "light" ? "text-emerald-600" : "text-emerald-400") : "opacity-80"}`} />
                                   <span className="truncate">{tab.label}</span>
+                                  {(tab.id === "whatif" || tab.id === "analysis") && <ProBadge theme={theme} />}
                                 </button>
                               );
                             })}
@@ -1543,15 +1562,19 @@ export default function App() {
                         )}
 
                         {activeTab === "whatif" && (
-                          <WhatIfSimulator portfolio={displayPortfolioData || portfolioData} language={language} userEmail={user?.email} />
+                          <ProGate language={language} theme={theme} feature="portfolio" title={language === "EN" ? "Portfolio simulation" : "Simulación de cartera"}>
+                            <WhatIfSimulator portfolio={displayPortfolioData || portfolioData} language={language} userEmail={user?.email} />
+                          </ProGate>
                         )}
 
                         {activeTab === "analysis" && (
-                          <BogleAnalysisDashboard 
-                            portfolio={displayPortfolioData || portfolioData} 
-                            language={language}
-                            theme={theme}
-                          />
+                          <ProGate language={language} theme={theme} feature="portfolio" title={language === "EN" ? "Portfolio analysis: Bogle's 3 engines" : "Análisis de cartera: los 3 motores de Bogle"}>
+                            <BogleAnalysisDashboard 
+                              portfolio={displayPortfolioData || portfolioData} 
+                              language={language}
+                              theme={theme}
+                            />
+                          </ProGate>
                         )}
                       </>
                     )}
@@ -1606,6 +1629,7 @@ export default function App() {
                             >
                               <IconComponent size={14} className={`shrink-0 transition-colors ${isActive ? (theme === "light" ? "text-emerald-600" : "text-emerald-400") : "opacity-80"}`} />
                               <span className="truncate">{tab.label}</span>
+                              {tab.id === "analysis" && <ProBadge theme={theme} />}
                             </button>
                           );
                         })}
@@ -1679,11 +1703,13 @@ export default function App() {
                     )}
 
                     {activeTab === "analysis" && (
-                      <BogleAnalysisDashboard 
-                        portfolio={displayPortfolioData || portfolioData} 
-                        language={language}
-                        theme={theme}
-                      />
+                      <ProGate language={language} theme={theme} feature="portfolio" title={language === "EN" ? "Portfolio analysis: Bogle's 3 engines" : "Análisis de cartera: los 3 motores de Bogle"}>
+                        <BogleAnalysisDashboard 
+                          portfolio={displayPortfolioData || portfolioData} 
+                          language={language}
+                          theme={theme}
+                        />
+                      </ProGate>
                     )}
                   </div>
                 ) : null
@@ -1749,7 +1775,7 @@ export default function App() {
 
               {/* 7. VIEW ACCOUNT */}
               {sidebarTab === "account" && (
-                <AccountSettings language={language} user={user} />
+                <AccountSettings language={language} user={user} theme={theme} />
               )}
 
               {/* 8. VIEW LOGOUT */}
@@ -1958,6 +1984,9 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* SELECTOR DE PLANES (Pro con Paddle) */}
+      {user && <PricingModal language={language} theme={theme} user={user} />}
 
       {/* CREATE PORTFOLIO WITH AI MODAL */}
       <CreatePortfolioAIModal

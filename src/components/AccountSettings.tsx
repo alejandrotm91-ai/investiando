@@ -1,7 +1,8 @@
+import { SubscriptionCard } from "./ProUpgrade";
 import React, { useState } from "react";
 import { User, Shield, Key, Bell, Database, Check, ToggleLeft, ToggleRight, Mail, Server, Send, RefreshCw, Eye, EyeOff, CheckCircle2, AlertTriangle, Users, Megaphone, Sparkles, Trash2, UserX, UserCheck, Search, ShieldAlert, CreditCard, Lock, Unlock, Clock, Ban, UserMinus, X, Copy, CheckCheck } from "lucide-react";
 
-export default function AccountSettings({ language, user }: { language: "EN" | "ES"; user: { id: string; name: string; email: string } }) {
+export default function AccountSettings({ language, user, theme = "dark" }: { language: "EN" | "ES"; user: { id: string; name: string; email: string }; theme?: "dark" | "light" }) {
   const isAdmin = user?.email?.toLowerCase().trim() === "alejandrotm91@gmail.com";
   const [currency, setCurrency] = useState("USD");
   const [timeframe, setTimeframe] = useState("1M");
@@ -354,6 +355,9 @@ export default function AccountSettings({ language, user }: { language: "EN" | "
           <p className="text-xs text-slate-400 mt-1">{t.desc}</p>
         </div>
       </div>
+
+      {/* Suscripción (plan gratuito / Pro con Paddle) */}
+      <SubscriptionCard language={language} theme={theme} />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Terminal Preferences */}

@@ -1,3 +1,4 @@
+import { SidebarPlanCard } from "./ProUpgrade";
 import React from "react";
 import { SidebarTabType } from "../types";
 import { 
@@ -251,6 +252,9 @@ export default function Sidebar({
           );
         })}
       </div>
+
+      {/* Plan: tarjeta "Mejorar a Pro" o insignia Pro */}
+      <SidebarPlanCard language={language} theme={theme} />
 
       {/* Sidebar Footer (Language + Theme selectors matching mockup perfectly) */}
       <div className="p-4 border-t border-theme-border flex items-center justify-between gap-4 bg-theme-sidebar">

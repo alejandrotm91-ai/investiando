@@ -121,6 +121,7 @@ export default function LandingShowcase({ language, theme, onThemeChange, onLang
   // la pantalla (top negativo si es más alto que la pantalla), así se ve entero en cualquier tamaño
   const heroRef = useRef<HTMLElement>(null);
   const [heroTop, setHeroTop] = useState(72);
+  const [period, setPeriod] = useState<"annual" | "monthly">("annual"); // precios: anual o mensual
   useEffect(() => {
     const el = heroRef.current;
     if (!el) return;
@@ -174,6 +175,7 @@ export default function LandingShowcase({ language, theme, onThemeChange, onLang
               <button type="button" className="lp-nav-link" onClick={() => go("lp-explorer")}>Stock Explorer</button>
               <button type="button" className="lp-nav-link" onClick={() => go("lp-portfolio")}>{t("Portfolio", "Portafolio")}</button>
               <button type="button" className="lp-nav-link" onClick={() => go("lp-ai")}>{t("AI Analyst", "Analista IA")}</button>
+              <button type="button" className="lp-nav-link" onClick={() => go("lp-pricing")}>{t("Pricing", "Precios")}</button>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
               {onLanguageChange && (
@@ -806,6 +808,99 @@ export default function LandingShowcase({ language, theme, onThemeChange, onLang
             </div>
           </section>
 
+          {/* PRECIOS: gratis y Pro (Paddle). Los importes deben coincidir con los precios de Paddle */}
+          <section id="lp-pricing" style={{ padding: "140px 24px 40px", scrollMarginTop: 72 }}>
+            <div style={{ maxWidth: 1000, margin: "0 auto" }}>
+              <div className="lp-rv" style={{ textAlign: "center", maxWidth: 680, margin: "0 auto" }}>
+                <div className="lp-mono" style={eyebrow}>{t("PRICING", "PRECIOS")}</div>
+                <h2 className="lp-h" style={h2}>{t("Start free. Go Pro when you need more", "Empieza gratis. Pasa a Pro cuando necesites más")}</h2>
+                <p style={lead}>{t("Pro comes with a 7-day free trial. Cancel anytime before it ends and you won't be charged.", "Pro incluye 7 días de prueba gratis. Cancela cuando quieras antes de que acabe y no se te cobra nada.")}</p>
+                <div role="group" aria-label={t("Billing period", "Periodo de facturación")} style={{ display: "inline-flex", gap: 4, padding: 4, marginTop: 26, borderRadius: 14, border: "1px solid var(--line)", background: "var(--card)", fontSize: 14, fontWeight: 600 }}>
+                  {(["annual", "monthly"] as const).map((k) => (
+                    <button key={k} type="button" className="lp-btn" aria-pressed={period === k} onClick={() => setPeriod(k)} style={{ padding: "9px 16px", borderRadius: 10, background: period === k ? "var(--selected)" : "transparent", color: period === k ? "var(--text)" : "var(--muted)" }}>
+                      {k === "annual" ? t("Annual", "Anual") : t("Monthly", "Mensual")}
+                      {k === "annual" && <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, padding: "2px 7px", borderRadius: 999, background: "var(--accent-soft)", color: "var(--accent-text)" }}>-23%</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))", gap: 20, marginTop: 40, alignItems: "stretch" }}>
+                {[
+                  {
+                    pro: false,
+                    name: t("Free", "Gratis"),
+                    price: "$0",
+                    per: t("forever", "para siempre"),
+                    note: t("No card needed", "Sin tarjeta"),
+                    cta: t("Create free account", "Crear cuenta gratis"),
+                    items: [
+                      t("Market: heatmap, indices, commodities and crypto", "Mercado: mapa de calor, índices, materias primas y cripto"),
+                      t("Stock Explorer: fundamentals and SEC financial statements", "Stock Explorer: fundamentales y estados financieros de la SEC"),
+                      t("1 portfolio with summary and holdings", "1 cartera con resumen y posiciones"),
+                      t("Watchlist, earnings calendar and superinvestors", "Watchlist, calendario de resultados y superinversores"),
+                    ],
+                  },
+                  {
+                    pro: true,
+                    name: "Pro",
+                    price: period === "annual" ? "$60" : "$6.50",
+                    per: period === "annual" ? t("per year", "al año") : t("per month", "al mes"),
+                    note: period === "annual" ? t("$5/month, billed yearly · 7 days free", "$5/mes, facturado al año · 7 días gratis") : t("Billed monthly · 7 days free", "Facturado cada mes · 7 días gratis"),
+                    cta: t("Start 7-day free trial", "Empezar 7 días gratis"),
+                    items: [
+                      t("Everything in Free", "Todo lo de Gratis"),
+                      t("Company KPIs and segments", "KPIs y segmentos de cada empresa"),
+                      t("Valuation: multiples, fair value, DCF and Bogle engines", "Valoración: múltiplos, valor razonable, DCF y motores de Bogle"),
+                      t("Portfolio simulation and analysis", "Simulación y análisis de tu cartera"),
+                      t("AI analyst and AI-built portfolios", "Analista IA y carteras creadas con IA"),
+                      t("Up to 2 portfolios", "Hasta 2 carteras"),
+                    ],
+                  },
+                ].map((plan) => (
+                  <article
+                    key={plan.name}
+                    className="lp-rv"
+                    style={{
+                      position: "relative",
+                      padding: 30,
+                      borderRadius: 24,
+                      display: "flex",
+                      flexDirection: "column",
+                      background: plan.pro ? "var(--card)" : "var(--band)",
+                      border: plan.pro ? "2px solid var(--accent-line)" : "1px solid var(--line)",
+                      boxShadow: plan.pro ? "var(--shadow)" : "none",
+                    }}
+                  >
+                    {plan.pro && (
+                      <span style={{ position: "absolute", top: -13, left: 26, fontSize: 12, fontWeight: 700, padding: "4px 12px", borderRadius: 999, background: "var(--accent-bg)", color: "var(--on-accent)" }}>{t("Most complete", "El más completo")}</span>
+                    )}
+                    <h3 className="lp-h" style={{ fontSize: 22, margin: 0 }}>{plan.name}</h3>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 14 }}>
+                      <span className="lp-h" style={{ fontSize: 46, lineHeight: 1 }}>{plan.price}</span>
+                      <span style={{ fontSize: 15, color: "var(--muted)" }}>{plan.per}</span>
+                    </div>
+                    <p style={{ fontSize: 13, color: plan.pro ? "var(--accent-text)" : "var(--muted)", margin: "8px 0 0", fontWeight: 600 }}>{plan.note}</p>
+                    <ul style={{ listStyle: "none", padding: 0, margin: "24px 0 28px", display: "flex", flexDirection: "column", gap: 11, flex: 1 }}>
+                      {plan.items.map((it) => (
+                        <li key={it} style={{ display: "flex", gap: 10, fontSize: 15, lineHeight: 1.45 }}>
+                          <span style={{ marginTop: 2 }}><Check /></span>
+                          {it}
+                        </li>
+                      ))}
+                    </ul>
+                    <button type="button" className={`lp-btn ${plan.pro ? "lp-primary" : "lp-ghost"}`} onClick={onSignUp} style={plan.pro ? { ...primaryBtn, justifyContent: "center" } : { ...ghostBtn, justifyContent: "center" }}>
+                      {plan.cta}
+                      {plan.pro && <Arrow />}
+                    </button>
+                  </article>
+                ))}
+              </div>
+              <p style={{ textAlign: "center", fontSize: 13, color: "var(--muted)", margin: "22px 0 0" }}>
+                {t("Prices in USD. Payments are processed by Paddle.com, our merchant of record, which handles invoices and taxes.", "Precios en USD. Los pagos los procesa Paddle.com, nuestro revendedor autorizado, que emite las facturas y gestiona los impuestos.")}
+              </p>
+            </div>
+          </section>
+
           {/* CÓMO EMPEZAR (sin animación: al final de la página no queda recorrido para completarla) */}
           <section style={{ padding: "140px 24px 40px" }}>
             <div style={{ maxWidth: 1200, margin: "0 auto" }}>
@@ -854,6 +949,11 @@ export default function LandingShowcase({ language, theme, onThemeChange, onLang
           <footer style={{ borderTop: "1px solid var(--line)", background: "var(--band)" }}>
             <div style={{ maxWidth: 1200, margin: "0 auto", padding: "32px 24px", display: "flex", flexWrap: "wrap", gap: 20, justifyContent: "space-between", alignItems: "center", fontSize: 13, color: "var(--muted)" }}>
               <span className="lp-mono" style={{ fontWeight: 600, color: "var(--text)" }}>investiando<span style={{ color: "var(--accent-text)" }}>.app</span></span>
+              <nav aria-label={t("Legal", "Legal")} style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
+                <a className="lp-nav-link" href="/terms">{t("Terms", "Términos")}</a>
+                <a className="lp-nav-link" href="/privacy">{t("Privacy", "Privacidad")}</a>
+                <a className="lp-nav-link" href="/refunds">{t("Refunds", "Reembolsos")}</a>
+              </nav>
               <span style={{ maxWidth: 560, lineHeight: 1.6 }}>
                 {t(
                   "investiando provides educational information, not financial advice. Market data may be delayed. Financial statements come from company filings with the SEC.",

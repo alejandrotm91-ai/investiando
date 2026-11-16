@@ -18,6 +18,14 @@ export interface Env {
   RESEND_API_KEY?: string;
   EMAIL_FROM?: string;
   SEC_USER_AGENT?: string; // identificación ante la SEC, p. ej. "investiando.app contacto@dominio.com"
+  // Cobros con Paddle (billing.ts). Públicas: entorno, client token y los dos precios; secretas: API key y
+  // secreto del webhook
+  PADDLE_ENV?: string; // "sandbox" | "production"
+  PADDLE_CLIENT_TOKEN?: string;
+  PADDLE_PRICE_MONTHLY?: string;
+  PADDLE_PRICE_ANNUAL?: string;
+  PADDLE_API_KEY?: string;
+  PADDLE_WEBHOOK_SECRET?: string;
   // Variables opcionales
   APP_URL?: string;
 }
