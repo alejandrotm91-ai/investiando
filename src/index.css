@@ -1568,3 +1568,41 @@ html.light [data-toggle]:not(#_t):not(#_t):not(#_t):not(#_t) button[aria-pressed
   box-shadow: none !important;
   border-color: transparent !important;
 }
+
+/* Selector de planes (ProUpgrade.tsx): entrada con @starting-style, salida con data-closing (el
+   componente sigue montado 150 ms). Solo transform/opacity; con movimiento reducido, solo fundido. */
+.pm-overlay {
+  opacity: 1;
+  transition: opacity 200ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.pm-panel {
+  opacity: 1;
+  transform: scale(1);
+  transition: opacity 240ms cubic-bezier(0.23, 1, 0.32, 1), transform 240ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+@starting-style {
+  .pm-overlay { opacity: 0; }
+  .pm-panel { opacity: 0; transform: scale(0.96); }
+}
+.pm-root[data-closing] { pointer-events: none; }
+.pm-root[data-closing] .pm-overlay { opacity: 0; transition-duration: 150ms; }
+.pm-root[data-closing] .pm-panel { opacity: 0; transform: scale(0.98); transition-duration: 150ms; }
+.pm-plan {
+  transition: background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease, transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.pm-radio { transition: background-color 150ms ease, border-color 150ms ease; }
+.pm-check {
+  opacity: 0;
+  transform: scale(0.9);
+  transition: opacity 150ms cubic-bezier(0.23, 1, 0.32, 1), transform 150ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.pm-check[data-on] { opacity: 1; transform: scale(1); }
+.pm-press { transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1); }
+.pm-plan:active { transform: scale(0.98); }
+.pm-press:active:not(:disabled) { transform: scale(0.97); }
+@media (prefers-reduced-motion: reduce) {
+  .pm-panel, .pm-root[data-closing] .pm-panel, .pm-check, .pm-plan:active, .pm-press:active:not(:disabled) { transform: none; }
+  @starting-style {
+    .pm-panel { transform: none; }
+  }
+}

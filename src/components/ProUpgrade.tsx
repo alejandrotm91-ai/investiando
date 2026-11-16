@@ -36,6 +36,19 @@ export function PricingModal({ language, theme, user }: { language: Lang; theme:
   const [cfg, setCfg] = useState<BillingConfig | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Sigue montado 170 ms tras cerrar (salida de 150 ms + margen) para la animación de salida (.pm-root[data-closing] en index.css);
+  // el motivo se recuerda para que el subtítulo no cambie mientras sale.
+  const [shown, setShown] = useState(upgradeOpen);
+  const [reason, setReason] = useState<string | null>(upgradeReason);
+  useEffect(() => {
+    if (upgradeOpen) {
+      setShown(true);
+      setReason(upgradeReason);
+      return;
+    }
+    const t = setTimeout(() => setShown(false), 170);
+    return () => clearTimeout(t);
+  }, [upgradeOpen, upgradeReason]);
 
   useEffect(() => {
     if (upgradeOpen) getBillingConfig().then(setCfg);
@@ -47,7 +60,8 @@ export function PricingModal({ language, theme, user }: { language: Lang; theme:
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [upgradeOpen]);
-  if (!upgradeOpen) return null;
+  if (!upgradeOpen && !shown) return null;
+  const closing = !upgradeOpen;
 
   const trial = cfg?.trialDays ?? 7;
   const price = period === "annual" ? `${fmtUsd(PRICES.annual)}${es ? "/año" : "/yr"}` : `${fmtUsd(PRICES.monthly)}${es ? "/mes" : "/mo"}`;
@@ -58,7 +72,7 @@ export function PricingModal({ language, theme, user }: { language: Lang; theme:
     ai: ["Las funciones con IA son parte de Pro", "AI features are part of Pro"],
     portfolios: ["Con Pro puedes tener 2 carteras", "Pro lets you keep 2 portfolios"],
   };
-  const sub = upgradeReason && reasonLine[upgradeReason] ? reasonLine[upgradeReason][es ? 0 : 1] : es ? "Acceso completo a Investiando" : "Full access to Investiando";
+  const sub = reason && reasonLine[reason] ? reasonLine[reason][es ? 0 : 1] : es ? "Acceso completo a Investiando" : "Full access to Investiando";
 
   const go = async () => {
     setBusy(true);
@@ -83,8 +97,8 @@ export function PricingModal({ language, theme, user }: { language: Lang; theme:
         type="button"
         onClick={() => setPeriod(id)}
         aria-pressed={active}
-        className="relative text-left rounded-2xl p-4 pt-5 transition-all cursor-pointer"
-        style={{ background: active ? p.soft : p.card, border: `${active ? 2 : 1}px solid ${active ? p.lineStrong : p.line}` }}
+        className="pm-plan relative text-left rounded-2xl p-4 pt-5 cursor-pointer"
+        style={{ background: active ? p.soft : p.card, border: `1px solid ${active ? p.lineStrong : p.line}`, boxShadow: active ? `inset 0 0 0 1px ${p.lineStrong}` : "inset 0 0 0 1px transparent" }}
       >
         {badge && (
           <span className="absolute -top-2.5 left-3 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: p.lineStrong, color: p.card }}>
@@ -93,10 +107,10 @@ export function PricingModal({ language, theme, user }: { language: Lang; theme:
           </span>
         )}
         <span
-          className="absolute top-3 right-3 w-5 h-5 rounded-full flex items-center justify-center"
-          style={{ background: active ? p.lineStrong : "transparent", border: active ? "none" : `1.5px solid ${p.line}` }}
+          className="pm-radio absolute top-3 right-3 w-5 h-5 rounded-full flex items-center justify-center"
+          style={{ background: active ? p.lineStrong : "transparent", border: `1.5px solid ${active ? p.lineStrong : p.line}` }}
         >
-          {active && <Check size={12} color={p.card} strokeWidth={3} />}
+          <Check size={12} color={p.card} strokeWidth={3} className="pm-check" data-on={active || undefined} />
         </span>
         <span className="block text-sm font-semibold" style={{ color: p.muted }}>
           {title}
@@ -117,9 +131,9 @@ export function PricingModal({ language, theme, user }: { language: Lang; theme:
   };
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeUpgrade} />
-      <div className="relative w-full max-w-[440px] rounded-3xl shadow-2xl overflow-hidden" style={{ background: p.panel, border: `1px solid ${p.line}` }}>
+    <div className="pm-root fixed inset-0 z-[80] flex items-center justify-center p-4" data-closing={closing || undefined}>
+      <div className="pm-overlay absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeUpgrade} />
+      <div className="pm-panel relative w-full max-w-[440px] rounded-3xl shadow-2xl overflow-hidden" role="dialog" aria-modal="true" style={{ background: p.panel, border: `1px solid ${p.line}` }}>
         <button type="button" onClick={closeUpgrade} className="absolute top-4 right-4 p-1 rounded-lg cursor-pointer" style={{ color: p.muted }} aria-label={es ? "Cerrar" : "Close"}>
           <X size={18} />
         </button>
@@ -157,7 +171,7 @@ export function PricingModal({ language, theme, user }: { language: Lang; theme:
               type="button"
               onClick={go}
               disabled={busy}
-              className="w-full flex items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold cursor-pointer transition-transform hover:-translate-y-px disabled:opacity-70"
+              className="pm-press w-full flex items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold cursor-pointer disabled:opacity-70"
               style={{ background: p.cta, color: p.ctaText }}
             >
               {busy ? <Loader2 size={16} className="animate-spin" /> : <CreditCard size={16} />}
@@ -214,7 +228,7 @@ export function ProGate({ language, theme, feature, title, children }: { languag
           </li>
         ))}
       </ul>
-      <button type="button" onClick={() => openUpgrade(feature)} className="rounded-2xl px-6 py-3 text-sm font-bold cursor-pointer transition-transform hover:-translate-y-px" style={{ background: p.cta, color: p.ctaText }}>
+      <button type="button" onClick={() => openUpgrade(feature)} className="pm-press rounded-2xl px-6 py-3 text-sm font-bold cursor-pointer" style={{ background: p.cta, color: p.ctaText }}>
         {es ? `Probar Pro gratis · desde ${fmtUsd(PRICES.annual / 12)}/mes` : `Try Pro free · from ${fmtUsd(PRICES.annual / 12)}/mo`}
       </button>
     </div>
