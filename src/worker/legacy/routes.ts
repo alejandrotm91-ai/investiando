@@ -3594,11 +3594,18 @@ Respond strictly with valid JSON conforming to this schema:
       // Sin respuesta de Yahoo: último precio real guardado (no la tabla fija, que está desfasada)
       const cachedEntry = !q && !summary ? (await recallQuotes([rawSymbol]))[rawSymbol] : undefined;
       const cached = cachedEntry?.data ?? null;
-      const livePrice = priceData.price || getVal(sp.regularMarketPrice) || getVal(sd.regularMarketPrice) || null;
+      // Precio principal = el de la sesión regular (como Yahoo): fuera de hora es el cierre oficial y su
+      // cambio frente al cierre anterior. El de pre/post-mercado va aparte (extendedPrice), con su cambio
+      // frente a ese cierre; antes se mostraba como precio principal comparado con el cierre de dos días atrás.
+      const regularLive = getVal(q?.regularMarketPrice) || getVal(sp.regularMarketPrice) || getVal(sd.regularMarketPrice) || null;
+      const livePrice = regularLive || priceData.price || null;
       const price = livePrice || cached?.regularMarketPrice || 100;
-      const prevClose = priceData.regularMarketPreviousClose || getVal(sp.regularMarketPreviousClose) || getVal(sd.regularMarketPreviousClose) || cached?.regularMarketPreviousClose || price;
+      const prevClose = getVal(q?.regularMarketPreviousClose) || getVal(sp.regularMarketPreviousClose) || getVal(sd.regularMarketPreviousClose) || cached?.regularMarketPreviousClose || priceData.regularMarketPreviousClose || price;
       const change = Number((price - prevClose).toFixed(2));
       const changePct = prevClose > 0 ? Number((((price - prevClose) / prevClose) * 100).toFixed(2)) : 0;
+      const extendedPrice = regularLive && priceData.isAfterHoursPrice && priceData.price > 0 && priceData.price !== regularLive ? priceData.price : null;
+      const extendedSession = extendedPrice ? (priceData.marketState === "PRE" || priceData.marketState === "PREPRE" ? "pre" : "post") : null;
+      const extendedChangePct = extendedPrice ? Number((((extendedPrice - price) / price) * 100).toFixed(2)) : null;
 
       // Extract company profile
       const companyName = q?.longName || q?.shortName || getVal(sp.longName) || getVal(sp.shortName) || cached?.longName || FALLBACK_QUOTES[rawSymbol]?.longName || rawSymbol;
@@ -3783,7 +3790,10 @@ Respond strictly with valid JSON conforming to this schema:
         sharesOutstanding,
         floatShares,
         shortPercentOfFloat,
-        isAfterHoursPrice: priceData.isAfterHoursPrice,
+        isAfterHoursPrice: !!extendedPrice,
+        extendedPrice,
+        extendedSession,
+        extendedChangePct,
         postMarketPrice: priceData.postMarketPrice,
         preMarketPrice: priceData.preMarketPrice,
         marketState: priceData.marketState,

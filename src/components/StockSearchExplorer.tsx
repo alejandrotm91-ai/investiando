@@ -127,6 +127,12 @@ interface StockDetails {
   postMarketPrice?: number | null;
   preMarketPrice?: number | null;
   marketState?: string | null;
+  // Pre/post-mercado aparte del precio principal (que es siempre el de la sesión regular)
+  extendedPrice?: number | null;
+  extendedSession?: "pre" | "post" | null;
+  extendedChangePct?: number | null;
+  stale?: boolean;
+  quoteAsOf?: string | null;
   profile: {
     sector: string;
     industry: string;
@@ -556,6 +562,44 @@ export default function StockSearchExplorer({
 
     fetchBenchmarkCharts();
   }, [compareSP500, compareNasdaq, chartRange]);
+
+  // Precio en vivo: cada 60 s con la pestaña visible se vuelve a pedir la cotización y se actualizan solo
+  // los campos de precio (antes el precio quedaba fijo desde que se abría la acción).
+  useEffect(() => {
+    if (!selectedTicker) return;
+    const symbol = selectedTicker.trim().toUpperCase();
+    const refresh = async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const res = await fetch(`/api/stock/${encodeURIComponent(symbol)}`);
+        if (!res.ok) return;
+        const d: StockDetails = await res.json();
+        if (!d || !(d.price > 0) || (d as any).isFallback) return;
+        setStockData((prev) =>
+          prev && prev.symbol?.toUpperCase() === symbol
+            ? {
+                ...prev,
+                price: d.price, previousClose: d.previousClose, change: d.change, changePct: d.changePct,
+                open: d.open, dayHigh: d.dayHigh, dayLow: d.dayLow, volume: d.volume, marketCap: d.marketCap,
+                fiftyTwoWeekHigh: d.fiftyTwoWeekHigh, fiftyTwoWeekLow: d.fiftyTwoWeekLow,
+                marketState: d.marketState, isAfterHoursPrice: d.isAfterHoursPrice, postMarketPrice: d.postMarketPrice, preMarketPrice: d.preMarketPrice,
+                extendedPrice: d.extendedPrice, extendedSession: d.extendedSession, extendedChangePct: d.extendedChangePct,
+                stale: d.stale, quoteAsOf: d.quoteAsOf,
+              }
+            : prev
+        );
+      } catch {
+        // sin red: se queda el último precio
+      }
+    };
+    const id = window.setInterval(refresh, 60_000);
+    const onVis = () => document.visibilityState === "visible" && refresh();
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [selectedTicker]);
 
   // Trigger data loads whenever selectedTicker changes
   useEffect(() => {
@@ -1256,17 +1300,24 @@ export default function StockSearchExplorer({
                       <span>({formatPercent(stockData.changePct)})</span>
                     </div>
                     <span className="text-[10px] uppercase font-bold text-theme-text-muted">
-                      {language === "EN" ? "TODAY" : "HOY"}
+                      {!stockData.marketState || stockData.marketState === "REGULAR" ? (language === "EN" ? "TODAY" : "HOY") : language === "EN" ? "AT CLOSE" : "AL CIERRE"}
                     </span>
                   </div>
 
-                  {/* After-hours / Extended price note */}
-                  {stockData.isAfterHoursPrice && stockData.postMarketPrice && (
+                  {/* Pre/post-mercado: aparte del precio oficial, con su cambio frente a él (como Yahoo) */}
+                  {typeof stockData.extendedPrice === "number" && stockData.extendedPrice > 0 && (
                     <div className="mt-1 text-[11px] font-mono text-amber-400 flex items-center lg:justify-end gap-1">
                       <Clock size={11} />
                       <span>
-                        {language === "EN" ? "After-Hours:" : "Post-Mercado:"} {formatCurrency(stockData.postMarketPrice)}
+                        {stockData.extendedSession === "pre" ? (language === "EN" ? "Pre-Market:" : "Pre-Mercado:") : language === "EN" ? "After-Hours:" : "Post-Mercado:"} {formatCurrency(stockData.extendedPrice)}
+                        {typeof stockData.extendedChangePct === "number" && ` (${stockData.extendedChangePct >= 0 ? "+" : ""}${stockData.extendedChangePct.toFixed(2)}%)`}
                       </span>
+                    </div>
+                  )}
+                  {stockData.stale && stockData.quoteAsOf && (
+                    <div className="mt-1 text-[11px] font-mono text-theme-text-muted lg:text-right" title={language === "EN" ? "Yahoo did not respond; showing the last saved price" : "Yahoo no respondió; se muestra el último precio guardado"}>
+                      {language === "EN" ? "Saved price · " : "Precio guardado · "}
+                      {new Date(stockData.quoteAsOf).toLocaleTimeString(language === "EN" ? "en-US" : "es-ES", { hour: "2-digit", minute: "2-digit" })}
                     </div>
                   )}
                 </div>
