@@ -844,7 +844,7 @@ export async function processKpiRelease(db: D1Database, env: ClaudeEnv & { SEC_U
       system: SYSTEM,
       user: `Empresa: ${row.ticker}\n${def.revenueHint ? `Ingresos: ${def.revenueHint}\n` : ""}KPIs a extraer: ${def.kpis.map((d) => `${d.key} = ${d.hint}`).join("; ")}\n\nComunicado (8-K del ${row.filed}):\n${pr.text.slice(0, MAX_TEXT)}`,
       schema: schemaFor(def.kpis),
-      maxTokens: 6000,
+      maxTokens: 9000,
       effort: "low",
       model: KPI_MODEL,
     });

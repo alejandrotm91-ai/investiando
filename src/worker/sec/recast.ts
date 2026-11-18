@@ -442,7 +442,7 @@ export async function processRecast(db: D1Database, env: ClaudeEnv & { SEC_USER_
         system: systemFor(info, names),
         user: `Empresa: ${row.ticker}\n\nAnexo del 8-K del ${row.filed}:\n${text}`,
         schema: schemaFor(names),
-        maxTokens: 12000,
+        maxTokens: 16000,
         effort: "medium",
       });
       extract = { ...r.data, source: "claude" };

@@ -118,7 +118,7 @@ const FIGURES = {
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["is_earnings_release", "period_end", "fiscal_year", "fiscal_quarter", "currency", "quarter", "prior_year_quarter", "non_gaap_diluted_eps", "guidance", "notes"],
+  required: ["is_earnings_release", "period_end", "fiscal_year", "fiscal_quarter", "currency", "quarter", "prior_year_quarter", "cash_flow_months", "non_gaap_diluted_eps", "guidance", "notes"],
   properties: {
     is_earnings_release: { type: "boolean" },
     period_end: { type: ["string", "null"] },
@@ -127,6 +127,7 @@ const SCHEMA = {
     currency: { type: ["string", "null"] },
     quarter: FIGURES,
     prior_year_quarter: FIGURES,
+    cash_flow_months: { type: ["integer", "null"] },
     non_gaap_diluted_eps: { type: ["number", "null"] },
     guidance: { type: ["string", "null"] },
     notes: { type: ["string", "null"] },
@@ -139,7 +140,8 @@ Reglas:
 - Solo cifras GAAP (las de la cuenta de resultados y el flujo de caja oficiales). Nunca cifras "adjusted", "non-GAAP", "core" u "operating" ajustadas; el BPA ajustado va solo en non_gaap_diluted_eps.
 - Convierte todo a unidades: si la tabla dice "in millions", 1.234 = 1234000000. El BPA y las acciones por acción quedan como están (BPA en dólares por acción; acciones en número de acciones, aplicando "in millions" si corresponde).
 - net_income: beneficio neto atribuible a los accionistas de la empresa (sin minoritarios). capital_expenditures en positivo.
-- Si una cifra de "quarter" o "prior_year_quarter" no aparece para ese periodo, omite ese campo. No calcules cifras que no estén en el texto.
+- Si una cifra de "quarter" o "prior_year_quarter" no aparece para ese periodo, omite ese campo. No calcules cifras que no estén en el texto: gross_profit y operating_income solo si son una línea de la cuenta de resultados (no restes partidas para obtenerlos).
+- cash_flow_months: meses que abarca la columna del estado de flujos de caja de la que sacas operating_cash_flow y capital_expenditures (3, 6, 9 o 12); null si no hay estado de flujos. Muchos comunicados solo traen el acumulado del año (seis o nueve meses): en ese caso omite operating_cash_flow y capital_expenditures, no los pongas como cifras del trimestre.
 - period_end: fecha de cierre del trimestre anunciado (YYYY-MM-DD). fiscal_year y fiscal_quarter según el ejercicio fiscal de la empresa.
 - guidance: una frase en español con la previsión para el siguiente periodo si la hay; si no, null.
 - is_earnings_release = false si el documento no es un comunicado de resultados trimestrales.`;
@@ -150,6 +152,7 @@ interface Figures {
 }
 export interface Extracted {
   is_earnings_release: boolean;
+  cash_flow_months?: number | null;
   period_end: string | null;
   fiscal_year: number | null;
   fiscal_quarter: number | null;
@@ -167,11 +170,68 @@ function withNulls(x: any): Extracted {
   return { ...x, quarter: fill(x?.quarter), prior_year_quarter: fill(x?.prior_year_quarter) };
 }
 
+// Comprobaciones que no dependen del modelo (Haiku a veces calcula partidas o toma el acumulado del año):
+// - flujo de caja y capex solo si la columna es de 3 meses;
+// - beneficio bruto, operativo, flujo de caja y capex solo si la cifra aparece tal cual en el comunicado.
+const LITERAL_KEYS = ["gross_profit", "operating_income", "operating_cash_flow", "capital_expenditures"] as const;
+
+/** ¿Aparece el valor (en unidades) escrito en el texto en millones, miles, miles de millones o unidades? */
+export function appearsInText(value: number, text: string): boolean {
+  const abs = Math.abs(value);
+  for (const scale of [1e6, 1e3, 1e9, 1]) {
+    const x = abs / scale;
+    if (x < 1) continue;
+    for (const d of [0, 1, 2]) {
+      const r = Number(x.toFixed(d));
+      if (Math.abs(x - r) > 1e-6 * Math.max(1, x)) continue;
+      const withSep = r.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+      for (const str of new Set([withSep, withSep.replace(/,/g, "")])) {
+        const esc = str.replace(/[.,]/g, (m) => "\\" + m);
+        if (new RegExp(`(^|[^\\d.,])${esc}(?![\\d]|[.,]\\d)`).test(text)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+export function sanitizeExtraction(x: Extracted, text: string): { data: Extracted; dropped: string[] } {
+  const dropped: string[] = [];
+  const fix = (f: Figures, label: string): Figures => {
+    const out: any = { ...f };
+    if (x.cash_flow_months !== 3) {
+      for (const k of ["operating_cash_flow", "capital_expenditures"] as const)
+        if (out[k] !== null) { dropped.push(`${label}.${k} (flujo de ${x.cash_flow_months ?? "?"} meses)`); out[k] = null; }
+    }
+    for (const k of LITERAL_KEYS)
+      if (typeof out[k] === "number" && !appearsInText(out[k], text)) { dropped.push(`${label}.${k} (no aparece en el comunicado)`); out[k] = null; }
+    return out;
+  };
+  const quarter: any = fix(x.quarter, "quarter");
+  const prior: any = fix(x.prior_year_quarter, "prior_year_quarter");
+  // Coherencia: beneficio bruto ≤ ingresos y operativo ≤ bruto
+  for (const [f, label] of [[quarter, "quarter"], [prior, "prior_year_quarter"]] as const) {
+    if (f.gross_profit !== null && f.revenue !== null && f.gross_profit > f.revenue) { dropped.push(`${label}.gross_profit (mayor que los ingresos)`); f.gross_profit = null; }
+    if (f.operating_income !== null && f.gross_profit !== null && f.operating_income > f.gross_profit) { dropped.push(`${label}.operating_income (mayor que el beneficio bruto)`); f.operating_income = null; }
+  }
+  // Cada partida en los dos trimestres o en ninguno: si falta en uno, la del otro suele ser otra línea
+  // (TJX: el beneficio antes de impuestos tomado como operativo del año anterior)
+  for (const k of LITERAL_KEYS) {
+    if ((quarter[k] === null) !== (prior[k] === null)) {
+      const side = quarter[k] === null ? prior : quarter;
+      dropped.push(`${side === quarter ? "quarter" : "prior_year_quarter"}.${k} (sin pareja en el otro trimestre)`);
+      side[k] = null;
+    }
+  }
+  return { data: { ...x, quarter, prior_year_quarter: prior }, dropped };
+}
+
 async function extractWithClaude(env: ClaudeEnv, ticker: string, text: string): Promise<{ data: Extracted; usage: { input: number; output: number } }> {
   const body = text.length > MAX_TEXT ? text.slice(0, MAX_TEXT) : text;
   // Tarea de extracción: esfuerzo bajo basta y abarata.
-  const r = await askClaudeJson<any>(env, { system: SYSTEM, user: `Empresa: ${ticker}\n\nComunicado:\n${body}`, schema: SCHEMA, maxTokens: 4000, effort: "low" });
-  return { data: withNulls(r.data), usage: r.usage };
+  const r = await askClaudeJson<any>(env, { system: SYSTEM, user: `Empresa: ${ticker}\n\nComunicado:\n${body}`, schema: SCHEMA, maxTokens: 6000, effort: "low" });
+  const { data, dropped } = sanitizeExtraction(withNulls(r.data), body);
+  if (dropped.length) data.notes = [data.notes, `Descartadas: ${dropped.join("; ")}`].filter(Boolean).join(" · ");
+  return { data, usage: r.usage };
 }
 
 // ---------------------------------------------------------------- validación

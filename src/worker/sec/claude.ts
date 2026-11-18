@@ -3,10 +3,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { fetchBudgetLeft, useFetchBudget } from "./client";
 
-export const SEC_MODEL = "claude-opus-5-5";
-// KPIs de los comunicados (capa 5): leer cifras de tablas es sencillo y la validación con los ingresos
-// de la SEC descarta errores; Sonnet cuesta varias veces menos
-export const KPI_MODEL = "claude-sonnet-5-5";
+// Extracción de cifras de los comunicados (capas 3, 4 y 5): Haiku, el modelo más barato. Leer tablas es
+// sencillo y cada resultado se valida con las cifras de la SEC (lo que no cuadra se rechaza). Antes:
+// Opus para avances y reorganizaciones, Sonnet para KPIs.
+export const SEC_MODEL = "claude-haiku-5-5";
+export const KPI_MODEL = "claude-haiku-5-5";
 
 export interface ClaudeEnv { ANTHROPIC_API_KEY?: string; ANTHROPIC_WORKSPACE_ID?: string; CLAUDE_PROXY?: Fetcher }
 
@@ -40,9 +41,9 @@ export async function askClaudeJson<T>(
     max_tokens: opts.maxTokens,
     system: opts.system,
     output_config: { effort: opts.effort, format: { type: "json_schema", schema: opts.schema } },
-    // Si los filtros de seguridad rechazan la solicitud, Anthropic la reintenta con otro modelo.
-    betas: ["server-side-fallback-2026-07-01"],
-    fallbacks: "default",
+    // Si los filtros de seguridad rechazan la solicitud, Anthropic la reintenta con otro modelo. Haiku no
+    // tiene esa opción (con una lista de modelos responde 400): no se envía.
+    ...(String(opts.model ?? SEC_MODEL).includes("haiku") ? {} : { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" }),
     messages: [{ role: "user", content: opts.user }],
   } as any);
   if (msg.stop_reason === "refusal") throw new Error("El modelo rechazó la solicitud");
