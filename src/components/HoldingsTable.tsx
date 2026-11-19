@@ -763,7 +763,7 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
                 const dateObj = new Date(pt.date);
                 if (!isNaN(dateObj.getTime())) {
                   const year = dateObj.getFullYear();
-                  if (year === 2026) {
+                  if (year === new Date().getFullYear()) {
                     const monthKey = dateObj.getMonth(); // 0-11
                     monthlyCloses[monthKey] = pt.close; // Overwrite so last day of month wins
                   }

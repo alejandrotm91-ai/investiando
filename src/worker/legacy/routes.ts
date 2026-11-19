@@ -293,75 +293,13 @@ async function getHistoricalData(
         }));
       }
     } catch (apiError) {
-      console.log(`[Historical Info] Activated simulated historical model for ${ticker}`);
+      console.log(`[historical] ${ticker}: Yahoo falló (${(apiError as any)?.message || apiError})`);
     }
   }
 
-  // Fallback simulation (Backward Random Walk from currentPrice or fallback price)
-  const data: { date: string; close: number }[] = [];
-  const points =
-    timeframe === "1W" ? 7 :
-    timeframe === "1M" ? 30 :
-    timeframe === "3M" ? 90 :
-    timeframe === "1Y" ? 250 :
-    timeframe === "5Y" ? 60 :
-    timeframe === "10Y" ? 120 :
-    timeframe === "ALL" ? 60 : 30;
-
-  let basePrice = currentPrice || FALLBACK_QUOTES[ticker]?.regularMarketPrice || 150;
-  if (ticker === "VOO") basePrice = 710.79;
-  if (ticker === "QQQ") basePrice = 744.50;
-  if (ticker === "SPY") basePrice = 771.35;
-  if (ticker === "^GSPC") basePrice = 7743.41;
-  if (ticker === "^IXIC") basePrice = 27068.72;
-  if (ticker === "^DJI") basePrice = 51828.62;
-  if (ticker === "CASH") basePrice = 1.0;
-
-  let currentVal = basePrice;
-  const isMonthly = timeframe === "5Y" || timeframe === "10Y" || timeframe === "ALL";
-  
-  let drift = 0.0004; // standard daily stock drift
-  let volatility = 0.015; // standard daily volatility
-
-  if (ticker === "VOO" || ticker === "SPY" || ticker === "^GSPC") {
-    drift = isMonthly ? 0.007 : 0.0003;
-    volatility = isMonthly ? 0.035 : 0.01;
-  } else if (ticker === "QQQ" || ticker === "^IXIC") {
-    drift = isMonthly ? 0.01 : 0.0004;
-    volatility = isMonthly ? 0.045 : 0.012;
-  } else if (ticker === "CASH") {
-    drift = 0;
-    volatility = 0;
-  } else {
-    drift = isMonthly ? 0.012 : 0.0005;
-    volatility = isMonthly ? 0.06 : 0.02;
-    if (ticker === "NVDA") volatility *= 1.5;
-  }
-
-  for (let i = 0; i <= points; i++) {
-    const date = new Date(now);
-    if (isMonthly) {
-      date.setMonth(now.getMonth() - i);
-    } else {
-      date.setDate(now.getDate() - i);
-    }
-
-    const dateStr = date.toISOString().split("T")[0];
-
-    if (i === 0) {
-      data.unshift({ date: dateStr, close: Number(basePrice.toFixed(2)) });
-    } else {
-      const rand = Math.random() - 0.49;
-      const noise = rand * volatility;
-      currentVal = currentVal / (1 + drift + noise);
-      if (ticker === "CASH") {
-        currentVal = 1.0;
-      }
-      data.unshift({ date: dateStr, close: Number(currentVal.toFixed(2)) });
-    }
-  }
-
-  return data;
+  // Sin datos de Yahoo: serie vacía (antes, un paseo aleatorio inventado). El gráfico de cartera deja
+  // fuera las posiciones sin datos.
+  return [];
 }
 
 export function registerLegacyRoutes(app: LegacyApp) {
@@ -3938,49 +3876,12 @@ Respond strictly with valid JSON conforming to this schema:
             }));
           }
         } catch (apiError) {
-          console.log(`[Chart Info] Loaded synthetic model for ${symbol}`);
+          console.log(`[chart] ${symbol}: Yahoo falló (${(apiError as any)?.message || apiError})`);
         }
       }
 
-      // Generate mock chart data if Yahoo Finance failed or if requested portfolio/cash
-      if (data.length === 0) {
-        const points =
-          timeframe === "1W" ? 7 :
-          timeframe === "1M" ? 30 :
-          timeframe === "3M" ? 90 :
-          timeframe === "6M" ? 180 :
-          timeframe === "YTD" ? Math.max(30, Math.floor((now.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))) :
-          timeframe === "1Y" ? 250 :
-          timeframe === "5Y" ? 60 :
-          timeframe === "10Y" ? 120 :
-          timeframe === "ALL" ? 60 : 30;
-        let baseValue = symbol === "CASH" ? 14000 : (FALLBACK_QUOTES[symbol]?.regularMarketPrice || 150);
-        let currentVal = baseValue;
-        
-        for (let i = points; i >= 0; i--) {
-          const date = new Date();
-          if (timeframe === "5Y" || timeframe === "10Y" || timeframe === "ALL") {
-            date.setMonth(now.getMonth() - i);
-          } else {
-            date.setDate(now.getDate() - i);
-          }
-          
-          if (symbol === "CASH") {
-            // Cash holds flat with tiny deposit variations
-            currentVal += (Math.random() - 0.5) * 5;
-          } else {
-            // Stock drifts with standard random walk
-            const volatility = symbol === "NVDA" ? 0.03 : 0.015;
-            const change = currentVal * (Math.random() - 0.48) * volatility;
-            currentVal += change;
-          }
-
-          data.push({
-            date: date.toISOString().split("T")[0],
-            close: Number(currentVal.toFixed(2)),
-          });
-        }
-      }
+      // Sin datos de Yahoo se responde vacío: el gráfico lo indica en vez de mostrar una serie inventada
+      if (data.length === 0) console.log(`[chart] ${symbol} ${timeframe}: sin datos de Yahoo`);
 
       res.json(data);
     } catch (err: any) {
@@ -4121,6 +4022,8 @@ Respond strictly with valid JSON conforming to this schema:
 
       // Base date (t0) is the first date
       const t0 = allDates[0];
+      // Tickers con datos reales de Yahoo; los demás no se dibujan ni cuentan en la media de la cartera
+      const hasData = (t: string) => (datasets[t]?.length ?? 0) > 0;
 
       // Calculate performance series
       const chartPoints = allDates.map((date) => {
@@ -4129,12 +4032,12 @@ Respond strictly with valid JSON conforming to this schema:
         // 1. VOO cumulative return
         const voo_t = alignedPrices["VOO"][date];
         const voo_t0 = alignedPrices["VOO"][t0];
-        point.voo = voo_t0 > 0 ? ((voo_t / voo_t0) - 1.0) * 100 : 0;
+        point.voo = hasData("VOO") && voo_t0 > 0 ? ((voo_t / voo_t0) - 1.0) * 100 : null;
 
         // 2. QQQ cumulative return
         const qqq_t = alignedPrices["QQQ"][date];
         const qqq_t0 = alignedPrices["QQQ"][t0];
-        point.qqq = qqq_t0 > 0 ? ((qqq_t / qqq_t0) - 1.0) * 100 : 0;
+        point.qqq = hasData("QQQ") && qqq_t0 > 0 ? ((qqq_t / qqq_t0) - 1.0) * 100 : null;
 
         // 3. Selection cumulative return
         if (targetSymbol === "PORTFOLIO") {
@@ -4149,6 +4052,9 @@ Respond strictly with valid JSON conforming to this schema:
             if (pos.isCash || pos.ticker.toUpperCase() === "CASH") {
               // Cash performance is flat (relative performance = 1.0)
               weightedSum += w * 1.0;
+            } else if (!hasData(pos.ticker.toUpperCase())) {
+              // Sin datos: fuera de la media (su peso se reparte entre el resto)
+              totalWeight -= w;
             } else {
               const ticker = pos.ticker.toUpperCase();
               const p_t = alignedPrices[ticker] ? alignedPrices[ticker][date] : 100;
@@ -4159,20 +4065,20 @@ Respond strictly with valid JSON conforming to this schema:
           });
 
           const v_port = totalWeight > 0 ? (weightedSum / totalWeight) : 1.0;
-          point.selection = (v_port - 1.0) * 100;
+          // Si ninguna posición (salvo el efectivo) tiene datos, no hay rentabilidad que dibujar
+          const anyData = positions.some((pos: any) => !(pos.isCash || String(pos.ticker).toUpperCase() === "CASH") && hasData(String(pos.ticker).toUpperCase()));
+          point.selection = anyData ? (v_port - 1.0) * 100 : null;
         } else if (targetSymbol === "CASH") {
           point.selection = 0.0;
         } else {
           // Individual stock performance
           const p_t = alignedPrices[targetSymbol] ? alignedPrices[targetSymbol][date] : 100;
           const p_t0 = alignedPrices[targetSymbol] ? alignedPrices[targetSymbol][t0] : 100;
-          point.selection = p_t0 > 0 ? ((p_t / p_t0) - 1.0) * 100 : 0;
+          point.selection = hasData(targetSymbol) && p_t0 > 0 ? ((p_t / p_t0) - 1.0) * 100 : null;
         }
 
         // Round to 2 decimal places
-        point.voo = Number(point.voo.toFixed(2));
-        point.qqq = Number(point.qqq.toFixed(2));
-        point.selection = Number(point.selection.toFixed(2));
+        for (const k of ["voo", "qqq", "selection"]) point[k] = typeof point[k] === "number" ? Number(point[k].toFixed(2)) : null;
 
         return point;
       });

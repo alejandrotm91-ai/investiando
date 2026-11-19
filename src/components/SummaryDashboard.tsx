@@ -39,39 +39,6 @@ const BENCHMARK_METRICS = {
 };
 
 
-function generateFallbackChartData(symbol: string, timeframe: string, positions: Position[] = []): ChartDataPoint[] {
-  const pointsCount = timeframe === "1D" ? 12 : timeframe === "1W" ? 7 : timeframe === "1M" ? 30 : 60;
-  const result: ChartDataPoint[] = [];
-  const now = new Date();
-
-  // Determine an overall trend baseline from portfolio return
-  const posReturn = positions.reduce((acc, p) => acc + (p.returnPct || 0) * (p.weight || 0), 0) / 100;
-  const totalTrend = Math.max(-15, Math.min(25, posReturn * 100));
-
-  for (let i = pointsCount - 1; i >= 0; i--) {
-    const d = new Date(now);
-    d.setDate(now.getDate() - i);
-    const dateStr = timeframe === "1D"
-      ? `${(now.getHours() - i + 24) % 24}:00`
-      : d.toISOString().split("T")[0];
-
-    const progress = (pointsCount - 1 - i) / Math.max(1, pointsCount - 1);
-    const wave = Math.sin(progress * Math.PI * 2) * 0.8 + Math.cos(progress * Math.PI * 3) * 0.4;
-
-    const selVal = +(progress * (totalTrend || 3.2) + wave).toFixed(2);
-    const vooVal = +(progress * 2.5 + wave * 0.6).toFixed(2);
-    const qqqVal = +(progress * 3.8 + wave * 1.1).toFixed(2);
-
-    result.push({
-      date: dateStr,
-      selection: selVal,
-      voo: vooVal,
-      qqq: qqqVal,
-    });
-  }
-
-  return result;
-}
 
 interface SummaryDashboardProps {
   portfolio: PortfolioData;
@@ -409,7 +376,7 @@ export default function SummaryDashboard({
             {language === "EN" ? "Date:" : "Fecha:"} {formattedDate}
           </p>
           <div className="flex flex-col gap-2">
-            {sortedPayload.map((item: any, idx: number) => {
+            {sortedPayload.filter((item: any) => typeof item.value === "number").map((item: any, idx: number) => {
               const isSelection = item.name === "selection";
               const labelName = isSelection
                 ? (chartSymbol === "PORTFOLIO" ? ((!portfolioName || portfolioName === "Mi Portafolio" || portfolioName === "My Portfolio") ? (language === "EN" ? "My Portfolio" : "Mi Portafolio") : portfolioName) : chartSymbol)
@@ -466,16 +433,11 @@ export default function SummaryDashboard({
         }
         const data = await response.json();
         if (active) {
-          if (Array.isArray(data) && data.length > 0) {
-            setChartData(data);
-          } else {
-            setChartData(generateFallbackChartData(chartSymbol, timeframe, validPositions));
-          }
+          // Sin datos se muestra "No hay datos disponibles" (antes, unas curvas inventadas)
+          setChartData(Array.isArray(data) ? data : []);
         }
       } catch (err) {
-        if (active) {
-          setChartData(generateFallbackChartData(chartSymbol, timeframe, validPositions));
-        }
+        if (active) setChartData([]);
       } finally {
         if (active) setLoadingChart(false);
       }
