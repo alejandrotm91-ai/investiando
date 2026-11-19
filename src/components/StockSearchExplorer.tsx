@@ -289,7 +289,7 @@ export default function StockSearchExplorer({
   // Dentro de Financials: estados financieros o segmentos (con los KPIs)
 
   // Chart timeframe state
-  const [chartRange, setChartRange] = useState<"1W" | "1M" | "6M" | "YTD" | "1Y" | "5Y" | "ALL">("1M");
+  const [chartRange, setChartRange] = useState<"1D" | "1W" | "1M" | "6M" | "YTD" | "1Y" | "5Y" | "ALL">("1M");
   const [chartData, setChartData] = useState<Array<{ date: string; close: number }>>([]);
   const [loadingChart, setLoadingChart] = useState<boolean>(false);
 
@@ -800,7 +800,8 @@ export default function StockSearchExplorer({
   // Calculations for chart return and trends
   const chartPerformance = useMemo(() => {
     if (!chartData || chartData.length < 2) return { changePct: 0, isPositive: true, startVal: 0, endVal: 0 };
-    const firstClose = chartData[0]?.close || 0;
+    // 1D: cambio frente al cierre anterior (como Yahoo), no frente a la primera barra de 5 minutos
+    const firstClose = (chartRange === "1D" && stockData?.previousClose ? stockData.previousClose : chartData[0]?.close) || 0;
     const lastClose = chartData[chartData.length - 1]?.close || 0;
     if (firstClose === 0) return { changePct: 0, isPositive: true, startVal: firstClose, endVal: lastClose };
     const change = lastClose - firstClose;
@@ -812,7 +813,7 @@ export default function StockSearchExplorer({
       startVal: firstClose,
       endVal: lastClose
     };
-  }, [chartData]);
+  }, [chartData, chartRange, stockData?.previousClose]);
 
   // Combined chart data when comparing with S&P 500 and/or NASDAQ-100
   const isComparing = compareSP500 || compareNasdaq;
@@ -898,6 +899,7 @@ export default function StockSearchExplorer({
   // Clean, non-repetitive X-axis ticks for month and year displays
   const chartTicks = useMemo(() => {
     if (!combinedChartData || combinedChartData.length === 0) return undefined;
+    if (chartRange === "1D") return combinedChartData.filter((d) => d.date && new Date(d.date).getUTCMinutes() === 0).map((d) => d.date);
     const isLongRange = ["6M", "YTD", "1Y", "5Y", "ALL"].includes(chartRange);
 
     if (isLongRange) {
@@ -1408,246 +1410,597 @@ export default function StockSearchExplorer({
           {/* 6. TAB CONTENT: OVERVIEW */}
           {activeSubTab === "overview" && (
             <div className="space-y-6">
-              {/* 4. INTERACTIVE PRICE CHART SECTION & BENCHMARK COMPARISON */}
-              <div className="bg-theme-card border border-theme-border p-6 rounded-2xl shadow-md">
-                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-5">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <BarChart3 size={18} className="text-emerald-400" />
-                      <h3 className="text-base font-bold text-theme-text-bright uppercase tracking-wider">
-                        {isComparing 
-                          ? (language === "EN" ? "Comparative Performance vs Benchmarks" : "Rendimiento Comparativo vs Índices") 
-                          : (language === "EN" ? "Price Performance Chart" : "Gráfico de Rendimiento Histórico")}
-                      </h3>
+              {/* Gráfico de precio y, a su derecha en pantallas anchas, Score Fundamental & Consenso */}
+              <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] gap-6 items-stretch">
+                {/* 4. INTERACTIVE PRICE CHART SECTION & BENCHMARK COMPARISON */}
+                <div className="bg-theme-card border border-theme-border p-6 rounded-2xl shadow-md flex flex-col min-w-0">
+                  <div className="flex flex-col 2xl:flex-row 2xl:items-center justify-between gap-4 mb-5">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <BarChart3 size={18} className="text-emerald-400" />
+                        <h3 className="text-base font-bold text-theme-text-bright uppercase tracking-wider">
+                          {isComparing 
+                            ? (language === "EN" ? "Comparative Performance vs Benchmarks" : "Rendimiento Comparativo vs Índices") 
+                            : (language === "EN" ? "Price Performance Chart" : "Gráfico de Rendimiento Histórico")}
+                        </h3>
+                      </div>
+                      
+                      {/* Performance & Alpha Pills */}
+                      <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs font-mono">
+                        <div className="flex items-center gap-1">
+                          <span className="text-theme-text-muted">
+                            {stockData.symbol}:
+                          </span>
+                          <span className={`font-bold flex items-center gap-0.5 ${chartPerformance.isPositive ? "text-emerald-400" : "text-rose-400"}`}>
+                            {chartPerformance.isPositive ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                            {formatPercent(chartPerformance.changePct)}
+                          </span>
+                        </div>
+
+                        {compareSP500 && (
+                          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400">
+                            <span className="font-bold">S&P 500:</span>
+                            <span>{formatPercent(benchmarkAlpha.sp500Return)}</span>
+                            <span className={`font-black text-[11px] ${benchmarkAlpha.alphaVsSP500 >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                              ({benchmarkAlpha.alphaVsSP500 >= 0 ? "+" : ""}{benchmarkAlpha.alphaVsSP500}% Alpha)
+                            </span>
+                          </div>
+                        )}
+
+                        {compareNasdaq && (
+                          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-sky-500/10 border border-sky-500/30 text-sky-400">
+                            <span className="font-bold">NASDAQ-100:</span>
+                            <span>{formatPercent(benchmarkAlpha.nasdaqReturn)}</span>
+                            <span className={`font-black text-[11px] ${benchmarkAlpha.alphaVsNasdaq >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                              ({benchmarkAlpha.alphaVsNasdaq >= 0 ? "+" : ""}{benchmarkAlpha.alphaVsNasdaq}% Alpha)
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    
-                    {/* Performance & Alpha Pills */}
-                    <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs font-mono">
-                      <div className="flex items-center gap-1">
-                        <span className="text-theme-text-muted">
-                          {stockData.symbol}:
+
+                    {/* Controls: Range Toggles & Benchmark Overlays */}
+                    <div className="flex flex-wrap items-center gap-3">
+                      
+                      {/* Benchmark Overlays Toggles */}
+                      <div data-toggle className="flex items-center gap-1.5 bg-theme-input p-1 rounded-xl border border-theme-border text-xs font-mono">
+                        <span className="text-[10px] text-theme-text-muted px-1.5 uppercase font-bold flex items-center gap-1">
+                          <Scale size={11} />
+                          {language === "EN" ? "Compare:" : "Comparar:"}
                         </span>
-                        <span className={`font-bold flex items-center gap-0.5 ${chartPerformance.isPositive ? "text-emerald-400" : "text-rose-400"}`}>
-                          {chartPerformance.isPositive ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                          {formatPercent(chartPerformance.changePct)}
-                        </span>
+                        
+                        <button aria-pressed={!!(compareSP500)}
+                          onClick={() => setCompareSP500(!compareSP500)}
+                          className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                            compareSP500
+                              ? "bg-amber-500 text-slate-950 font-black shadow-xs"
+                              : "text-amber-400 hover:bg-amber-500/10"
+                          }`}
+                        >
+                          <span>S&P 500</span>
+                        </button>
+
+                        <button aria-pressed={!!(compareNasdaq)}
+                          onClick={() => setCompareNasdaq(!compareNasdaq)}
+                          className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                            compareNasdaq
+                              ? "bg-sky-500 text-slate-950 font-black shadow-xs"
+                              : "text-sky-400 hover:bg-sky-500/10"
+                          }`}
+                        >
+                          <span>NASDAQ-100</span>
+                        </button>
                       </div>
 
-                      {compareSP500 && (
-                        <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400">
-                          <span className="font-bold">S&P 500:</span>
-                          <span>{formatPercent(benchmarkAlpha.sp500Return)}</span>
-                          <span className={`font-black text-[11px] ${benchmarkAlpha.alphaVsSP500 >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                            ({benchmarkAlpha.alphaVsSP500 >= 0 ? "+" : ""}{benchmarkAlpha.alphaVsSP500}% Alpha)
-                          </span>
-                        </div>
-                      )}
-
-                      {compareNasdaq && (
-                        <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-sky-500/10 border border-sky-500/30 text-sky-400">
-                          <span className="font-bold">NASDAQ-100:</span>
-                          <span>{formatPercent(benchmarkAlpha.nasdaqReturn)}</span>
-                          <span className={`font-black text-[11px] ${benchmarkAlpha.alphaVsNasdaq >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                            ({benchmarkAlpha.alphaVsNasdaq >= 0 ? "+" : ""}{benchmarkAlpha.alphaVsNasdaq}% Alpha)
-                          </span>
-                        </div>
-                      )}
+                      {/* Range Toggle Buttons */}
+                      <div data-toggle className="inline-flex bg-theme-input p-1 rounded-xl border border-theme-border text-xs font-mono font-bold">
+                        {(["1D", "1W", "1M", "6M", "YTD", "1Y", "5Y", "ALL"] as const).map((r) => (
+                          <button aria-pressed={!!(chartRange === r)}
+                            key={r}
+                            onClick={() => setChartRange(r)}
+                            className={`px-2.5 sm:px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                              chartRange === r
+                                ? "bg-emerald-500 text-slate-950 font-black shadow-sm"
+                                : "text-theme-text-muted hover:text-theme-text-bright hover:bg-theme-card-hover"
+                            }`}
+                          >
+                            {r}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
 
-                  {/* Controls: Range Toggles & Benchmark Overlays */}
-                  <div className="flex flex-wrap items-center gap-3">
+                  {/* Chart Canvas */}
+                  <div className="h-72 sm:h-80 xl:h-auto xl:flex-1 xl:min-h-[20rem] w-full relative">
+                    {(loadingChart || loadingBenchmarkChart) && (
+                      <div className="absolute inset-0 bg-theme-card/60 backdrop-blur-xs flex items-center justify-center z-10">
+                        <RefreshCw size={24} className="animate-spin text-emerald-400" />
+                      </div>
+                    )}
                     
-                    {/* Benchmark Overlays Toggles */}
-                    <div data-toggle className="flex items-center gap-1.5 bg-theme-input p-1 rounded-xl border border-theme-border text-xs font-mono">
-                      <span className="text-[10px] text-theme-text-muted px-1.5 uppercase font-bold flex items-center gap-1">
-                        <Scale size={11} />
-                        {language === "EN" ? "Compare:" : "Comparar:"}
-                      </span>
-                      
-                      <button aria-pressed={!!(compareSP500)}
-                        onClick={() => setCompareSP500(!compareSP500)}
-                        className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                          compareSP500
-                            ? "bg-amber-500 text-slate-950 font-black shadow-xs"
-                            : "text-amber-400 hover:bg-amber-500/10"
-                        }`}
-                      >
-                        <span>S&P 500</span>
-                      </button>
-
-                      <button aria-pressed={!!(compareNasdaq)}
-                        onClick={() => setCompareNasdaq(!compareNasdaq)}
-                        className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                          compareNasdaq
-                            ? "bg-sky-500 text-slate-950 font-black shadow-xs"
-                            : "text-sky-400 hover:bg-sky-500/10"
-                        }`}
-                      >
-                        <span>NASDAQ-100</span>
-                      </button>
-                    </div>
-
-                    {/* Range Toggle Buttons */}
-                    <div data-toggle className="inline-flex bg-theme-input p-1 rounded-xl border border-theme-border text-xs font-mono font-bold">
-                      {(["1W", "1M", "6M", "YTD", "1Y", "5Y", "ALL"] as const).map((r) => (
-                        <button aria-pressed={!!(chartRange === r)}
-                          key={r}
-                          onClick={() => setChartRange(r)}
-                          className={`px-2.5 sm:px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-                            chartRange === r
-                              ? "bg-emerald-500 text-slate-950 font-black shadow-sm"
-                              : "text-theme-text-muted hover:text-theme-text-bright hover:bg-theme-card-hover"
-                          }`}
-                        >
-                          {r}
-                        </button>
-                      ))}
-                    </div>
+                    {combinedChartData.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={combinedChartData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="stockChartGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor={chartPerformance.isPositive ? "#10b981" : "#f43f5e"} stopOpacity={isComparing ? 0.15 : 0.35} />
+                              <stop offset="95%" stopColor={chartPerformance.isPositive ? "#10b981" : "#f43f5e"} stopOpacity={0.0} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke={theme === "light" ? "#e2e8f0" : "#1e293b"} vertical={false} />
+                          <XAxis 
+                            dataKey="date" 
+                            ticks={chartTicks}
+                            tickLine={false} 
+                            axisLine={false} 
+                            tick={{ fill: theme === "light" ? "#64748b" : "#94a3b8", fontSize: 10 }}
+                            tickFormatter={(d) => {
+                              try {
+                                if (chartRange === "1D") return new Date(d).toLocaleTimeString(language === "EN" ? "en-US" : "es-ES", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
+                                const parts = typeof d === "string" && d.includes("-") ? d.split("-").map(Number) : null;
+                                const dateObj = parts && parts.length === 3 
+                                  ? new Date(parts[0], parts[1] - 1, parts[2]) 
+                                  : new Date(d);
+                                
+                                const isLongRange = ["6M", "YTD", "1Y", "5Y", "ALL"].includes(chartRange);
+                                
+                                if (isLongRange) {
+                                  const esMonths = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+                                  const enMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+                                  const m = language === "ES" ? esMonths[dateObj.getMonth()] : enMonths[dateObj.getMonth()];
+                                  
+                                  if (chartRange === "5Y" || chartRange === "ALL") {
+                                    return `${m} '${dateObj.getFullYear().toString().slice(-2)}`;
+                                  }
+                                  return m;
+                                }
+                                
+                                return dateObj.toLocaleDateString(language === "EN" ? "en-US" : "es-ES", { month: "short", day: "numeric" });
+                              } catch (e) {
+                                return d;
+                              }
+                            }}
+                          />
+                          <YAxis 
+                            domain={["auto", "auto"]} 
+                            tickLine={false} 
+                            axisLine={false} 
+                            tick={{ fill: theme === "light" ? "#64748b" : "#94a3b8", fontSize: 10 }}
+                            tickFormatter={(v) => isComparing ? `${v >= 0 ? "+" : ""}${v.toFixed(0)}%` : `$${v.toFixed(0)}`}
+                          />
+                          <Tooltip 
+                            contentStyle={{
+                              backgroundColor: theme === "light" ? "#ffffff" : "#0f172a",
+                              borderColor: theme === "light" ? "#e2e8f0" : "#334155",
+                              borderRadius: "0.75rem",
+                              boxShadow: "0 10px 15px -3px rgba(0,0,0,0.2)",
+                              color: theme === "light" ? "#0f172a" : "#f8fafc",
+                              fontSize: "12px",
+                              fontWeight: "600",
+                              fontFamily: "monospace"
+                            }}
+                            formatter={(val: any, name: any) => {
+                              if (name === "stockReturn" || name === "close") {
+                                if (isComparing) {
+                                  return [`${val >= 0 ? "+" : ""}${val}%`, stockData.symbol];
+                                }
+                                return [`$${Number(val).toFixed(2)}`, stockData.symbol];
+                              }
+                              if (name === "sp500Return") {
+                                return [`${val >= 0 ? "+" : ""}${val}%`, "S&P 500 (SPY)"];
+                              }
+                              if (name === "nasdaqReturn") {
+                                return [`${val >= 0 ? "+" : ""}${val}%`, "NASDAQ-100 (QQQ)"];
+                              }
+                              return [val, name];
+                            }}
+                            labelFormatter={(label) => {
+                              try {
+                                if (chartRange === "1D") {
+                                  const t = new Date(label).toLocaleString(language === "EN" ? "en-US" : "es-ES", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
+                                  return `${language === "EN" ? "Time:" : "Hora:"} ${t} (NY)`;
+                                }
+                                const parts = typeof label === "string" && label.includes("-") ? label.split("-").map(Number) : null;
+                                const dateObj = parts && parts.length === 3 
+                                  ? new Date(parts[0], parts[1] - 1, parts[2]) 
+                                  : new Date(label);
+                                const dateText = dateObj.toLocaleDateString(language === "EN" ? "en-US" : "es-ES", {
+                                  day: "numeric",
+                                  month: "short",
+                                  year: "numeric"
+                                });
+                                return `${language === "EN" ? "Date:" : "Fecha:"} ${dateText}`;
+                              } catch {
+                                return `${language === "EN" ? "Date:" : "Fecha:"} ${label}`;
+                              }
+                            }}
+                          />
+                          {isComparing && (
+                            <ReferenceLine y={0} stroke={theme === "light" ? "#94a3b8" : "#475569"} strokeDasharray="3 3" />
+                          )}
+                          <Area 
+                            type="monotone" 
+                            dataKey={isComparing ? "stockReturn" : "close"} 
+                            name={isComparing ? "stockReturn" : "close"}
+                            stroke={chartPerformance.isPositive ? "#10b981" : "#f43f5e"} 
+                            strokeWidth={2.5} 
+                            fillOpacity={1} 
+                            fill="url(#stockChartGrad)" 
+                          />
+                          {compareSP500 && (
+                            <Line 
+                              type="monotone" 
+                              dataKey="sp500Return" 
+                              name="sp500Return"
+                              stroke="#f59e0b" 
+                              strokeWidth={2.2} 
+                              strokeDasharray="4 4"
+                              dot={false}
+                            />
+                          )}
+                          {compareNasdaq && (
+                            <Line 
+                              type="monotone" 
+                              dataKey="nasdaqReturn" 
+                              name="nasdaqReturn"
+                              stroke="#38bdf8" 
+                              strokeWidth={2.2} 
+                              strokeDasharray="4 4"
+                              dot={false}
+                            />
+                          )}
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="h-full flex items-center justify-center text-xs text-theme-text-muted">
+                        {language === "EN" ? "No historical chart points available" : "Sin datos de gráfico disponibles"}
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                {/* Chart Canvas */}
-                <div className="h-72 sm:h-80 w-full relative">
-                  {(loadingChart || loadingBenchmarkChart) && (
-                    <div className="absolute inset-0 bg-theme-card/60 backdrop-blur-xs flex items-center justify-center z-10">
-                      <RefreshCw size={24} className="animate-spin text-emerald-400" />
+                {/* WALL STREET ANALYST TARGETS & SECTOR-NORMALIZED SCORE */}
+                <div className="bg-theme-card border border-theme-border p-6 rounded-2xl shadow-md space-y-5 h-full flex flex-col justify-between">
+                  <div className="space-y-4">
+                    {/* Header */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Award size={18} className="text-amber-400" />
+                        <h4 className="font-bold text-sm text-theme-text-bright uppercase tracking-wider">
+                          {language === "EN" ? "Fundamental Score & Wall Street Consensus" : "Score Fundamental & Consenso de Analistas"}
+                        </h4>
+                      </div>
+                      {stockData.numberOfAnalystOpinions && (
+                        <span className="text-xs text-theme-text-muted font-semibold">
+                          {stockData.numberOfAnalystOpinions} {language === "EN" ? "Analysts Coverage" : "Cobertura de Analistas"}
+                        </span>
+                      )}
                     </div>
-                  )}
-                  
-                  {combinedChartData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={combinedChartData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
-                        <defs>
-                          <linearGradient id="stockChartGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor={chartPerformance.isPositive ? "#10b981" : "#f43f5e"} stopOpacity={isComparing ? 0.15 : 0.35} />
-                            <stop offset="95%" stopColor={chartPerformance.isPositive ? "#10b981" : "#f43f5e"} stopOpacity={0.0} />
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke={theme === "light" ? "#e2e8f0" : "#1e293b"} vertical={false} />
-                        <XAxis 
-                          dataKey="date" 
-                          ticks={chartTicks}
-                          tickLine={false} 
-                          axisLine={false} 
-                          tick={{ fill: theme === "light" ? "#64748b" : "#94a3b8", fontSize: 10 }}
-                          tickFormatter={(d) => {
-                            try {
-                              const parts = typeof d === "string" && d.includes("-") ? d.split("-").map(Number) : null;
-                              const dateObj = parts && parts.length === 3 
-                                ? new Date(parts[0], parts[1] - 1, parts[2]) 
-                                : new Date(d);
-                              
-                              const isLongRange = ["6M", "YTD", "1Y", "5Y", "ALL"].includes(chartRange);
-                              
-                              if (isLongRange) {
-                                const esMonths = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
-                                const enMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-                                const m = language === "ES" ? esMonths[dateObj.getMonth()] : enMonths[dateObj.getMonth()];
-                                
-                                if (chartRange === "5Y" || chartRange === "ALL") {
-                                  return `${m} '${dateObj.getFullYear().toString().slice(-2)}`;
-                                }
-                                return m;
-                              }
-                              
-                              return dateObj.toLocaleDateString(language === "EN" ? "en-US" : "es-ES", { month: "short", day: "numeric" });
-                            } catch (e) {
-                              return d;
-                            }
-                          }}
-                        />
-                        <YAxis 
-                          domain={["auto", "auto"]} 
-                          tickLine={false} 
-                          axisLine={false} 
-                          tick={{ fill: theme === "light" ? "#64748b" : "#94a3b8", fontSize: 10 }}
-                          tickFormatter={(v) => isComparing ? `${v >= 0 ? "+" : ""}${v.toFixed(0)}%` : `$${v.toFixed(0)}`}
-                        />
-                        <Tooltip 
-                          contentStyle={{
-                            backgroundColor: theme === "light" ? "#ffffff" : "#0f172a",
-                            borderColor: theme === "light" ? "#e2e8f0" : "#334155",
-                            borderRadius: "0.75rem",
-                            boxShadow: "0 10px 15px -3px rgba(0,0,0,0.2)",
-                            color: theme === "light" ? "#0f172a" : "#f8fafc",
-                            fontSize: "12px",
-                            fontWeight: "600",
-                            fontFamily: "monospace"
-                          }}
-                          formatter={(val: any, name: any) => {
-                            if (name === "stockReturn" || name === "close") {
-                              if (isComparing) {
-                                return [`${val >= 0 ? "+" : ""}${val}%`, stockData.symbol];
-                              }
-                              return [`$${Number(val).toFixed(2)}`, stockData.symbol];
-                            }
-                            if (name === "sp500Return") {
-                              return [`${val >= 0 ? "+" : ""}${val}%`, "S&P 500 (SPY)"];
-                            }
-                            if (name === "nasdaqReturn") {
-                              return [`${val >= 0 ? "+" : ""}${val}%`, "NASDAQ-100 (QQQ)"];
-                            }
-                            return [val, name];
-                          }}
-                          labelFormatter={(label) => {
-                            try {
-                              const parts = typeof label === "string" && label.includes("-") ? label.split("-").map(Number) : null;
-                              const dateObj = parts && parts.length === 3 
-                                ? new Date(parts[0], parts[1] - 1, parts[2]) 
-                                : new Date(label);
-                              const dateText = dateObj.toLocaleDateString(language === "EN" ? "en-US" : "es-ES", {
-                                day: "numeric",
-                                month: "short",
-                                year: "numeric"
-                              });
-                              return `${language === "EN" ? "Date:" : "Fecha:"} ${dateText}`;
-                            } catch {
-                              return `${language === "EN" ? "Date:" : "Fecha:"} ${label}`;
-                            }
-                          }}
-                        />
-                        {isComparing && (
-                          <ReferenceLine y={0} stroke={theme === "light" ? "#94a3b8" : "#475569"} strokeDasharray="3 3" />
-                        )}
-                        <Area 
-                          type="monotone" 
-                          dataKey={isComparing ? "stockReturn" : "close"} 
-                          name={isComparing ? "stockReturn" : "close"}
-                          stroke={chartPerformance.isPositive ? "#10b981" : "#f43f5e"} 
-                          strokeWidth={2.5} 
-                          fillOpacity={1} 
-                          fill="url(#stockChartGrad)" 
-                        />
-                        {compareSP500 && (
-                          <Line 
-                            type="monotone" 
-                            dataKey="sp500Return" 
-                            name="sp500Return"
-                            stroke="#f59e0b" 
-                            strokeWidth={2.2} 
-                            strokeDasharray="4 4"
-                            dot={false}
-                          />
-                        )}
-                        {compareNasdaq && (
-                          <Line 
-                            type="monotone" 
-                            dataKey="nasdaqReturn" 
-                            name="nasdaqReturn"
-                            stroke="#38bdf8" 
-                            strokeWidth={2.2} 
-                            strokeDasharray="4 4"
-                            dot={false}
-                          />
-                        )}
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <div className="h-full flex items-center justify-center text-xs text-theme-text-muted">
-                      {language === "EN" ? "No historical chart points available" : "Sin datos de gráfico disponibles"}
+
+                    {/* SECTOR-NORMALIZED FUNDAMENTAL SCORE HERO */}
+                    {scoredRow && typeof scoredRow.scores?.balanced === "number" && (
+                      <div className="bg-theme-input p-4 rounded-xl border border-theme-border space-y-3">
+                        <div className="flex items-center justify-between gap-3 flex-wrap">
+                          <div className="flex items-center gap-3">
+                            {/* Circular Gauge */}
+                            <div className="relative w-12 h-12 flex items-center justify-center shrink-0">
+                              <svg viewBox="0 0 36 36" className="w-full h-full transform -rotate-90">
+                                <path
+                                  className="text-theme-sidebar"
+                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="3.5"
+                                />
+                                <path
+                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                  fill="none"
+                                  stroke={getScoreHex(scoredRow.scores.balanced)}
+                                  strokeWidth="3.5"
+                                  strokeDasharray={`${Math.min(100, Math.max(0, scoredRow.scores.balanced))}, 100`}
+                                  className="drop-shadow-sm transition-all duration-700 ease-out"
+                                />
+                              </svg>
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <span className={`text-sm font-black font-mono ${getScoreColorClass(scoredRow.scores.balanced)}`}>
+                                  {scoredRow.scores.balanced.toFixed(0)}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs font-bold text-theme-text-bright">
+                                  {language === "EN" ? "Sector-Relative Score" : "Score Sectorial Normalizado"}
+                                </span>
+                                {scoredRow.type && (
+                                  <span 
+                                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md border inline-flex items-center shadow-sm ${getTypeBadgeConfig(scoredRow.type).className}`}
+                                    title={scoredRow.valuationMethod ? `${scoredRow.type}\n${language === 'ES' ? 'Método:' : 'Method:'} ${scoredRow.valuationMethod}` : scoredRow.type}
+                                  >
+                                    <span className="mr-1 opacity-90">{getTypeBadgeConfig(scoredRow.type).icon}</span>
+                                    {scoredRow.type}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Recommendation Badge at the height of Sector-Relative Score */}
+                          {stockData.recommendationKey && stockData.recommendationKey !== "none" && (
+                            <div className="flex items-center gap-1.5 text-xs shrink-0">
+                              <span className="text-theme-text-muted text-[11px] font-medium">
+                                {language === "EN" ? "Recommendation:" : "Recomendación:"}
+                              </span>
+                              <span className={`font-mono font-bold uppercase px-2 py-0.5 rounded-md text-[11px] border ${
+                                stockData.recommendationKey.includes("buy")
+                                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                                  : stockData.recommendationKey.includes("sell")
+                                  ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                                  : "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                              }`}>
+                                {stockData.recommendationKey.replace(/_/g, " ")}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* 4 Factor Sub-Scores in Donut Gauges */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-2 gap-2.5 pt-2.5 border-t border-theme-border/60">
+                          {/* Growth */}
+                          <div className="bg-theme-card/70 p-2.5 rounded-xl border border-theme-border/50 flex items-center gap-2.5">
+                            <div className="relative w-9 h-9 flex items-center justify-center shrink-0">
+                              <svg viewBox="0 0 36 36" className="w-full h-full transform -rotate-90">
+                                <path
+                                  className="text-theme-sidebar"
+                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="3.5"
+                                />
+                                <path
+                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                  fill="none"
+                                  stroke={getScoreHex(scoredRow.factors.growth)}
+                                  strokeWidth="3.5"
+                                  strokeDasharray={`${Math.min(100, Math.max(0, scoredRow.factors.growth ?? 0))}, 100`}
+                                  className="transition-all duration-700 ease-out"
+                                />
+                              </svg>
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <span className={`text-[11px] font-black font-mono ${getScoreColorClass(scoredRow.factors.growth)}`}>
+                                  {scoredRow.factors.growth !== null ? scoredRow.factors.growth.toFixed(0) : "—"}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <span className="text-[10px] uppercase font-bold text-theme-text-muted block truncate">
+                                {language === "EN" ? "Growth" : "Crecimiento"}
+                              </span>
+                              <span className={`text-[10px] font-mono font-bold ${getScoreColorClass(scoredRow.factors.growth)} block truncate`}>
+                                {scoredRow.factors.growth !== null 
+                                  ? (scoredRow.factors.growth >= 75 
+                                      ? (language === "EN" ? "Strong" : "Fuerte") 
+                                      : scoredRow.factors.growth >= 50 
+                                      ? (language === "EN" ? "Healthy" : "Saludable") 
+                                      : scoredRow.factors.growth >= 35 
+                                      ? (language === "EN" ? "Neutral" : "Neutro") 
+                                      : (language === "EN" ? "Weak" : "Débil")) 
+                                  : "—"}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Quality */}
+                          <div className="bg-theme-card/70 p-2.5 rounded-xl border border-theme-border/50 flex items-center gap-2.5">
+                            <div className="relative w-9 h-9 flex items-center justify-center shrink-0">
+                              <svg viewBox="0 0 36 36" className="w-full h-full transform -rotate-90">
+                                <path
+                                  className="text-theme-sidebar"
+                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="3.5"
+                                />
+                                <path
+                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                  fill="none"
+                                  stroke={getScoreHex(scoredRow.factors.quality)}
+                                  strokeWidth="3.5"
+                                  strokeDasharray={`${Math.min(100, Math.max(0, scoredRow.factors.quality ?? 0))}, 100`}
+                                  className="transition-all duration-700 ease-out"
+                                />
+                              </svg>
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <span className={`text-[11px] font-black font-mono ${getScoreColorClass(scoredRow.factors.quality)}`}>
+                                  {scoredRow.factors.quality !== null ? scoredRow.factors.quality.toFixed(0) : "—"}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <span className="text-[10px] uppercase font-bold text-theme-text-muted block truncate">
+                                {language === "EN" ? "Quality" : "Calidad"}
+                              </span>
+                              <span className={`text-[10px] font-mono font-bold ${getScoreColorClass(scoredRow.factors.quality)} block truncate`}>
+                                {scoredRow.factors.quality !== null 
+                                  ? (scoredRow.factors.quality >= 75 
+                                      ? (language === "EN" ? "High" : "Alta") 
+                                      : scoredRow.factors.quality >= 50 
+                                      ? (language === "EN" ? "Solid" : "Sólida") 
+                                      : scoredRow.factors.quality >= 35 
+                                      ? (language === "EN" ? "Medium" : "Media") 
+                                      : (language === "EN" ? "Low" : "Baja")) 
+                                  : "—"}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Stability */}
+                          <div className="bg-theme-card/70 p-2.5 rounded-xl border border-theme-border/50 flex items-center gap-2.5">
+                            <div className="relative w-9 h-9 flex items-center justify-center shrink-0">
+                              <svg viewBox="0 0 36 36" className="w-full h-full transform -rotate-90">
+                                <path
+                                  className="text-theme-sidebar"
+                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="3.5"
+                                />
+                                <path
+                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                  fill="none"
+                                  stroke={getScoreHex(scoredRow.factors.stability)}
+                                  strokeWidth="3.5"
+                                  strokeDasharray={`${Math.min(100, Math.max(0, scoredRow.factors.stability ?? 0))}, 100`}
+                                  className="transition-all duration-700 ease-out"
+                                />
+                              </svg>
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <span className={`text-[11px] font-black font-mono ${getScoreColorClass(scoredRow.factors.stability)}`}>
+                                  {scoredRow.factors.stability !== null ? scoredRow.factors.stability.toFixed(0) : "—"}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <span className="text-[10px] uppercase font-bold text-theme-text-muted block truncate">
+                                {language === "EN" ? "Stability" : "Estabilidad"}
+                              </span>
+                              <span className={`text-[10px] font-mono font-bold ${getScoreColorClass(scoredRow.factors.stability)} block truncate`}>
+                                {scoredRow.factors.stability !== null 
+                                  ? (scoredRow.factors.stability >= 75 
+                                      ? (language === "EN" ? "Secure" : "Segura") 
+                                      : scoredRow.factors.stability >= 50 
+                                      ? (language === "EN" ? "Stable" : "Estable") 
+                                      : scoredRow.factors.stability >= 35 
+                                      ? (language === "EN" ? "Fair" : "Aceptable") 
+                                      : (language === "EN" ? "Volatile" : "Volátil")) 
+                                  : "—"}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Valuation */}
+                          <div className="bg-theme-card/70 p-2.5 rounded-xl border border-theme-border/50 flex items-center gap-2.5">
+                            <div className="relative w-9 h-9 flex items-center justify-center shrink-0">
+                              <svg viewBox="0 0 36 36" className="w-full h-full transform -rotate-90">
+                                <path
+                                  className="text-theme-sidebar"
+                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="3.5"
+                                />
+                                <path
+                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                  fill="none"
+                                  stroke={getScoreHex(scoredRow.factors.valuation)}
+                                  strokeWidth="3.5"
+                                  strokeDasharray={`${Math.min(100, Math.max(0, scoredRow.factors.valuation ?? 0))}, 100`}
+                                  className="transition-all duration-700 ease-out"
+                                />
+                              </svg>
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <span className={`text-[11px] font-black font-mono ${getScoreColorClass(scoredRow.factors.valuation)}`}>
+                                  {scoredRow.factors.valuation !== null ? scoredRow.factors.valuation.toFixed(0) : "—"}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <span className="text-[10px] uppercase font-bold text-theme-text-muted block truncate">
+                                {language === "EN" ? "Valuation" : "Valoración"}
+                              </span>
+                              <span className={`text-[10px] font-mono font-bold ${getScoreColorClass(scoredRow.factors.valuation)} block truncate`}>
+                                {scoredRow.factors.valuation !== null 
+                                  ? (scoredRow.factors.valuation >= 75 
+                                      ? (language === "EN" ? "Cheap" : "Atractiva") 
+                                      : scoredRow.factors.valuation >= 50 
+                                      ? (language === "EN" ? "Fair" : "Razonable") 
+                                      : scoredRow.factors.valuation >= 35 
+                                      ? (language === "EN" ? "Premium" : "Exigente") 
+                                      : (language === "EN" ? "Expensive" : "Cara")) 
+                                  : "—"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Price Targets Sub-section */}
+                    <div>
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-theme-text-muted block mb-2">
+                        {language === "EN" ? "Wall Street Price Targets" : "Precios Objetivo de Analistas"}
+                      </span>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        {/* Low Target */}
+                        <div className="bg-theme-input p-3.5 rounded-xl border border-theme-border">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] uppercase font-bold text-theme-text-muted">
+                              {language === "EN" ? "Low Target" : "Obj. Mínimo"}
+                            </span>
+                            {stockData.targetLowPrice && stockData.price && (
+                              <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-full ${
+                                stockData.targetLowPrice >= stockData.price
+                                  ? "bg-emerald-500/10 text-emerald-400"
+                                  : "bg-rose-500/10 text-rose-400"
+                              }`}>
+                                {stockData.targetLowPrice >= stockData.price ? "+" : ""}
+                                {(((stockData.targetLowPrice - stockData.price) / stockData.price) * 100).toFixed(1)}%
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-base sm:text-lg font-mono font-bold text-rose-400 mt-1">
+                            {formatCurrency(stockData.targetLowPrice)}
+                          </div>
+                        </div>
+
+                        {/* Mean Target */}
+                        <div className="bg-theme-input p-3.5 rounded-xl border border-emerald-500/30 shadow-inner">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] uppercase font-bold text-emerald-400">
+                              {language === "EN" ? "Avg Target" : "Obj. Medio"}
+                            </span>
+                            {stockData.targetMeanPrice && stockData.price && (
+                              <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-full ${
+                                stockData.targetMeanPrice >= stockData.price
+                                  ? "bg-emerald-500/10 text-emerald-400"
+                                  : "bg-rose-500/10 text-rose-400"
+                              }`}>
+                                {stockData.targetMeanPrice >= stockData.price ? "+" : ""}
+                                {(((stockData.targetMeanPrice - stockData.price) / stockData.price) * 100).toFixed(1)}%
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-lg sm:text-xl font-mono font-black text-theme-text-bright mt-1">
+                            {formatCurrency(stockData.targetMeanPrice)}
+                          </div>
+                        </div>
+
+                        {/* High Target */}
+                        <div className="bg-theme-input p-3.5 rounded-xl border border-theme-border">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] uppercase font-bold text-theme-text-muted">
+                              {language === "EN" ? "High Target" : "Obj. Máximo"}
+                            </span>
+                            {stockData.targetHighPrice && stockData.price && (
+                              <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-full ${
+                                stockData.targetHighPrice >= stockData.price
+                                  ? "bg-emerald-500/10 text-emerald-400"
+                                  : "bg-rose-500/10 text-rose-400"
+                              }`}>
+                                {stockData.targetHighPrice >= stockData.price ? "+" : ""}
+                                {(((stockData.targetHighPrice - stockData.price) / stockData.price) * 100).toFixed(1)}%
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-base sm:text-lg font-mono font-bold text-emerald-400 mt-1">
+                            {formatCurrency(stockData.targetHighPrice)}
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                  )}
+                  </div>
                 </div>
               </div>
 
@@ -2000,399 +2353,51 @@ export default function StockSearchExplorer({
                 </div>
               </div>
 
-              {/* SIDE-BY-SIDE: WALL STREET ANALYST TARGETS & COMPANY PROFILE */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                
-                {/* WALL STREET ANALYST TARGETS & SECTOR-NORMALIZED SCORE */}
-                <div className="bg-theme-card border border-theme-border p-6 rounded-2xl shadow-md space-y-5 h-full flex flex-col justify-between">
-                  <div className="space-y-4">
-                    {/* Header */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <Award size={18} className="text-amber-400" />
-                        <h4 className="font-bold text-sm text-theme-text-bright uppercase tracking-wider">
-                          {language === "EN" ? "Fundamental Score & Wall Street Consensus" : "Score Fundamental & Consenso de Analistas"}
-                        </h4>
-                      </div>
-                      {stockData.numberOfAnalystOpinions && (
-                        <span className="text-xs text-theme-text-muted font-semibold">
-                          {stockData.numberOfAnalystOpinions} {language === "EN" ? "Analysts Coverage" : "Cobertura de Analistas"}
-                        </span>
-                      )}
-                    </div>
+              {/* COMPANY PROFILE & DESCRIPTION (ancho completo; el score va junto al gráfico) */}
+              <div className="bg-theme-card border border-theme-border p-6 rounded-2xl shadow-md space-y-4 h-full flex flex-col justify-between">
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Building2 size={18} className="text-blue-400" />
+                    <h4 className="font-bold text-sm text-theme-text-bright uppercase tracking-wider">
+                      {language === "EN" ? "About the Company" : "Perfil Corporativo & Negocio"}
+                    </h4>
+                  </div>
 
-                    {/* SECTOR-NORMALIZED FUNDAMENTAL SCORE HERO */}
-                    {scoredRow && typeof scoredRow.scores?.balanced === "number" && (
-                      <div className="bg-theme-input p-4 rounded-xl border border-theme-border space-y-3">
-                        <div className="flex items-center justify-between gap-3 flex-wrap">
-                          <div className="flex items-center gap-3">
-                            {/* Circular Gauge */}
-                            <div className="relative w-12 h-12 flex items-center justify-center shrink-0">
-                              <svg viewBox="0 0 36 36" className="w-full h-full transform -rotate-90">
-                                <path
-                                  className="text-theme-sidebar"
-                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="3.5"
-                                />
-                                <path
-                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                                  fill="none"
-                                  stroke={getScoreHex(scoredRow.scores.balanced)}
-                                  strokeWidth="3.5"
-                                  strokeDasharray={`${Math.min(100, Math.max(0, scoredRow.scores.balanced))}, 100`}
-                                  className="drop-shadow-sm transition-all duration-700 ease-out"
-                                />
-                              </svg>
-                              <div className="absolute inset-0 flex items-center justify-center">
-                                <span className={`text-sm font-black font-mono ${getScoreColorClass(scoredRow.scores.balanced)}`}>
-                                  {scoredRow.scores.balanced.toFixed(0)}
-                                </span>
-                              </div>
-                            </div>
-
-                            <div>
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-xs font-bold text-theme-text-bright">
-                                  {language === "EN" ? "Sector-Relative Score" : "Score Sectorial Normalizado"}
-                                </span>
-                                {scoredRow.type && (
-                                  <span 
-                                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md border inline-flex items-center shadow-sm ${getTypeBadgeConfig(scoredRow.type).className}`}
-                                    title={scoredRow.valuationMethod ? `${scoredRow.type}\n${language === 'ES' ? 'Método:' : 'Method:'} ${scoredRow.valuationMethod}` : scoredRow.type}
-                                  >
-                                    <span className="mr-1 opacity-90">{getTypeBadgeConfig(scoredRow.type).icon}</span>
-                                    {scoredRow.type}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Recommendation Badge at the height of Sector-Relative Score */}
-                          {stockData.recommendationKey && stockData.recommendationKey !== "none" && (
-                            <div className="flex items-center gap-1.5 text-xs shrink-0">
-                              <span className="text-theme-text-muted text-[11px] font-medium">
-                                {language === "EN" ? "Recommendation:" : "Recomendación:"}
-                              </span>
-                              <span className={`font-mono font-bold uppercase px-2 py-0.5 rounded-md text-[11px] border ${
-                                stockData.recommendationKey.includes("buy")
-                                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                                  : stockData.recommendationKey.includes("sell")
-                                  ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
-                                  : "bg-amber-500/10 text-amber-400 border-amber-500/20"
-                              }`}>
-                                {stockData.recommendationKey.replace(/_/g, " ")}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* 4 Factor Sub-Scores in Donut Gauges */}
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2.5 border-t border-theme-border/60">
-                          {/* Growth */}
-                          <div className="bg-theme-card/70 p-2.5 rounded-xl border border-theme-border/50 flex items-center gap-2.5">
-                            <div className="relative w-9 h-9 flex items-center justify-center shrink-0">
-                              <svg viewBox="0 0 36 36" className="w-full h-full transform -rotate-90">
-                                <path
-                                  className="text-theme-sidebar"
-                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="3.5"
-                                />
-                                <path
-                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                                  fill="none"
-                                  stroke={getScoreHex(scoredRow.factors.growth)}
-                                  strokeWidth="3.5"
-                                  strokeDasharray={`${Math.min(100, Math.max(0, scoredRow.factors.growth ?? 0))}, 100`}
-                                  className="transition-all duration-700 ease-out"
-                                />
-                              </svg>
-                              <div className="absolute inset-0 flex items-center justify-center">
-                                <span className={`text-[11px] font-black font-mono ${getScoreColorClass(scoredRow.factors.growth)}`}>
-                                  {scoredRow.factors.growth !== null ? scoredRow.factors.growth.toFixed(0) : "—"}
-                                </span>
-                              </div>
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <span className="text-[10px] uppercase font-bold text-theme-text-muted block truncate">
-                                {language === "EN" ? "Growth" : "Crecimiento"}
-                              </span>
-                              <span className={`text-[10px] font-mono font-bold ${getScoreColorClass(scoredRow.factors.growth)} block truncate`}>
-                                {scoredRow.factors.growth !== null 
-                                  ? (scoredRow.factors.growth >= 75 
-                                      ? (language === "EN" ? "Strong" : "Fuerte") 
-                                      : scoredRow.factors.growth >= 50 
-                                      ? (language === "EN" ? "Healthy" : "Saludable") 
-                                      : scoredRow.factors.growth >= 35 
-                                      ? (language === "EN" ? "Neutral" : "Neutro") 
-                                      : (language === "EN" ? "Weak" : "Débil")) 
-                                  : "—"}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Quality */}
-                          <div className="bg-theme-card/70 p-2.5 rounded-xl border border-theme-border/50 flex items-center gap-2.5">
-                            <div className="relative w-9 h-9 flex items-center justify-center shrink-0">
-                              <svg viewBox="0 0 36 36" className="w-full h-full transform -rotate-90">
-                                <path
-                                  className="text-theme-sidebar"
-                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="3.5"
-                                />
-                                <path
-                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                                  fill="none"
-                                  stroke={getScoreHex(scoredRow.factors.quality)}
-                                  strokeWidth="3.5"
-                                  strokeDasharray={`${Math.min(100, Math.max(0, scoredRow.factors.quality ?? 0))}, 100`}
-                                  className="transition-all duration-700 ease-out"
-                                />
-                              </svg>
-                              <div className="absolute inset-0 flex items-center justify-center">
-                                <span className={`text-[11px] font-black font-mono ${getScoreColorClass(scoredRow.factors.quality)}`}>
-                                  {scoredRow.factors.quality !== null ? scoredRow.factors.quality.toFixed(0) : "—"}
-                                </span>
-                              </div>
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <span className="text-[10px] uppercase font-bold text-theme-text-muted block truncate">
-                                {language === "EN" ? "Quality" : "Calidad"}
-                              </span>
-                              <span className={`text-[10px] font-mono font-bold ${getScoreColorClass(scoredRow.factors.quality)} block truncate`}>
-                                {scoredRow.factors.quality !== null 
-                                  ? (scoredRow.factors.quality >= 75 
-                                      ? (language === "EN" ? "High" : "Alta") 
-                                      : scoredRow.factors.quality >= 50 
-                                      ? (language === "EN" ? "Solid" : "Sólida") 
-                                      : scoredRow.factors.quality >= 35 
-                                      ? (language === "EN" ? "Medium" : "Media") 
-                                      : (language === "EN" ? "Low" : "Baja")) 
-                                  : "—"}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Stability */}
-                          <div className="bg-theme-card/70 p-2.5 rounded-xl border border-theme-border/50 flex items-center gap-2.5">
-                            <div className="relative w-9 h-9 flex items-center justify-center shrink-0">
-                              <svg viewBox="0 0 36 36" className="w-full h-full transform -rotate-90">
-                                <path
-                                  className="text-theme-sidebar"
-                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="3.5"
-                                />
-                                <path
-                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                                  fill="none"
-                                  stroke={getScoreHex(scoredRow.factors.stability)}
-                                  strokeWidth="3.5"
-                                  strokeDasharray={`${Math.min(100, Math.max(0, scoredRow.factors.stability ?? 0))}, 100`}
-                                  className="transition-all duration-700 ease-out"
-                                />
-                              </svg>
-                              <div className="absolute inset-0 flex items-center justify-center">
-                                <span className={`text-[11px] font-black font-mono ${getScoreColorClass(scoredRow.factors.stability)}`}>
-                                  {scoredRow.factors.stability !== null ? scoredRow.factors.stability.toFixed(0) : "—"}
-                                </span>
-                              </div>
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <span className="text-[10px] uppercase font-bold text-theme-text-muted block truncate">
-                                {language === "EN" ? "Stability" : "Estabilidad"}
-                              </span>
-                              <span className={`text-[10px] font-mono font-bold ${getScoreColorClass(scoredRow.factors.stability)} block truncate`}>
-                                {scoredRow.factors.stability !== null 
-                                  ? (scoredRow.factors.stability >= 75 
-                                      ? (language === "EN" ? "Secure" : "Segura") 
-                                      : scoredRow.factors.stability >= 50 
-                                      ? (language === "EN" ? "Stable" : "Estable") 
-                                      : scoredRow.factors.stability >= 35 
-                                      ? (language === "EN" ? "Fair" : "Aceptable") 
-                                      : (language === "EN" ? "Volatile" : "Volátil")) 
-                                  : "—"}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Valuation */}
-                          <div className="bg-theme-card/70 p-2.5 rounded-xl border border-theme-border/50 flex items-center gap-2.5">
-                            <div className="relative w-9 h-9 flex items-center justify-center shrink-0">
-                              <svg viewBox="0 0 36 36" className="w-full h-full transform -rotate-90">
-                                <path
-                                  className="text-theme-sidebar"
-                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="3.5"
-                                />
-                                <path
-                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                                  fill="none"
-                                  stroke={getScoreHex(scoredRow.factors.valuation)}
-                                  strokeWidth="3.5"
-                                  strokeDasharray={`${Math.min(100, Math.max(0, scoredRow.factors.valuation ?? 0))}, 100`}
-                                  className="transition-all duration-700 ease-out"
-                                />
-                              </svg>
-                              <div className="absolute inset-0 flex items-center justify-center">
-                                <span className={`text-[11px] font-black font-mono ${getScoreColorClass(scoredRow.factors.valuation)}`}>
-                                  {scoredRow.factors.valuation !== null ? scoredRow.factors.valuation.toFixed(0) : "—"}
-                                </span>
-                              </div>
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <span className="text-[10px] uppercase font-bold text-theme-text-muted block truncate">
-                                {language === "EN" ? "Valuation" : "Valoración"}
-                              </span>
-                              <span className={`text-[10px] font-mono font-bold ${getScoreColorClass(scoredRow.factors.valuation)} block truncate`}>
-                                {scoredRow.factors.valuation !== null 
-                                  ? (scoredRow.factors.valuation >= 75 
-                                      ? (language === "EN" ? "Cheap" : "Atractiva") 
-                                      : scoredRow.factors.valuation >= 50 
-                                      ? (language === "EN" ? "Fair" : "Razonable") 
-                                      : scoredRow.factors.valuation >= 35 
-                                      ? (language === "EN" ? "Premium" : "Exigente") 
-                                      : (language === "EN" ? "Expensive" : "Cara")) 
-                                  : "—"}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Price Targets Sub-section */}
+                  {stockData.profile.description && (
                     <div>
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-theme-text-muted block mb-2">
-                        {language === "EN" ? "Wall Street Price Targets" : "Precios Objetivo de Analistas"}
-                      </span>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        {/* Low Target */}
-                        <div className="bg-theme-input p-3.5 rounded-xl border border-theme-border">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[10px] uppercase font-bold text-theme-text-muted">
-                              {language === "EN" ? "Low Target" : "Obj. Mínimo"}
-                            </span>
-                            {stockData.targetLowPrice && stockData.price && (
-                              <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-full ${
-                                stockData.targetLowPrice >= stockData.price
-                                  ? "bg-emerald-500/10 text-emerald-400"
-                                  : "bg-rose-500/10 text-rose-400"
-                              }`}>
-                                {stockData.targetLowPrice >= stockData.price ? "+" : ""}
-                                {(((stockData.targetLowPrice - stockData.price) / stockData.price) * 100).toFixed(1)}%
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-base sm:text-lg font-mono font-bold text-rose-400 mt-1">
-                            {formatCurrency(stockData.targetLowPrice)}
-                          </div>
-                        </div>
-
-                        {/* Mean Target */}
-                        <div className="bg-theme-input p-3.5 rounded-xl border border-emerald-500/30 shadow-inner">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[10px] uppercase font-bold text-emerald-400">
-                              {language === "EN" ? "Avg Target" : "Obj. Medio"}
-                            </span>
-                            {stockData.targetMeanPrice && stockData.price && (
-                              <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-full ${
-                                stockData.targetMeanPrice >= stockData.price
-                                  ? "bg-emerald-500/10 text-emerald-400"
-                                  : "bg-rose-500/10 text-rose-400"
-                              }`}>
-                                {stockData.targetMeanPrice >= stockData.price ? "+" : ""}
-                                {(((stockData.targetMeanPrice - stockData.price) / stockData.price) * 100).toFixed(1)}%
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-lg sm:text-xl font-mono font-black text-theme-text-bright mt-1">
-                            {formatCurrency(stockData.targetMeanPrice)}
-                          </div>
-                        </div>
-
-                        {/* High Target */}
-                        <div className="bg-theme-input p-3.5 rounded-xl border border-theme-border">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[10px] uppercase font-bold text-theme-text-muted">
-                              {language === "EN" ? "High Target" : "Obj. Máximo"}
-                            </span>
-                            {stockData.targetHighPrice && stockData.price && (
-                              <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-full ${
-                                stockData.targetHighPrice >= stockData.price
-                                  ? "bg-emerald-500/10 text-emerald-400"
-                                  : "bg-rose-500/10 text-rose-400"
-                              }`}>
-                                {stockData.targetHighPrice >= stockData.price ? "+" : ""}
-                                {(((stockData.targetHighPrice - stockData.price) / stockData.price) * 100).toFixed(1)}%
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-base sm:text-lg font-mono font-bold text-emerald-400 mt-1">
-                            {formatCurrency(stockData.targetHighPrice)}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* COMPANY PROFILE & DESCRIPTION */}
-                <div className="bg-theme-card border border-theme-border p-6 rounded-2xl shadow-md space-y-4 h-full flex flex-col justify-between">
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-2">
-                      <Building2 size={18} className="text-blue-400" />
-                      <h4 className="font-bold text-sm text-theme-text-bright uppercase tracking-wider">
-                        {language === "EN" ? "About the Company" : "Perfil Corporativo & Negocio"}
-                      </h4>
-                    </div>
-
-                    {stockData.profile.description && (
-                      <div>
-                        <p className={`text-xs text-theme-text-muted leading-relaxed ${isBioExpanded ? "" : "line-clamp-4"}`}>
-                          {stockData.profile.description}
-                        </p>
-                        {stockData.profile.description.length > 220 && (
-                          <button
-                            onClick={() => setIsBioExpanded(!isBioExpanded)}
-                            className="mt-2 text-xs font-bold text-emerald-400 hover:underline cursor-pointer flex items-center gap-1"
-                          >
-                            <span>{isBioExpanded ? (language === "EN" ? "Show Less" : "Mostrar Menos") : (language === "EN" ? "Read Full Description" : "Leer Descripción Completa")}</span>
-                            {isBioExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Key Executives */}
-                  {stockData.profile.officers && stockData.profile.officers.length > 0 && (
-                    <div className="pt-3 border-t border-theme-border/60 mt-2">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-theme-text-muted block mb-2.5 flex items-center gap-1.5">
-                        <Users size={13} className="text-emerald-400" />
-                        {language === "EN" ? "Key Company Executives" : "Principales Directivos"}
-                      </span>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                        {stockData.profile.officers.slice(0, 4).map((off, idx) => (
-                          <div key={idx} className="bg-theme-input p-2.5 rounded-xl border border-theme-border">
-                            <div className="font-bold text-xs text-theme-text-bright truncate">{off.name}</div>
-                            <div className="text-[10.5px] text-theme-text-muted truncate mt-0.5">{off.title}</div>
-                          </div>
-                        ))}
-                      </div>
+                      <p className={`text-xs text-theme-text-muted leading-relaxed ${isBioExpanded ? "" : "line-clamp-4"}`}>
+                        {stockData.profile.description}
+                      </p>
+                      {stockData.profile.description.length > 220 && (
+                        <button
+                          onClick={() => setIsBioExpanded(!isBioExpanded)}
+                          className="mt-2 text-xs font-bold text-emerald-400 hover:underline cursor-pointer flex items-center gap-1"
+                        >
+                          <span>{isBioExpanded ? (language === "EN" ? "Show Less" : "Mostrar Menos") : (language === "EN" ? "Read Full Description" : "Leer Descripción Completa")}</span>
+                          {isBioExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
 
+                {/* Key Executives */}
+                {stockData.profile.officers && stockData.profile.officers.length > 0 && (
+                  <div className="pt-3 border-t border-theme-border/60 mt-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-theme-text-muted block mb-2.5 flex items-center gap-1.5">
+                      <Users size={13} className="text-emerald-400" />
+                      {language === "EN" ? "Key Company Executives" : "Principales Directivos"}
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {stockData.profile.officers.slice(0, 4).map((off, idx) => (
+                        <div key={idx} className="bg-theme-input p-2.5 rounded-xl border border-theme-border">
+                          <div className="font-bold text-xs text-theme-text-bright truncate">{off.name}</div>
+                          <div className="text-[10.5px] text-theme-text-muted truncate mt-0.5">{off.title}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
             </div>

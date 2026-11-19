@@ -3860,6 +3860,28 @@ Respond strictly with valid JSON conforming to this schema:
     const symbol = req.params.symbol.toUpperCase();
     const timeframe = (req.query.range as string) || "1M";
 
+    // 1D: barras de 5 minutos de la última sesión (fecha con hora en ISO). Se piden 5 días para cubrir
+    // fines de semana y festivos y se queda la última sesión según la hora de Nueva York. Sin datos de
+    // Yahoo se responde vacío (nunca una serie inventada).
+    if (timeframe === "1D") {
+      try {
+        const now = new Date();
+        const r: any = await yahooFinance.chart(
+          symbol.replace(/\./g, "-"),
+          { period1: new Date(now.getTime() - 5 * 86400000), period2: now, interval: "5m", includePrePost: false },
+          { validateResult: false }
+        );
+        const quotes = (r?.quotes ?? []).filter((q: any) => typeof q.close === "number" && !isNaN(q.close) && q.date);
+        const nyDay = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+        const lastDay = quotes.length ? nyDay(new Date(quotes[quotes.length - 1].date)) : null;
+        const day = quotes.filter((q: any) => nyDay(new Date(q.date)) === lastDay);
+        return res.json(day.map((q: any) => ({ date: new Date(q.date).toISOString(), close: Number(q.close) })));
+      } catch (e: any) {
+        console.log(`[chart 1D] ${symbol}: ${e?.message || e}`);
+        return res.json([]);
+      }
+    }
+
     // Build timeline dates
     const now = new Date();
     let startDate = new Date();
