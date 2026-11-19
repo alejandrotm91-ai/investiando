@@ -126,7 +126,14 @@ export default function App() {
   const [sidebarTab, setSidebarTab] = useState<SidebarTabType>("market");
   const [selectedPortfolioId, setSelectedPortfolioId] = useState<string>("user");
   const [language, setLanguage] = useState<"EN" | "ES">("EN");
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  // Modo claro por defecto; la elección del usuario se recuerda en este navegador
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    try {
+      return localStorage.getItem("investiando_theme") === "dark" ? "dark" : "light";
+    } catch {
+      return "light";
+    }
+  });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
   const [selectedStockTicker, setSelectedStockTicker] = useState<string>("NVDA");
   
@@ -243,6 +250,11 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    try {
+      localStorage.setItem("investiando_theme", theme);
+    } catch {
+      // sin almacenamiento: solo esta sesión
+    }
     if (theme === "light") {
       document.documentElement.classList.add("light");
       document.documentElement.classList.remove("dark");

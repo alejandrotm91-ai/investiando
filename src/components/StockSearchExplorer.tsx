@@ -897,35 +897,18 @@ export default function StockSearchExplorer({
   }, [chartPerformance, sp500ChartData, nasdaqChartData, benchmarksData]);
 
   // Clean, non-repetitive X-axis ticks for month and year displays
+  // Marcas del eje horizontal: 1D, una por hora; resto, 6 fechas repartidas a intervalos iguales (en el
+  // centro de cada sexto del gráfico, para que la primera y la última no queden cortadas en los bordes)
   const chartTicks = useMemo(() => {
-    if (!combinedChartData || combinedChartData.length === 0) return undefined;
+    const n = combinedChartData?.length ?? 0;
+    if (!n) return undefined;
     if (chartRange === "1D") return combinedChartData.filter((d) => d.date && new Date(d.date).getUTCMinutes() === 0).map((d) => d.date);
-    const isLongRange = ["6M", "YTD", "1Y", "5Y", "ALL"].includes(chartRange);
-
-    if (isLongRange) {
-      if (chartRange === "5Y" || chartRange === "ALL") {
-        const monthMap = new Map<string, string>();
-        for (const item of combinedChartData) {
-          if (!item.date) continue;
-          const monthKey = item.date.substring(0, 7); // "YYYY-MM"
-          monthMap.set(monthKey, item.date);
-        }
-        const values = Array.from(monthMap.values());
-        const step = Math.max(1, Math.floor(values.length / 7));
-        return values.filter((_, idx) => idx % step === 0 || idx === values.length - 1);
-      } else {
-        // 6M, YTD, 1Y: pick exactly one date per month
-        const monthMap = new Map<string, string>();
-        for (const item of combinedChartData) {
-          if (!item.date) continue;
-          const monthKey = item.date.substring(0, 7); // "YYYY-MM"
-          monthMap.set(monthKey, item.date);
-        }
-        return Array.from(monthMap.values());
-      }
-    }
-
-    return undefined;
+    // Paso fijo en número de barras (el eje reparte las barras a la misma distancia): huecos idénticos,
+    // centrados en el gráfico
+    const count = Math.min(6, n);
+    const step = Math.max(1, Math.floor(n / count));
+    const start = Math.floor((n - 1 - step * (count - 1)) / 2);
+    return Array.from({ length: count }, (_, k) => combinedChartData[start + k * step]?.date).filter(Boolean);
   }, [combinedChartData, chartRange]);
 
   // Canal de 52 semanas: posición del precio entre el mínimo (0 %) y el máximo (100 %), cuánto está por
@@ -1418,22 +1401,24 @@ export default function StockSearchExplorer({
                     <div>
                       <div className="flex items-center gap-2">
                         <BarChart3 size={18} className="text-emerald-400" />
-                        <h3 className="text-base font-bold text-theme-text-bright uppercase tracking-wider">
+                        <h3 className="text-sm sm:text-base font-bold text-theme-text-bright uppercase tracking-wider whitespace-nowrap truncate">
                           {isComparing 
-                            ? (language === "EN" ? "Comparative Performance vs Benchmarks" : "Rendimiento Comparativo vs Índices") 
-                            : (language === "EN" ? "Price Performance Chart" : "Gráfico de Rendimiento Histórico")}
+                            ? (language === "EN" ? "Performance vs Benchmarks" : "Rendimiento vs Índices") 
+                            : (language === "EN" ? "Price Performance Chart" : "Gráfico de Rendimiento")}
                         </h3>
                       </div>
                       
                       {/* Performance & Alpha Pills */}
                       <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs font-mono">
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1.5">
                           <span className="text-theme-text-muted">
-                            {stockData.symbol}:
+                            {stockData.symbol}
                           </span>
+                          <span className="font-bold text-sm text-theme-text-bright">{formatCurrency(stockData.price)}</span>
                           <span className={`font-bold flex items-center gap-0.5 ${chartPerformance.isPositive ? "text-emerald-400" : "text-rose-400"}`}>
                             {chartPerformance.isPositive ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
                             {formatPercent(chartPerformance.changePct)}
+                            <span className="text-theme-text-muted font-normal ml-0.5">({chartRange})</span>
                           </span>
                         </div>
 
@@ -1459,19 +1444,19 @@ export default function StockSearchExplorer({
                       </div>
                     </div>
 
-                    {/* Controls: Range Toggles & Benchmark Overlays */}
-                    <div className="flex flex-wrap items-center gap-3">
+                    {/* Controles: comparar e índices y, al lado, la escala temporal (una sola fila) */}
+                    <div className="flex flex-wrap xl:flex-nowrap items-center gap-2 min-w-0">
                       
                       {/* Benchmark Overlays Toggles */}
                       <div data-toggle className="flex items-center gap-1.5 bg-theme-input p-1 rounded-xl border border-theme-border text-xs font-mono">
-                        <span className="text-[10px] text-theme-text-muted px-1.5 uppercase font-bold flex items-center gap-1">
+                        <span className="text-[10px] text-theme-text-muted px-1 uppercase font-bold flex items-center gap-1 whitespace-nowrap" title={language === "EN" ? "Compare" : "Comparar"}>
                           <Scale size={11} />
-                          {language === "EN" ? "Compare:" : "Comparar:"}
+                          <span className="hidden 2xl:inline">{language === "EN" ? "Compare:" : "Comparar:"}</span>
                         </span>
                         
                         <button aria-pressed={!!(compareSP500)}
                           onClick={() => setCompareSP500(!compareSP500)}
-                          className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                          className={`px-2 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
                             compareSP500
                               ? "bg-amber-500 text-slate-950 font-black shadow-xs"
                               : "text-amber-400 hover:bg-amber-500/10"
@@ -1482,7 +1467,7 @@ export default function StockSearchExplorer({
 
                         <button aria-pressed={!!(compareNasdaq)}
                           onClick={() => setCompareNasdaq(!compareNasdaq)}
-                          className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                          className={`px-2 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
                             compareNasdaq
                               ? "bg-sky-500 text-slate-950 font-black shadow-xs"
                               : "text-sky-400 hover:bg-sky-500/10"
@@ -1498,7 +1483,7 @@ export default function StockSearchExplorer({
                           <button aria-pressed={!!(chartRange === r)}
                             key={r}
                             onClick={() => setChartRange(r)}
-                            className={`px-2.5 sm:px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                            className={`px-2 py-1.5 rounded-lg transition-all cursor-pointer ${
                               chartRange === r
                                 ? "bg-emerald-500 text-slate-950 font-black shadow-sm"
                                 : "text-theme-text-muted hover:text-theme-text-bright hover:bg-theme-card-hover"
@@ -1532,6 +1517,7 @@ export default function StockSearchExplorer({
                           <XAxis 
                             dataKey="date" 
                             ticks={chartTicks}
+                            interval={0}
                             tickLine={false} 
                             axisLine={false} 
                             tick={{ fill: theme === "light" ? "#64748b" : "#94a3b8", fontSize: 10 }}
@@ -1543,17 +1529,12 @@ export default function StockSearchExplorer({
                                   ? new Date(parts[0], parts[1] - 1, parts[2]) 
                                   : new Date(d);
                                 
-                                const isLongRange = ["6M", "YTD", "1Y", "5Y", "ALL"].includes(chartRange);
-                                
-                                if (isLongRange) {
+                                if (chartRange === "1Y" || chartRange === "5Y" || chartRange === "ALL") {
                                   const esMonths = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
                                   const enMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
                                   const m = language === "ES" ? esMonths[dateObj.getMonth()] : enMonths[dateObj.getMonth()];
                                   
-                                  if (chartRange === "5Y" || chartRange === "ALL") {
-                                    return `${m} '${dateObj.getFullYear().toString().slice(-2)}`;
-                                  }
-                                  return m;
+                                  return `${m} '${dateObj.getFullYear().toString().slice(-2)}`;
                                 }
                                 
                                 return dateObj.toLocaleDateString(language === "EN" ? "en-US" : "es-ES", { month: "short", day: "numeric" });
@@ -1664,7 +1645,7 @@ export default function StockSearchExplorer({
                 <div className="bg-theme-card border border-theme-border p-6 rounded-2xl shadow-md space-y-5 h-full flex flex-col justify-between">
                   <div className="space-y-4">
                     {/* Header */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center xl:flex-col xl:items-start 2xl:flex-row 2xl:items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <Award size={18} className="text-amber-400" />
                         <h4 className="font-bold text-sm text-theme-text-bright uppercase tracking-wider">
