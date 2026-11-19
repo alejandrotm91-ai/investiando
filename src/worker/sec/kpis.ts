@@ -13,6 +13,7 @@
 
 import { cik10, fetchBudgetLeft, secFetch } from "./client";
 import { askClaudeJson, KPI_MODEL, type ClaudeEnv } from "./claude";
+import { KPI_DEFS_MORE } from "./kpisMore";
 import { fetchPressRelease } from "./earnings";
 import { getSecFinancials, isBudgetError, normTicker } from "./sync";
 import { SEC_UNIVERSE } from "./universe";
@@ -666,6 +667,8 @@ export const KPI_DEFS: Record<string, CompanyKpis> = {
       { id: "profit", en: "Adjusted EBITDA and free cash flow", es: "EBITDA ajustado y flujo de caja libre", type: "bar", keys: ["adj_ebitda", "fcf"] },
     ],
   },
+  // Las otras 69 empresas del universo (kpisMore.ts)
+  ...KPI_DEFS_MORE,
 };
 
 const MAX_TEXT = 120_000;
