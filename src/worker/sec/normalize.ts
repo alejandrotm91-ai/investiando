@@ -64,8 +64,9 @@ export const EXT_CAPEX_TAG = "ExtensionCapitalExpenditure";
 // Conceptos y etiquetas alternativas, por prioridad.
 const CONCEPTS: ConceptDef[] = [
   // Cuenta de resultados
-  // Ingresos con impuestos especiales incluidos (tabaco) solo si no hay cifra neta
-  { key: "totalRevenue", kind: "duration", pick: "max", maxExclude: ["RevenueFromContractWithCustomerIncludingAssessedTax"], tags: ["Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax", "RevenuesNetOfInterestExpense", "SalesRevenueNet", "RevenueFromContractWithCustomerIncludingAssessedTax", "SalesRevenueGoodsNet", "SalesRevenueServicesNet"] },
+  // Ingresos con impuestos especiales incluidos (tabaco) solo si no hay cifra neta.
+  // Eléctricas (NextEra): el total es RegulatedAndUnregulatedOperatingRevenue; RevenueFromContract… es la nota, redondeada y sin todo
+  { key: "totalRevenue", kind: "duration", pick: "max", maxExclude: ["RevenueFromContractWithCustomerIncludingAssessedTax"], tags: ["Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax", "RevenuesNetOfInterestExpense", "SalesRevenueNet", "RegulatedAndUnregulatedOperatingRevenue", "RevenueFromContractWithCustomerIncludingAssessedTax", "SalesRevenueGoodsNet", "SalesRevenueServicesNet"] },
   { key: "costOfRevenue", kind: "duration", tags: ["CostOfRevenue", "CostOfGoodsAndServicesSold", "CostOfGoodsSold", "CostOfServices", "CostOfGoodsAndServiceExcludingDepreciationDepletionAndAmortization"] },
   { key: "grossProfit", kind: "duration", tags: ["GrossProfit"] },
   { key: "researchAndDevelopment", kind: "duration", tags: ["ResearchAndDevelopmentExpense", "ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost"] },
