@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
+import { getAnalystData } from "../utils/analystData";
 import { motion } from "motion/react";
 import { Position } from "../types";
 import { getRawFeatures, buildScores, overrideFeaturesWithFinancials } from "../utils/engine";
@@ -93,21 +94,42 @@ export const CompanyLogo = ({
   );
 };
 
-// Fixed sector mapping to S&P 500 sectors
+// Sector de Yahoo → nombre de sector que usa la app (S&P 500 / clasificación fija)
+const YAHOO_SECTOR: Record<string, string> = {
+  "Technology": "Technology",
+  "Communication Services": "Communication Services",
+  "Consumer Cyclical": "Consumer Discretionary",
+  "Consumer Defensive": "Consumer Staples",
+  "Financial Services": "Financials",
+  "Healthcare": "Healthcare",
+  "Industrials": "Industrials",
+  "Energy": "Energy",
+  "Utilities": "Utilities",
+  "Real Estate": "Real Estate",
+  "Basic Materials": "Materials",
+};
+
+// Perfiles reales (sector e industria de Yahoo) de los tickers que no están en la clasificación fija.
+// Se rellenan al llegar las cotizaciones de la cartera (/api/portfolio/quotes), Stock Explorer y la
+// simulación. Antes, a esos tickers se les asignaba un sector al azar con un hash del ticker.
+const liveProfiles = new Map<string, { sector: string | null; industry: string | null }>();
+export const registerTickerProfiles = (items: { ticker?: string; sector?: string | null; industry?: string | null }[]) => {
+  for (const it of items || []) {
+    if (!it?.ticker || (!it.sector && !it.industry)) continue;
+    liveProfiles.set(it.ticker.toUpperCase(), { sector: it.sector ?? null, industry: it.industry ?? null });
+  }
+};
+export const OTHER_SECTOR = "Other";
+
 export const getTickerSector = (ticker: string, isCash: boolean): string => {
   if (isCash) return "Cash / USD";
   const upper = ticker.toUpperCase();
   if (TICKER_CLASSIFICATION[upper]) {
     return TICKER_CLASSIFICATION[upper].sector;
   }
-
-  // Fallback to deterministic sector based on ticker code
-  const sectors = Object.keys(SECTOR_SUBSECTORS);
-  let hash = 0;
-  for (let i = 0; i < upper.length; i++) {
-    hash = upper.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return sectors[Math.abs(hash) % sectors.length];
+  const live = liveProfiles.get(upper);
+  if (live?.sector) return YAHOO_SECTOR[live.sector] ?? live.sector;
+  return OTHER_SECTOR;
 };
 
 export const getTickerSubsector = (ticker: string, isCash: boolean, language: "EN" | "ES" = "ES"): string => {
@@ -118,15 +140,10 @@ export const getTickerSubsector = (ticker: string, isCash: boolean, language: "E
       ? (TICKER_CLASSIFICATION[upper].subsector || TICKER_CLASSIFICATION[upper].subsector_es)
       : (TICKER_CLASSIFICATION[upper].subsector_es || TICKER_CLASSIFICATION[upper].subsector);
   }
-
-  const sector = getTickerSector(ticker, isCash);
-  const subs = SECTOR_SUBSECTORS[sector] || ["General"];
-
-  let hash = 0;
-  for (let i = 0; i < upper.length; i++) {
-    hash = upper.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return subs[Math.abs(hash * 31) % subs.length];
+  // Industria de Yahoo (en inglés) si la hay; si no, "Otros"
+  const live = liveProfiles.get(upper);
+  if (live?.industry) return live.industry;
+  return language === "EN" ? "Other" : "Otros";
 };
 
 export const getSectorSpanish = (sector: string): string => {
@@ -142,7 +159,8 @@ export const getSectorSpanish = (sector: string): string => {
     "Utilities": "Servicios Públicos",
     "Materials": "Materiales",
     "Real Estate": "Bienes Raíces",
-    "Cash / USD": "Efectivo / USD"
+    "Cash / USD": "Efectivo / USD",
+    "Other": "Otros",
   };
   return map[sector] || sector;
 };
@@ -220,183 +238,33 @@ const getSectorTextClass = (sector: string): string => {
   }
 };
 
-const TICKER_BETA: Record<string, number> = {
-  MSFT: 1.24,
-  AAPL: 1.20,
-  NVDA: 1.68,
-  AVGO: 1.15,
-  AMZN: 1.14,
-  META: 1.22,
-  GOOGL: 1.05,
-  MAGS: 1.30,
-  IREN: 2.15,
-  CRWV: 0.95,
-  NBIS: 0.95,
-  CASH: 0.00,
-  USD: 0.00,
+
+/** Beta de Yahoo de la posición (efectivo = 0); null si no hay dato. Antes, tabla fija o un hash. */
+export const getTickerBeta = (pos: Pick<Position, "isCash"> & { beta?: number | null }): number | null => {
+  if (pos.isCash) return 0;
+  return typeof pos.beta === "number" && Number.isFinite(pos.beta) ? pos.beta : null;
 };
 
-export const getTickerBeta = (ticker: string, isCash: boolean): number => {
-  if (isCash) return 0;
-  const upper = ticker.toUpperCase();
-  if (TICKER_BETA[upper] !== undefined) return TICKER_BETA[upper];
-
-  let hash = 0;
-  for (let i = 0; i < upper.length; i++) {
-    hash = upper.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return 0.8 + (Math.abs(hash) % 100) / 100;
+/** Beta ponderada por peso con las posiciones que tienen dato (null si ninguna). */
+export const weightedBetaOf = (positions: Position[]): number | null => {
+  const withBeta = positions.filter((p) => getTickerBeta(p) !== null && p.weight > 0);
+  const w = withBeta.reduce((s, p) => s + p.weight, 0);
+  if (!withBeta.some((p) => !p.isCash) || w <= 0) return null;
+  return withBeta.reduce((s, p) => s + (getTickerBeta(p) as number) * p.weight, 0) / w;
 };
 
-const TICKER_ANALYST_DATA: Record<string, {
-  avgTarget: number;
-  highTarget: number;
-  recommendation: string;
-  epsCagr: number | null;
-}> = {
-  MSFT: { avgTarget: 561.11, highTarget: 870.00, recommendation: "Buy", epsCagr: 17.4 },
-  META: { avgTarget: 827.32, highTarget: 1015.00, recommendation: "Buy", epsCagr: 21.5 },
-  NVDA: { avgTarget: 298.93, highTarget: 500.00, recommendation: "Buy", epsCagr: 91.5 },
-  AVGO: { avgTarget: 523.73, highTarget: 650.00, recommendation: "Buy", epsCagr: 54.0 },
-  AMZN: { avgTarget: 312.99, highTarget: 370.00, recommendation: "Buy", epsCagr: 30.8 },
-  MAGS: { avgTarget: 0, highTarget: 0, recommendation: "N/A", epsCagr: null },
-  GOOGL: { avgTarget: 432.83, highTarget: 515.00, recommendation: "Buy", epsCagr: -3.1 },
-  IREN: { avgTarget: 80.93, highTarget: 126.00, recommendation: "Buy", epsCagr: -8.0 },
-  CRWV: { avgTarget: 143.41, highTarget: 303.00, recommendation: "Buy", epsCagr: null },
-  NBIS: { avgTarget: 143.41, highTarget: 303.00, recommendation: "Buy", epsCagr: null },
-};
 
-const getAnalystData = (ticker: string, price: number) => {
-  const upperTicker = ticker.toUpperCase();
-  if (upperTicker === "CASH" || upperTicker === "USD") {
-    return {
-      avgTarget: null,
-      highTarget: null,
-      recommendation: null,
-      epsCagr: null
-    };
-  }
 
-  if (TICKER_ANALYST_DATA[upperTicker] !== undefined) {
-    const data = TICKER_ANALYST_DATA[upperTicker];
-    return {
-      avgTarget: data.avgTarget === 0 ? null : data.avgTarget,
-      highTarget: data.highTarget === 0 ? null : data.highTarget,
-      recommendation: data.recommendation,
-      epsCagr: data.epsCagr
-    };
-  }
-
-  // Generate deterministic values for other tickers based on ticker hash or name
-  let hash = 0;
-  for (let i = 0; i < upperTicker.length; i++) {
-    hash = upperTicker.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  hash = Math.abs(hash);
-
-  const avgMultiplier = 1.15 + (hash % 20) / 100; // 1.15 to 1.35
-  const highMultiplier = avgMultiplier + 0.15 + (hash % 15) / 100; // +15% to +30%
-  const avgTarget = price * avgMultiplier;
-  const highTarget = price * highMultiplier;
-
-  // Recommendations
-  const recommendations = ["Buy", "Hold", "Buy", "Strong Buy"];
-  const recommendation = recommendations[hash % recommendations.length];
-
-  // EPS CAGR
-  const epsCagr = ((hash % 50) - 10); // -10 to +39
-
-  return {
-    avgTarget: Number(avgTarget.toFixed(2)),
-    highTarget: Number(highTarget.toFixed(2)),
-    recommendation,
-    epsCagr: Number(epsCagr.toFixed(1))
-  };
-};
-
-const generateTimelineChartData = (ticker: string, currentPrice: number, changePct: number, timeframe: string) => {
-  let hash = 0;
-  for (let i = 0; i < ticker.length; i++) {
-    hash = ticker.toUpperCase().charCodeAt(i) + ((hash << 5) - hash);
-  }
-  hash = Math.abs(hash);
-
-  let numPoints = 20;
-  if (timeframe === "7D") { numPoints = 7; }
-  else if (timeframe === "1M") { numPoints = 20; }
-  else if (timeframe === "6M") { numPoints = 30; }
-  else if (timeframe === "YTD") { numPoints = 25; }
-  else if (timeframe === "1Y") { numPoints = 40; }
-  else if (timeframe === "2Y") { numPoints = 24; }
-  else if (timeframe === "5Y") { numPoints = 45; }
-  else if (timeframe === "10Y") { numPoints = 60; }
-
-  const points: { date: string; close: number }[] = [];
-  const today = new Date();
-
-  let price = currentPrice;
-  for (let i = 0; i < numPoints; i++) {
-    const d = new Date(today);
-    if (timeframe === "7D") { d.setDate(today.getDate() - i); }
-    else if (timeframe === "1M") { d.setDate(today.getDate() - Math.round(i * 1.5)); }
-    else if (timeframe === "6M") { d.setDate(today.getDate() - i * 6); }
-    else if (timeframe === "YTD") { d.setDate(today.getDate() - i * 8); }
-    else if (timeframe === "1Y") { d.setDate(today.getDate() - i * 9); }
-    else if (timeframe === "2Y") { d.setDate(today.getDate() - i * 30); }
-    else if (timeframe === "5Y") { d.setDate(today.getDate() - i * 40); }
-    else if (timeframe === "10Y") { d.setDate(today.getDate() - i * 60); }
-
-    const dateStr = d.toLocaleDateString("es-ES", { month: "short", day: "numeric" });
-    points.push({ date: dateStr, close: Number(price.toFixed(2)) });
-
-    const changeFactor = (changePct / 100) / numPoints;
-    const randomDrift = ((hash + i) % 11 - 5) / 100;
-    price = price * (1 - changeFactor + randomDrift);
-  }
-
-  return points.reverse();
-};
 
 export const getDividendPerShare = (pos: Position): number | null => {
   if (pos.isCash) return null;
   if (pos.dividendRate !== undefined && pos.dividendRate !== null) {
     return pos.dividendRate;
   }
-  const upper = pos.ticker.toUpperCase();
-  const knownDividends: Record<string, number> = {
-    MSFT: 3.30,
-    META: 2.00,
-    NVDA: 0.40,
-    AVGO: 21.20,
-    GOOGL: 0.80,
-    GOOG: 0.80,
-    AAPL: 1.00,
-    AMZN: 0,
-    TSLA: 0,
-    KO: 1.94,
-    WMT: 0.83,
-    "BRK.B": 0,
-    IREN: 0,
-  };
-  if (knownDividends[upper] !== undefined) {
-    return knownDividends[upper];
-  }
-  let hash = 0;
-  for (let i = 0; i < upper.length; i++) {
-    hash = upper.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  hash = Math.abs(hash);
-  const divYieldPct = (hash % 35) / 10;
-  return Number((pos.price * (divYieldPct / 100)).toFixed(2));
+  // Sin dato de Yahoo: desconocido ("—"). Antes, una tabla fija o un rendimiento inventado con un hash.
+  return null;
 };
 
-const formatDividendPerShare = (pos: Position): string => {
-  if (pos.isCash) return "—";
-  const rate = getDividendPerShare(pos);
-  if (rate === null) return "—";
-  if (rate === 0) return "$0.00";
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(rate);
-};
 
 type BasisSortKey = "ticker" | "price" | "shares" | "avgCost" | "mktValue" | "weight" | "dailyPnL" | "chgPct" | "returnAmt" | "returnPct" | "dividend";
 
@@ -430,301 +298,151 @@ const formatTotalDividend = (pos: Position, isReadOnly?: boolean): string => {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(total);
 };
 
+// ---------------------------------------------------------------- ficha de la posición (datos reales)
+// Resumen de /api/stock (Yahoo), BPA anual de la SEC (/api/portfolio/financials) con el precio real al
+// cierre de cada ejercicio (/api/chart 10Y mensual) y BPA trimestral ajustado frente al consenso (Yahoo).
+// Sin dato → "—". Antes casi todo salía de un hash del ticker (apertura, 52 semanas, volumen, cap.,
+// dividendo, fecha de resultados, precios por año) o de tablas fijas (MSFT, NVDA).
+
+type StockInfo = {
+  previousClose?: number | null; open?: number | null; fiftyTwoWeekLow?: number | null; fiftyTwoWeekHigh?: number | null;
+  volume?: number | null; avgVolume?: number | null; marketCap?: number | null; beta?: number | null;
+  trailingPE?: number | null; forwardPE?: number | null; pegRatio?: number | null; trailingEps?: number | null; forwardEps?: number | null;
+  targetMeanPrice?: number | null; dividendRate?: number | null; dividendYield?: number | null; nextEarningsDate?: string | null;
+  earningsQuarterly?: { quarter: string; actual: number | null; estimate: number | null }[];
+  earningsNext?: { quarter: string; estimate: number } | null;
+};
+
+const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
 const getStockDetails = (
-  ticker: string,
-  currentPrice: number,
-  chgPct: number,
-  isCash: boolean,
-  companyName?: string,
-  livePe?: number | null,
-  liveFwdPe?: number | null,
-  livePeg?: number | null,
-  financialsData?: { annual: any[]; quarterly: any[] } | null,
+  position: Position,
+  stock: StockInfo | null,
+  financialsData: { annual: any[]; quarterly: any[] } | null | undefined,
+  priceHistory: { date: string; close: number }[],
   language: "EN" | "ES" = "ES"
 ) => {
-  const upper = ticker.toUpperCase();
-  const sector = getTickerSector(ticker, isCash);
-  const sectorSp = language === "EN" ? sector : getSectorSpanish(sector);
-
-  const getYoY = (curr: number, prev: number) => {
+  const upper = position.ticker.toUpperCase();
+  const fmtC = (v: number | null | undefined) =>
+    isNum(v) ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(v) : "—";
+  const fmtX = (v: number | null | undefined, d = 2) => (isNum(v) ? v.toFixed(d) : "—");
+  const fmtBig = (v: number | null | undefined) =>
+    !isNum(v) || v <= 0 ? "—" : v >= 1e12 ? `${(v / 1e12).toFixed(2)}T` : v >= 1e9 ? `${(v / 1e9).toFixed(1)}B` : v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v.toLocaleString("en-US");
+  const getYoY = (curr: number | null, prev: number | null) => {
+    if (!isNum(curr) || !isNum(prev) || prev <= 0) return "—";
     const diff = ((curr - prev) / prev) * 100;
-    const sign = diff >= 0 ? "▲" : "▼";
-    return `${sign}${Math.abs(diff).toFixed(0)}%`;
+    return `${diff >= 0 ? "▲" : "▼"}${Math.abs(diff).toFixed(0)}%`;
   };
 
-  const fmtC = (v: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(v);
-
-  // Use getRawFeatures to keep statistics fully aligned with the Scorecard
-  const raw = getRawFeatures(upper, companyName || (upper + " Corporation"), sector);
-
-  let hash = 0;
-  for (let i = 0; i < upper.length; i++) {
-    hash = upper.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  hash = Math.abs(hash);
-
-  const prevCloseVal = currentPrice * (1 - (chgPct / 100));
-  const changeVal = currentPrice - prevCloseVal;
-  const openVal = prevCloseVal * (1 + ((hash % 10 - 5) / 500));
-
-  const low52 = currentPrice * (0.7 + (hash % 15) / 100);
-  const high52 = currentPrice * (1.2 + (hash % 20) / 100);
-
-  // Standardize values using raw features from the engine, fallback to live params first
-  const peVal = livePe ?? raw.trailing_pe ?? (15 + (hash % 45));
-  const fwdPeVal = liveFwdPe ?? raw.forward_pe ?? (peVal * 0.9);
-  const epsCagrNum = raw.eps_cagr ?? (10 + (hash % 25));
-
-  const epsVal = peVal > 0 ? (currentPrice / peVal) : 1.5;
-  const betaVal = raw.beta ?? parseFloat((0.8 + (hash % 100) / 100).toFixed(2));
-
-  // PEG Ratio: P/E divided by EPS CAGR (growth)
-  const pegRatioVal = livePeg ?? (epsCagrNum > 0 ? peVal / epsCagrNum : 1.0);
-
-  // Formatting Market Cap
-  let mktCapStr = "";
-  if (upper === "NVDA") mktCapStr = "4.66T";
-  else if (upper === "MSFT") mktCapStr = "4.25T";
-  else {
-    const mktCapVal = currentPrice * (10 + (hash % 90)) * 1000000000;
-    mktCapStr = mktCapVal > 1e12 ? (mktCapVal / 1e12).toFixed(2) + "T" : (mktCapVal / 1e9).toFixed(1) + "B";
-  }
-
-  const vol = (50 + (hash % 150)) * 1000000;
-  const avgVol = (40 + (hash % 100)) * 1000000;
-
-  const oneYearTargetVal = currentPrice * 1.15;
-  const divYieldVal = (hash % 40) / 10;
-  const divPercent = (currentPrice * (divYieldVal / 100));
-
-  const knownEarningsDates: Record<string, string> = {
-    GOOGL: "Jul 22, 2026",
-    GOOG: "Jul 22, 2026",
-    MSFT: "Jul 23, 2026",
-    TSLA: "Jul 23, 2026",
-    META: "Jul 24, 2026",
-    AMD: "Jul 28, 2026",
-    AAPL: "Jul 30, 2026",
-    AMZN: "Jul 30, 2026",
-    COIN: "Aug 01, 2026",
-    NVDA: "Aug 26, 2026",
-    AVGO: "Sep 03, 2026",
-  };
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const earningsDateStr = knownEarningsDates[ticker.toUpperCase()] || `${months[hash % 12]} ${15 + (hash % 13)}, 2026`;
-
-  const cagrFactor = 1 + (epsCagrNum / 100);
-  const priceFactor = 1.15;
-  let fundamentalsList: any[] = [];
-
-  if (financialsData && financialsData.annual && financialsData.annual.length > 0) {
-    const annuals = [...financialsData.annual].sort((a, b) => new Date(a.date || a.fiscalDateEnding || 0).getTime() - new Date(b.date || b.fiscalDateEnding || 0).getTime());
-    const last5 = annuals.slice(Math.max(annuals.length - 5, 0));
-
-    fundamentalsList = last5.map((a, idx) => {
-      const yearMatch = (a.date || a.fiscalDateEnding || "").match(/^(\d{4})/);
-      const year = yearMatch ? yearMatch[1] : (new Date().getFullYear() - (last5.length - 1 - idx)).toString();
-      const eps = a.basicEPS ?? a.dilutedEPS ?? (epsVal / Math.pow(cagrFactor, (last5.length - 1 - idx)));
-      const p = currentPrice / Math.pow(priceFactor, (last5.length - 1 - idx));
-      const prevP = idx > 0 ? currentPrice / Math.pow(priceFactor, (last5.length - idx)) : p;
-      const prevA = idx > 0 ? last5[idx - 1] : null;
-      const prevEps = prevA ? (prevA.basicEPS ?? prevA.dilutedEPS ?? eps) : eps;
-
-      return {
-        year,
-        price: fmtC(p),
-        priceYoY: idx > 0 ? getYoY(p, prevP) : "—",
-        eps: fmtC(eps),
-        epsYoY: idx > 0 ? getYoY(eps, prevEps) : "—",
-        pe: (p / eps).toFixed(1) + "x",
-        rawPrice: p,
-        rawEps: eps
-      };
-    });
-
-    if (fundamentalsList.length > 0) {
-      const lastItem = fundamentalsList[fundamentalsList.length - 1];
-      const nextYear = parseInt(lastItem.year) + 1;
-      const lastEps = lastItem.rawEps;
-      const nextEps = lastEps * cagrFactor;
-      fundamentalsList.push({
-        year: `${nextYear}E`,
-        price: "—",
-        priceYoY: "—",
-        eps: fmtC(nextEps),
-        epsYoY: getYoY(nextEps, lastEps),
-        pe: "—",
-        rawPrice: null as any,
-        rawEps: nextEps
-      });
+  // Precio real al cierre del ejercicio: último cierre mensual en o antes de la fecha (máx. 45 días antes)
+  const priceAt = (date: string): number | null => {
+    const t = new Date(date).getTime();
+    let best: { t: number; close: number } | null = null;
+    for (const p of priceHistory) {
+      const pt = new Date(p.date).getTime();
+      if (pt <= t + 5 * 86400000 && (!best || pt > best.t)) best = { t: pt, close: p.close };
     }
+    return best && t - best.t <= 45 * 86400000 ? best.close : null;
+  };
+
+  // Ejercicios con BPA de la SEC (diluido; si no, básico), los 5 más recientes
+  const annuals = [...(financialsData?.annual || [])]
+    .filter((a) => isNum(a?.dilutedEPS ?? a?.basicEPS) && (a.date || a.fiscalDateEnding))
+    .sort((a, b) => String(a.date || a.fiscalDateEnding).localeCompare(String(b.date || b.fiscalDateEnding)))
+    .slice(-5);
+
+  const fundamentals: { year: string; price: string; priceYoY: string; eps: string; epsYoY: string; pe: string; rawPrice: number | null; rawEps: number; isEstimate?: boolean; date?: string }[] = [];
+  annuals.forEach((a, idx) => {
+    const date = String(a.date || a.fiscalDateEnding);
+    const eps = (a.dilutedEPS ?? a.basicEPS) as number;
+    const price = priceAt(date);
+    const prev = idx > 0 ? fundamentals[idx - 1] : null;
+    fundamentals.push({
+      year: date.slice(0, 4),
+      date,
+      price: fmtC(price),
+      priceYoY: prev ? getYoY(price, prev.rawPrice) : "—",
+      eps: fmtC(eps),
+      epsYoY: prev ? getYoY(eps, prev.rawEps) : "—",
+      pe: isNum(price) && eps > 0 ? `${(price / eps).toFixed(1)}x` : "—",
+      rawPrice: price,
+      rawEps: eps,
+    });
+  });
+  // Estimación de analistas para el próximo ejercicio (BPA "forward" de Yahoo)
+  if (fundamentals.length > 0 && isNum(stock?.forwardEps)) {
+    const last = fundamentals[fundamentals.length - 1];
+    fundamentals.push({
+      year: language === "ES" ? "Próx. (E)" : "Next (E)",
+      price: "—",
+      priceYoY: "—",
+      eps: fmtC(stock!.forwardEps),
+      epsYoY: getYoY(stock!.forwardEps as number, last.rawEps),
+      pe: "—",
+      rawPrice: null,
+      rawEps: stock!.forwardEps as number,
+      isEstimate: true,
+    });
   }
 
-  if (fundamentalsList.length === 0) {
-    const y27Eps = epsVal * cagrFactor;
-    const y26Eps = epsVal;
-    const y25Eps = epsVal / cagrFactor;
-    const y24Eps = y25Eps / cagrFactor;
-    const y23Eps = y24Eps / cagrFactor;
-    const y22Eps = y23Eps / cagrFactor;
+  // CAGR del BPA de la SEC entre el primer y el último ejercicio con BPA positivo
+  const actual = fundamentals.filter((f) => !f.isEstimate);
+  const first = actual.find((f) => f.rawEps > 0);
+  const lastA = actual[actual.length - 1];
+  const years = first && lastA ? Number(lastA.year) - Number(first.year) : 0;
+  const epsCagr = first && lastA && lastA.rawEps > 0 && years > 0 ? (Math.pow(lastA.rawEps / first.rawEps, 1 / years) - 1) * 100 : null;
 
-    const y26Price = currentPrice;
-    const y25Price = currentPrice / priceFactor;
-    const y24Price = y25Price / priceFactor;
-    const y23Price = y24Price / priceFactor;
-    const y22Price = y23Price / priceFactor;
-
-    fundamentalsList = [
-      { year: "2022", price: fmtC(y22Price), priceYoY: "—", eps: fmtC(y22Eps), epsYoY: "—", pe: (y22Price / y22Eps).toFixed(1) + "x", rawPrice: y22Price, rawEps: y22Eps },
-      { year: "2023", price: fmtC(y23Price), priceYoY: getYoY(y23Price, y22Price), eps: fmtC(y23Eps), epsYoY: getYoY(y23Eps, y22Eps), pe: (y23Price / y23Eps).toFixed(1) + "x", rawPrice: y23Price, rawEps: y23Eps },
-      { year: "2024", price: fmtC(y24Price), priceYoY: getYoY(y24Price, y23Price), eps: fmtC(y24Eps), epsYoY: getYoY(y24Eps, y23Eps), pe: (y24Price / y24Eps).toFixed(1) + "x", rawPrice: y24Price, rawEps: y24Eps },
-      { year: "2025", price: fmtC(y25Price), priceYoY: getYoY(y25Price, y24Price), eps: fmtC(y25Eps), epsYoY: getYoY(y25Eps, y24Eps), pe: (y25Price / y25Eps).toFixed(1) + "x", rawPrice: y25Price, rawEps: y25Eps },
-      { year: "2026", price: fmtC(y26Price), priceYoY: getYoY(y26Price, y25Price), eps: fmtC(y26Eps), epsYoY: getYoY(y26Eps, y25Eps), pe: (y26Price / y26Eps).toFixed(1) + "x", rawPrice: y26Price, rawEps: y26Eps },
-      { year: "2027E", price: "—", priceYoY: "—", eps: fmtC(y27Eps), epsYoY: getYoY(y27Eps, y26Eps), pe: "—", rawPrice: null as any, rawEps: y27Eps },
-    ];
-  }
-
-  if (upper === "NVDA") {
-    fundamentalsList = [
-      { year: "2022", price: "$115.96", priceYoY: "—", eps: "$0.54", epsYoY: "—", pe: "214.7x", rawPrice: 115.96, rawEps: 0.54 },
-      { year: "2023", price: "$133.35", priceYoY: "▲15%", eps: "$1.01", epsYoY: "▲85%", pe: "132.0x", rawPrice: 133.35, rawEps: 1.01 },
-      { year: "2024", price: "$153.35", priceYoY: "▲15%", eps: "$1.86", epsYoY: "▲85%", pe: "82.4x", rawPrice: 153.35, rawEps: 1.86 },
-      { year: "2025", price: "$176.36", priceYoY: "▲15%", eps: "$3.45", epsYoY: "▲85%", pe: "51.1x", rawPrice: 176.36, rawEps: 3.45 },
-      { year: "2026", price: fmtC(currentPrice), priceYoY: getYoY(currentPrice, 176.36), eps: "$6.39", epsYoY: "▲85%", pe: (currentPrice / 6.39).toFixed(1) + "x", rawPrice: currentPrice, rawEps: 6.39 },
-      { year: "2027E", price: "—", priceYoY: "—", eps: "$11.83", epsYoY: "▲85%", pe: "—", rawPrice: null as any, rawEps: 11.83 },
-    ];
-  }
+  const lo = stock?.fiftyTwoWeekLow, hi = stock?.fiftyTwoWeekHigh;
+  const divRate = stock?.dividendRate ?? position.dividendRate ?? null;
+  const divYield = stock?.dividendYield;
+  // Solo si es futura: Yahoo tarda en actualizar la fecha tras publicar resultados
+  const upcomingDate = stock?.nextEarningsDate && new Date(stock.nextEarningsDate).getTime() >= Date.now() - 86400000 ? stock.nextEarningsDate : null;
+  const earningsDate = upcomingDate
+    ? new Date(upcomingDate).toLocaleDateString(language === "EN" ? "en-US" : "es-ES", { day: "numeric", month: "short", year: "numeric" })
+    : "—";
 
   return {
     ticker: upper,
-    name: companyName || (upper + " Corporation"),
-    sector: sectorSp,
-    price: currentPrice,
-    change: changeVal,
-    changePercent: chgPct,
     summary: {
-      prevClose: fmtC(prevCloseVal),
-      open: fmtC(openVal),
-      fiftyTwoWeekRange: `${fmtC(low52)} - ${fmtC(high52)}`,
-      volume: (vol / 1000000).toFixed(1) + "M",
-      avgVolume: (avgVol / 1000000).toFixed(1) + "M",
-      mktCap: mktCapStr,
-      beta: betaVal.toFixed(2),
-      peRatio: peVal.toFixed(2),
-      eps: fmtC(epsVal),
-      fwdPe: fwdPeVal.toFixed(2),
-      pegRatio: pegRatioVal.toFixed(2),
-      oneYearTarget: fmtC(oneYearTargetVal),
-      dividendYield: divYieldVal > 0 ? `${divYieldVal.toFixed(2)}% (${fmtC(divPercent)})` : "0.00% (—)",
-      earningsDate: earningsDateStr,
+      prevClose: fmtC(stock?.previousClose),
+      open: fmtC(stock?.open),
+      fiftyTwoWeekRange: isNum(lo) && isNum(hi) ? `${fmtC(lo)} - ${fmtC(hi)}` : "—",
+      volume: fmtBig(stock?.volume),
+      avgVolume: fmtBig(stock?.avgVolume),
+      mktCap: fmtBig(stock?.marketCap),
+      beta: fmtX(stock?.beta ?? position.beta),
+      peRatio: fmtX(stock?.trailingPE ?? position.pe),
+      eps: fmtC(stock?.trailingEps),
+      fwdPe: fmtX(stock?.forwardPE ?? position.fwdPe),
+      pegRatio: fmtX(stock?.pegRatio ?? position.peg),
+      oneYearTarget: fmtC(stock?.targetMeanPrice ?? position.targetMeanPrice),
+      dividendYield: !isNum(divRate) ? "—" : divRate === 0 ? "0.00%" : `${isNum(divYield) ? (divYield * 100).toFixed(2) + "% " : ""}(${fmtC(divRate)})`,
+      earningsDate,
     },
-    epsCagr: `+${epsCagrNum.toFixed(1)}%`,
-    fundamentals: fundamentalsList
+    epsCagr: isNum(epsCagr) ? `${epsCagr >= 0 ? "+" : ""}${epsCagr.toFixed(1)}%` : "—",
+    fundamentals,
   };
 };
 
-const getEPSData = (ticker: string, epsType: "GAAP" | "Normalized") => {
-  const upper = ticker.toUpperCase();
-  const isGAAP = epsType === "GAAP";
-
-  if (upper === "MSFT") {
-    if (isGAAP) {
-      return [
-        { quarter: "Q4 FY25", estimate: 3.25, actual: 3.51, beat: true, diff: 0.26, date: "Aug 1", status: "Beat" },
-        { quarter: "Q1 FY26", estimate: 3.50, actual: 3.98, beat: true, diff: 0.48, date: "Nov 3", status: "Beat" },
-        { quarter: "Q2 FY26", estimate: 3.75, actual: 4.01, beat: true, diff: 0.26, date: "Jan 28", status: "Beat" },
-        { quarter: "Q3 FY26", estimate: 3.95, actual: 4.15, beat: true, diff: 0.20, date: "Apr 25", status: "Beat" },
-        { quarter: "Q4 FY26", estimate: 4.10, actual: null, beat: null, diff: null, date: "Jul 29", status: "Upcoming" },
-      ];
-    } else {
-      return [
-        { quarter: "Q4 FY25", estimate: 3.39, actual: 3.66, beat: true, diff: 0.27, date: "Aug 1", status: "Beat" },
-        { quarter: "Q1 FY26", estimate: 3.65, actual: 4.12, beat: true, diff: 0.47, date: "Nov 3", status: "Beat" },
-        { quarter: "Q2 FY26", estimate: 3.90, actual: 4.12, beat: true, diff: 0.22, date: "Jan 28", status: "Beat" },
-        { quarter: "Q3 FY26", estimate: 4.06, actual: 4.27, beat: true, diff: 0.21, date: "Apr 25", status: "Beat" },
-        { quarter: "Q4 FY26", estimate: 4.20, actual: null, beat: null, diff: null, date: "Jul 29", status: "Upcoming" },
-      ];
-    }
+/** BPA ajustado por trimestre frente al consenso (Yahoo) y estimación del siguiente. */
+const getEPSData = (stock: StockInfo | null, language: "EN" | "ES") => {
+  const label = (q: string) => {
+    const m = /^(\d)Q(\d{4})$/.exec(q);
+    return m ? `Q${m[1]} '${m[2].slice(-2)}` : q;
+  };
+  const rows: { quarter: string; estimate: number; actual: number | null; beat: boolean | null; diff: number | null; date: string; status: "Beat" | "Miss" | "Upcoming" }[] = [];
+  for (const e of stock?.earningsQuarterly || []) {
+    if (!isNum(e.estimate)) continue;
+    const has = isNum(e.actual);
+    const diff = has ? (e.actual as number) - e.estimate : null;
+    rows.push({ quarter: label(e.quarter), estimate: e.estimate, actual: has ? (e.actual as number) : null, beat: diff === null ? null : diff >= 0, diff: diff === null ? null : Math.abs(diff), date: "", status: diff === null ? "Upcoming" : diff >= 0 ? "Beat" : "Miss" });
   }
-
-  // Generative data for any other ticker based on its current price to be realistic
-  let hash = 0;
-  for (let i = 0; i < upper.length; i++) {
-    hash = upper.charCodeAt(i) + ((hash << 5) - hash);
+  if (stock?.earningsNext && isNum(stock.earningsNext.estimate)) {
+    const future = stock.nextEarningsDate && new Date(stock.nextEarningsDate).getTime() >= Date.now() - 86400000;
+    const d = future ? new Date(stock.nextEarningsDate as string).toLocaleDateString(language === "EN" ? "en-US" : "es-ES", { day: "numeric", month: "short" }) : "—";
+    rows.push({ quarter: label(stock.earningsNext.quarter), estimate: stock.earningsNext.estimate, actual: null, beat: null, diff: null, date: d, status: "Upcoming" });
   }
-  hash = Math.abs(hash);
-
-  const baseEPS = 1.5 + (hash % 35) / 10;
-  const factor = isGAAP ? 0.92 : 1.0;
-
-  const q1_est = baseEPS * factor;
-  const q1_act = q1_est + ((hash % 7 - 2) / 10);
-  const q1_diff = q1_act - q1_est;
-
-  const q2_est = baseEPS * 1.1 * factor;
-  const q2_act = q2_est + (((hash + 1) % 7 - 3) / 10);
-  const q2_diff = q2_act - q2_est;
-
-  const q3_est = baseEPS * 1.2 * factor;
-  const q3_act = q3_est + (((hash + 2) % 7 - 1) / 10);
-  const q3_diff = q3_act - q3_est;
-
-  const q4_est = baseEPS * 1.3 * factor;
-  const q4_act = q4_est + (((hash + 3) % 7 - 2) / 10);
-  const q4_diff = q4_act - q4_est;
-
-  const q5_est = baseEPS * 1.4 * factor;
-
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const futureDateStr = `${months[hash % 12]} ${15 + (hash % 13)}`;
-
-  return [
-    {
-      quarter: "Q4 FY25",
-      estimate: Number(q1_est.toFixed(2)),
-      actual: Number(q1_act.toFixed(2)),
-      beat: q1_diff >= 0,
-      diff: Number(Math.abs(q1_diff).toFixed(2)),
-      date: "Aug 12",
-      status: q1_diff >= 0 ? "Beat" : "Miss"
-    },
-    {
-      quarter: "Q1 FY26",
-      estimate: Number(q2_est.toFixed(2)),
-      actual: Number(q2_act.toFixed(2)),
-      beat: q2_diff >= 0,
-      diff: Number(Math.abs(q2_diff).toFixed(2)),
-      date: "Nov 15",
-      status: q2_diff >= 0 ? "Beat" : "Miss"
-    },
-    {
-      quarter: "Q2 FY26",
-      estimate: Number(q3_est.toFixed(2)),
-      actual: Number(q3_act.toFixed(2)),
-      beat: q3_diff >= 0,
-      diff: Number(Math.abs(q3_diff).toFixed(2)),
-      date: "Feb 18",
-      status: q3_diff >= 0 ? "Beat" : "Miss"
-    },
-    {
-      quarter: "Q3 FY26",
-      estimate: Number(q4_est.toFixed(2)),
-      actual: Number(q4_act.toFixed(2)),
-      beat: q4_diff >= 0,
-      diff: Number(Math.abs(q4_diff).toFixed(2)),
-      date: "May 20",
-      status: q4_diff >= 0 ? "Beat" : "Miss"
-    },
-    {
-      quarter: "Q4 FY26",
-      estimate: Number(q5_est.toFixed(2)),
-      actual: null,
-      beat: null,
-      diff: null,
-      date: futureDateStr,
-      status: "Upcoming"
-    }
-  ];
+  return rows;
 };
 
   const DistancePill = ({ current, target }: { current: number; target: number | null | undefined }) => {
@@ -743,166 +461,86 @@ const getEPSData = (ticker: string, epsType: "GAAP" | "Normalized") => {
   };
 
 function StockDetailPanel({ position, language, onClose, financialsData }: { position: Position; language: "EN" | "ES"; onClose: () => void; financialsData?: { annual: any[]; quarterly: any[] } | null }) {
-  const [epsType, setEpsType] = useState<"GAAP" | "Normalized" | "Fundamentals">("Normalized");
-  const [activeQuarterIndex, setActiveQuarterIndex] = useState<number>(3); // Q3 FY26
-  const [monthlyPrices2026, setMonthlyPrices2026] = useState<{ label: string; price: number }[]>([]);
+  const [epsType, setEpsType] = useState<"Normalized" | "Fundamentals">("Normalized");
+  const [activeQuarterIndex, setActiveQuarterIndex] = useState<number | null>(null);
+  // Datos reales: cotización y resumen (/api/stock) y cierres mensuales de 10 años (/api/chart)
+  const [stockInfo, setStockInfo] = useState<StockInfo | null>(null);
+  const [priceHistory, setPriceHistory] = useState<{ date: string; close: number }[]>([]);
+  const [finLocal, setFinLocal] = useState<{ annual: any[]; quarterly: any[] } | null>(null);
+  const hasFin = !!financialsData?.annual?.length;
 
   useEffect(() => {
-    if (epsType !== "Fundamentals") return;
+    if (position.isCash) return;
     let active = true;
-    const fetchYTD = async () => {
-      try {
-        const res = await fetch(`/api/chart/${encodeURIComponent(position.ticker)}?range=YTD`);
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data) && data.length > 0) {
-            // Group by month to find the closing price of each month in 2026
-            const monthlyCloses: Record<string, number> = {};
-            data.forEach((pt: any) => {
-              if (pt.date && typeof pt.close === "number") {
-                const dateObj = new Date(pt.date);
-                if (!isNaN(dateObj.getTime())) {
-                  const year = dateObj.getFullYear();
-                  if (year === new Date().getFullYear()) {
-                    const monthKey = dateObj.getMonth(); // 0-11
-                    monthlyCloses[monthKey] = pt.close; // Overwrite so last day of month wins
-                  }
-                }
-              }
-            });
-
-            const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-            const sortedMonths = Object.keys(monthlyCloses)
-              .map(Number)
-              .sort((a, b) => a - b);
-
-            const monthlyList = sortedMonths.map((m) => ({
-              label: `${monthNames[m]} 26`,
-              price: monthlyCloses[m]
-            }));
-
-            if (active) {
-              setMonthlyPrices2026(monthlyList);
-            }
-          }
-        }
-      } catch (err) {
-        console.error("Failed to fetch YTD monthly prices", err);
-      }
-    };
-    fetchYTD();
+    const t = encodeURIComponent(position.ticker);
+    fetch(`/api/stock/${t}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (active && d && !d.isFallback) setStockInfo(d); })
+      .catch(() => {});
+    // Estados de la SEC si la tabla no los ha pasado (no siempre están cargados para todas las posiciones)
+    if (!hasFin)
+      fetch("/api/portfolio/financials", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ticker: position.ticker }) })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => { if (active && d && !d.error && Array.isArray(d.annual)) setFinLocal({ annual: d.annual, quarterly: d.quarterly || [] }); })
+        .catch(() => {});
+    fetch(`/api/chart/${t}?range=10Y`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => { if (active && Array.isArray(d)) setPriceHistory(d.filter((x: any) => x?.date && typeof x.close === "number")); })
+      .catch(() => {});
     return () => {
       active = false;
     };
-  }, [position.ticker, epsType]);
+  }, [position.ticker, position.isCash, hasFin]);
 
-  const dt = getStockDetails(
-    position.ticker,
-    position.price,
-    position.chgPct,
-    position.isCash,
-    position.name,
-    position.pe,
-    position.fwdPe,
-    position.peg,
-    financialsData,
-    language
-  );
+  const dt = getStockDetails(position, stockInfo, hasFin ? financialsData : finLocal, priceHistory, language);
 
+  // Gráfico anual: ejercicios de la SEC con su precio real al cierre, cierres mensuales reales desde el
+  // último ejercicio (el último punto = hoy, con el BPA de los últimos 12 meses) y la estimación.
   const fundamentalsChartData = useMemo(() => {
-    // Determine the split: last element is future (e.g. 2027E), second to last is current year, everything else is past.
-    const pastElements = dt.fundamentals.slice(0, Math.max(dt.fundamentals.length - 2, 0));
-    const list = pastElements.map((f) => ({
-      year: f.year,
-      rawPrice: f.rawPrice,
-      rawEps: f.rawEps,
-      price: f.price,
-      eps: f.eps,
-      priceYoY: f.priceYoY,
-      epsYoY: f.epsYoY,
-      pe: f.pe
-    }));
-
-    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    const currentMonth = new Date().getMonth();
-
-    // Fallbacks in case list is empty
-    const p25 = list.length > 0 ? list[list.length - 1].rawPrice : position.price * 0.8;
-
-    const p26_current = position.price;
-    const currentYearData = dt.fundamentals.length > 1 ? dt.fundamentals[dt.fundamentals.length - 2] : dt.fundamentals[0];
-    const eps26 = currentYearData ? currentYearData.rawEps : dt.summary.eps;
-
-    const monthlyPoints: any[] = [];
-
-    if (monthlyPrices2026 && monthlyPrices2026.length > 0) {
-      monthlyPrices2026.forEach((pt, idx) => {
-        const isLast = idx === monthlyPrices2026.length - 1;
-
-        monthlyPoints.push({
-          year: isLast ? (currentYearData ? currentYearData.year : "Current") : pt.label,
-          rawPrice: pt.price,
-          // Only have EPS on the final point so the line is flat/direct from previous
-          rawEps: isLast ? eps26 : null,
-          price: new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(pt.price),
-          eps: new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(eps26),
-          priceYoY: "—",
-          epsYoY: isLast && currentYearData ? currentYearData.epsYoY : "—",
-          pe: (pt.price / (eps26 || 1)).toFixed(1) + "x"
-        });
-      });
-    } else {
-      let hash = 0;
-      for (let i = 0; i < position.ticker.length; i++) {
-        hash = position.ticker.charCodeAt(i) + ((hash << 5) - hash);
-      }
-      hash = Math.abs(hash);
-      for (let m = 0; m <= currentMonth; m++) {
-        const fraction = (m + 1) / (currentMonth + 1);
-        const noise = ((hash + m) % 7 - 3) * (position.price * 0.02);
-        const mPrice = p25 + (p26_current - p25) * fraction + noise;
-
-        const isLast = m === currentMonth;
-        const yearLabel = currentYearData ? currentYearData.year : "Current";
-
-        monthlyPoints.push({
-          year: isLast ? yearLabel : `${monthNames[m]} ${yearLabel.slice(-2)}`,
-          rawPrice: Number(mPrice.toFixed(2)),
-          rawEps: isLast ? eps26 : null,
-          price: new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(mPrice),
-          eps: new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(eps26),
-          priceYoY: "—",
-          epsYoY: isLast && currentYearData ? currentYearData.epsYoY : "—",
-          pe: (mPrice / (eps26 || 1)).toFixed(1) + "x"
-        });
-      }
+    const past = dt.fundamentals.filter((f) => !f.isEstimate);
+    const est = dt.fundamentals.find((f) => f.isEstimate);
+    const lastDate = past.length ? past[past.length - 1].date : null;
+    const monthNames = language === "ES" ? ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"] : ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const fmt = (v: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v);
+    const ttm = stockInfo?.trailingEps;
+    // Un cierre por mes posterior al último ejercicio
+    const byMonth = new Map<string, { date: string; close: number }>();
+    for (const pt of priceHistory) {
+      if (lastDate && pt.date <= lastDate) continue;
+      byMonth.set(pt.date.slice(0, 7), pt);
     }
+    const months = [...byMonth.values()].sort((x, y) => x.date.localeCompare(y.date)).slice(lastDate ? 0 : -12);
+    const monthly = months.map((pt, i) => {
+      const isLast = i === months.length - 1;
+      const d = new Date(pt.date);
+      return {
+        year: isLast ? (language === "ES" ? "Hoy" : "Now") : `${monthNames[d.getUTCMonth()]} ${String(d.getUTCFullYear()).slice(-2)}`,
+        rawPrice: isLast ? position.price : pt.close,
+        rawEps: isLast && typeof ttm === "number" ? ttm : null,
+        price: fmt(isLast ? position.price : pt.close),
+        eps: isLast && typeof ttm === "number" ? fmt(ttm) : "—",
+        priceYoY: "—",
+        epsYoY: "—",
+        pe: isLast && typeof ttm === "number" && ttm > 0 ? `${(position.price / ttm).toFixed(1)}x` : "—",
+      };
+    });
+    const rows = past.map((f) => ({ year: f.year, rawPrice: f.rawPrice, rawEps: f.rawEps, price: f.price, eps: f.eps, priceYoY: f.priceYoY, epsYoY: f.epsYoY, pe: f.pe }));
+    const future = est ? [{ year: est.year, rawPrice: null, rawEps: est.rawEps, price: "—", eps: est.eps, priceYoY: "—", epsYoY: est.epsYoY, pe: "—" }] : [];
+    return [...rows, ...monthly, ...future];
+  }, [dt.fundamentals, position.price, priceHistory, stockInfo?.trailingEps, language]);
 
-    const futureYearData = dt.fundamentals.length > 0 ? dt.fundamentals[dt.fundamentals.length - 1] : null;
-
-    const futureElement = futureYearData ? [{
-      year: futureYearData.year,
-      rawPrice: null,
-      rawEps: futureYearData.rawEps,
-      price: "—",
-      eps: futureYearData.eps,
-      priceYoY: "—",
-      epsYoY: futureYearData.epsYoY,
-      pe: "—"
-    }] : [];
-
-    return [...list, ...monthlyPoints, ...futureElement];
-  }, [dt.fundamentals, position.price, position.ticker, monthlyPrices2026]);
-
-  const epsData = getEPSData(position.ticker, epsType === "GAAP" ? "GAAP" : "Normalized");
-  const selectedQ = epsData[activeQuarterIndex] || epsData[3];
-  const showActual = selectedQ.actual !== null;
-  const isSelectedQPositive = selectedQ.actual !== null ? selectedQ.actual >= selectedQ.estimate : null;
+  const epsData = getEPSData(stockInfo, language);
+  // Por defecto, el último trimestre ya publicado
+  const lastReported = epsData.reduce((acc, e, i) => (e.actual !== null ? i : acc), epsData.length - 1);
+  const qIndex = activeQuarterIndex !== null && activeQuarterIndex < epsData.length ? activeQuarterIndex : lastReported;
+  const selectedQ = epsData[qIndex];
+  const showActual = !!selectedQ && selectedQ.actual !== null;
+  const isSelectedQPositive = selectedQ && selectedQ.actual !== null ? selectedQ.actual >= selectedQ.estimate : null;
 
   const RenderEstimateDot = (props: any) => {
     const { cx, cy, index } = props;
     if (cx === undefined || cy === undefined) return null;
-    const isActive = index === activeQuarterIndex;
+    const isActive = index === qIndex;
     return (
       <circle
         cx={cx}
@@ -921,7 +559,7 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
     const { cx, cy, payload, index } = props;
     if (cx === undefined || cy === undefined || payload.actual === null) return null;
     const isBeat = payload.actual >= payload.estimate;
-    const isActive = index === activeQuarterIndex;
+    const isActive = index === qIndex;
     return (
       <circle
         cx={cx}
@@ -941,7 +579,7 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
     const data = epsData[index];
     if (!data) return null;
 
-    const isActive = index === activeQuarterIndex;
+    const isActive = index === qIndex;
     const isBeat = data.status === "Beat";
     const isUpcoming = data.status === "Upcoming";
 
@@ -977,7 +615,7 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
           className="text-[10px] font-mono font-medium"
           fill={isUpcoming ? "#94a3b8" : isBeat ? "#10b981" : "#f43f5e"}
         >
-          {isUpcoming ? data.date : `+$${data.diff?.toFixed(2)}`}
+          {isUpcoming ? data.date : `${isBeat ? "+" : "−"}$${data.diff?.toFixed(2)}`}
         </text>
       </g>
     );
@@ -1005,7 +643,7 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
       price: "Price",
       yoy: "YoY",
       eps: "EPS",
-      epsCagrLegend: "EPS CAGR: 70% last two periods · 30% remaining · E = estimate · P/E = Price ÷ EPS"
+      epsCagrLegend: "EPS: diluted, from SEC filings · Price: close at fiscal year-end · E = analyst estimate (Yahoo) · P/E = Price ÷ EPS · EPS vs. consensus: adjusted EPS (Yahoo)"
     },
     ES: {
       prevClose: "Cierre Anterior",
@@ -1028,7 +666,7 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
       price: "Precio",
       yoy: "YoY",
       eps: "EPS",
-      epsCagrLegend: "EPS CAGR: 70% últimos dos periodos · 30% restante · E = estimación · P/E = Precio ÷ EPS"
+      epsCagrLegend: "BPA: diluido, de los informes a la SEC · Precio: cierre del ejercicio · E = estimación de analistas (Yahoo) · P/E = Precio ÷ BPA · BPA vs. consenso: BPA ajustado (Yahoo)"
     }
   }[language];
 
@@ -1095,7 +733,7 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
               </div>
               <div className="flex justify-between border-b border-slate-900/30 py-1 gap-2">
                 <span className="text-slate-400 whitespace-nowrap">{tDetails.range52}</span>
-                <span className="font-mono text-white font-semibold text-[10px] sm:text-xs whitespace-nowrap">{dt.summary.fiftyTwoWeekRange}</span>
+                <span className="font-mono text-white font-semibold text-[10px] text-right">{dt.summary.fiftyTwoWeekRange}</span>
               </div>
               <div className="flex justify-between border-b border-slate-900/30 py-1">
                 <span className="text-slate-400">{tDetails.volume}</span>
@@ -1163,23 +801,15 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
                 : (language === "ES" ? "Ganancias por Acción" : "Earnings Per Share")}
             </span>
 
-            {/* GAAP vs Normalized vs Price & EPS Toggle */}
+            {/* BPA vs. consenso (Yahoo) / Precio y BPA anual (SEC) */}
             <div data-toggle className="flex bg-[#0f111a] border border-slate-800 rounded-full p-0.5">
-              <button aria-pressed={!!(epsType === "GAAP")}
-                onClick={(e) => { e.stopPropagation(); setEpsType("GAAP"); }}
-                className={`text-[10px] font-bold px-3 py-1 rounded-full transition-all cursor-pointer ${
-                  epsType === "GAAP" ? "bg-slate-800 text-white font-extrabold" : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                GAAP
-              </button>
               <button aria-pressed={!!(epsType === "Normalized")}
                 onClick={(e) => { e.stopPropagation(); setEpsType("Normalized"); }}
                 className={`text-[10px] font-bold px-3 py-1 rounded-full transition-all cursor-pointer ${
                   epsType === "Normalized" ? "bg-slate-800 text-white font-extrabold" : "text-slate-400 hover:text-slate-200"
                 }`}
               >
-                Normalized
+                {language === "ES" ? "BPA vs. consenso" : "EPS vs. consensus"}
               </button>
               <button aria-pressed={!!(epsType === "Fundamentals")}
                 onClick={(e) => { e.stopPropagation(); setEpsType("Fundamentals"); }}
@@ -1193,7 +823,13 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
           </div>
 
           {/* Subheader detail row */}
-          {epsType !== "Fundamentals" ? (
+          {epsType !== "Fundamentals" && !selectedQ ? (
+            <div className="text-xs text-slate-500">
+              {stockInfo
+                ? (language === "ES" ? "Yahoo no tiene estimaciones de BPA para esta empresa." : "Yahoo has no EPS estimates for this company.")
+                : (language === "ES" ? "Cargando…" : "Loading…")}
+            </div>
+          ) : epsType !== "Fundamentals" ? (
             <div className="flex flex-wrap items-center gap-4 text-xs font-semibold text-slate-300 font-mono">
               <span className="text-sm font-bold text-white uppercase tracking-wider">{selectedQ.quarter}</span>
               <span className="flex items-center gap-1.5 text-slate-400">
@@ -1343,7 +979,7 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
                   />
                 </ComposedChart>
               </ResponsiveContainer>
-            ) : (
+            ) : !selectedQ ? null : (
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={epsData} margin={{ top: 20, right: 35, left: -20, bottom: 45 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" opacity={0.3} vertical={false} />
@@ -1385,7 +1021,7 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
                                 <p className="flex justify-between gap-4 pt-1 border-t border-slate-900 text-slate-400">
                                   <span>{language === "ES" ? "Resultado:" : "Result:"}</span>
                                   <span className={`font-extrabold ${isBeat ? "text-emerald-400" : "text-rose-400"}`}>
-                                    {language === "ES" ? (isBeat ? `Superó (+${data.diff.toFixed(2)})` : `Incumplió (-${data.diff.toFixed(2)})`) : `${data.status} (+${data.diff.toFixed(2)})`}
+                                    {language === "ES" ? (isBeat ? `Superó (+${data.diff.toFixed(2)})` : `Incumplió (−${data.diff.toFixed(2)})`) : `${data.status} (${isBeat ? "+" : "−"}${data.diff.toFixed(2)})`}
                                   </span>
                                 </p>
                               </>
@@ -1450,7 +1086,12 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        {dt.fundamentals.length === 0 && (
+          <p className="text-xs text-slate-500 py-2">
+            {language === "ES" ? "Sin estados financieros de la SEC para esta empresa (o aún cargando)." : "No SEC financial statements for this company (or still loading)."}
+          </p>
+        )}
+        <div className={`overflow-x-auto ${dt.fundamentals.length === 0 ? "hidden" : ""}`}>
           <table className="w-full text-left text-xs border-collapse min-w-[500px]">
             <thead>
               <tr className="border-b border-slate-900/60 text-slate-500 font-bold font-mono uppercase tracking-wider text-[10px]">
@@ -1817,8 +1458,9 @@ export default function HoldingsTable({
           } catch (err) {
             console.error(`Failed to fetch performance for ${ticker}:`, err);
           }
-          // Fallback value if fetch fails or yields invalid data
-          results[ticker] = getTickerPerformanceData(ticker, performanceTimeframe, pos);
+          // Sin gráfico: solo el cambio del día real; si no, la posición queda fuera de las barras
+          const fb = getTickerPerformanceData(ticker, performanceTimeframe, pos);
+          if (fb !== null) results[ticker] = fb;
         })
       );
 
@@ -1848,8 +1490,10 @@ export default function HoldingsTable({
         performance: perf,
       };
     });
+    // Sin dato real no se dibuja
+    const withData = data.filter((d): d is { name: string; performance: number } => typeof d.performance === "number");
     // Sort descending by performance so it looks exactly like the image!
-    return data.sort((a, b) => b.performance - a.performance);
+    return withData.sort((a, b) => b.performance - a.performance);
   }, [positions, performanceTimeframe, dynamicPerformance]);
 
   const t = {
@@ -1985,7 +1629,7 @@ export default function HoldingsTable({
     const currentVal = principalList.reduce((acc, pos) => acc + (pos.shares * pos.price), 0);
     const futureVal = principalList.reduce((acc, pos) => {
       if (pos.isCash || pos.ticker === "CASH" || pos.ticker === "USD") return acc + (pos.shares * pos.price);
-      const data = getAnalystData(pos.ticker, pos.price);
+      const data = getAnalystData(pos);
       const targetPrice = (pos.targetMeanPrice !== null && pos.targetMeanPrice !== undefined && pos.targetMeanPrice > 0)
         ? pos.targetMeanPrice
         : ((data.avgTarget !== null && data.avgTarget > 0) ? data.avgTarget : pos.price);
@@ -2000,7 +1644,7 @@ export default function HoldingsTable({
     const marginList = selectedPositions.filter(p => (p.isMargin || projectionTab === "margin") && !p.isCash && p.ticker !== "CASH" && p.ticker !== "USD");
     const currentVal = marginList.reduce((acc, pos) => acc + (pos.shares * pos.price), 0);
     const grossFutureVal = marginList.reduce((acc, pos) => {
-      const data = getAnalystData(pos.ticker, pos.price);
+      const data = getAnalystData(pos);
       const targetPrice = (pos.targetMeanPrice !== null && pos.targetMeanPrice !== undefined && pos.targetMeanPrice > 0)
         ? pos.targetMeanPrice
         : ((data.avgTarget !== null && data.avgTarget > 0) ? data.avgTarget : pos.price);
@@ -2025,7 +1669,7 @@ export default function HoldingsTable({
     const currentVal = principalList.reduce((acc, pos) => acc + (pos.shares * pos.price), 0);
     const futureVal = principalList.reduce((acc, pos) => {
       if (pos.isCash || pos.ticker === "CASH" || pos.ticker === "USD") return acc + (pos.shares * pos.price);
-      const data = getAnalystData(pos.ticker, pos.price);
+      const data = getAnalystData(pos);
       const targetPrice = (pos.targetHighPrice !== null && pos.targetHighPrice !== undefined && pos.targetHighPrice > 0)
         ? pos.targetHighPrice
         : ((data.highTarget !== null && data.highTarget > 0) ? data.highTarget : pos.price);
@@ -2040,7 +1684,7 @@ export default function HoldingsTable({
     const marginList = selectedPositions.filter(p => (p.isMargin || projectionTab === "margin") && !p.isCash && p.ticker !== "CASH" && p.ticker !== "USD");
     const currentVal = marginList.reduce((acc, pos) => acc + (pos.shares * pos.price), 0);
     const grossFutureVal = marginList.reduce((acc, pos) => {
-      const data = getAnalystData(pos.ticker, pos.price);
+      const data = getAnalystData(pos);
       const targetPrice = (pos.targetHighPrice !== null && pos.targetHighPrice !== undefined && pos.targetHighPrice > 0)
         ? pos.targetHighPrice
         : ((data.highTarget !== null && data.highTarget > 0) ? data.highTarget : pos.price);
@@ -2335,11 +1979,6 @@ export default function HoldingsTable({
   // 2. Weighted Multiples & Metrics
   const totalWeight = sortedPositions.reduce((sum, p) => sum + p.weight, 0);
 
-  // Weighted Beta
-  const weightedBeta = totalWeight > 0
-    ? sortedPositions.reduce((sum, p) => sum + (getTickerBeta(p.ticker, p.isCash) * p.weight), 0) / totalWeight
-    : 0;
-
   // Weighted PE (only include positions with valid pe > 0)
   const pePositions = sortedPositions.filter(p => p.pe !== null && p.pe > 0);
   const totalWeightForPe = pePositions.reduce((sum, p) => sum + p.weight, 0);
@@ -2375,13 +2014,13 @@ export default function HoldingsTable({
   const totalDailyPnLPercent = previousValue !== 0 ? (totalDailyPnL / previousValue) * 100 : 0;
 
   const totalAvgValue = sortedPositions.reduce((acc, pos) => {
-    const data = getAnalystData(pos.ticker, pos.price);
+    const data = getAnalystData(pos);
     const targetPrice = (data.avgTarget !== null && data.avgTarget > 0) ? data.avgTarget : pos.price;
     return acc + (pos.shares * targetPrice);
   }, 0);
 
   const totalHighValue = sortedPositions.reduce((acc, pos) => {
-    const data = getAnalystData(pos.ticker, pos.price);
+    const data = getAnalystData(pos);
     const targetPrice = (data.highTarget !== null && data.highTarget > 0) ? data.highTarget : pos.price;
     return acc + (pos.shares * targetPrice);
   }, 0);
@@ -2389,7 +2028,7 @@ export default function HoldingsTable({
   const totalDcfValue = sortedPositions.reduce((acc, pos) => {
     const eps = pos.pe && pos.pe > 0 ? pos.price / pos.pe : null;
     let dcfIntrinsic = calculateTickerDCF(pos.ticker, eps);
-    const data = getAnalystData(pos.ticker, pos.price);
+    const data = getAnalystData(pos);
     if (dcfIntrinsic !== null && dcfIntrinsic < 0 && data.avgTarget !== null && data.avgTarget > 0) {
       dcfIntrinsic = data.avgTarget;
     }
@@ -3800,7 +3439,7 @@ export default function HoldingsTable({
                 const isTotalPositive = pos.returnAmt >= 0;
 
                 const eps = pos.pe && pos.pe > 0 ? pos.price / pos.pe : null;
-                const analystData = getAnalystData(pos.ticker, pos.price);
+                const analystData = getAnalystData(pos);
                 const hasAvgTarget = analystData.avgTarget !== null && analystData.avgTarget > 0;
 
                 let dcfIntrinsic = calculateTickerDCF(pos.ticker, eps);
@@ -3859,14 +3498,16 @@ export default function HoldingsTable({
                             <span
                               title={language === "ES" ? "Piotroski F-Score (0 a 9) obtenido de datos financieros externos" : "Piotroski F-Score (0 to 9) retrieved from external financial metrics"}
                               className={`inline-flex items-center gap-1 font-bold px-2 py-0.5 rounded-md text-xs tracking-wide ${
-                                (pos.piotroskiScore ?? 7) >= 7
+                                pos.piotroskiScore == null
+                                ? "text-theme-text-muted"
+                                : pos.piotroskiScore >= 7
                                   ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
-                                  : (pos.piotroskiScore ?? 7) >= 4
+                                  : pos.piotroskiScore >= 4
                                   ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
                                   : "bg-rose-500/15 text-rose-400 border border-rose-500/30"
                               }`}
                             >
-                              <span>{pos.piotroskiScore ?? 7} / 9</span>
+                              <span>{pos.piotroskiScore == null ? "—" : `${pos.piotroskiScore} / 9`}</span>
                             </span>
                           </div>
                         ) : (
@@ -4350,7 +3991,7 @@ export default function HoldingsTable({
             const isDailyPositive = pos.dailyPnL >= 0;
             const isTotalPositive = pos.returnAmt >= 0;
             const cardScoredRow = scoredRowsMap.get(pos.ticker.toUpperCase());
-            const analystData = getAnalystData(pos.ticker, pos.price);
+            const analystData = getAnalystData(pos);
             const avgTarget = analystData.avgTarget;
             const highTarget = analystData.highTarget;
             const upsideAvg = avgTarget && pos.price > 0 ? ((avgTarget - pos.price) / pos.price) * 100 : null;
@@ -4817,65 +4458,9 @@ const CustomPerformanceTooltip = ({ active, payload, label, language = "EN" }: C
   return null;
 };
 
-function getTickerPerformanceData(ticker: string, timeframe: "day" | "week" | "month" | "6m" | "ytd" | "1y" | "ath", pos?: any) {
-  const symbol = ticker.toUpperCase();
-
-  // Base daily change from live position data if available
-  let dayVal = pos && typeof pos.chgPct === "number" ? pos.chgPct : null;
-  if (dayVal === null) {
-    // Deterministic fallback for day
-    let hash = 0;
-    for (let i = 0; i < symbol.length; i++) {
-      hash = symbol.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    dayVal = ((Math.abs(hash) % 120) - 50) / 10; // -5% to +7%
-  }
-
-  if (timeframe === "day") {
-    return dayVal;
-  }
-
-  // Custom baseline mapping for known tickers
-  const performanceMap: Record<string, { week: number; month: number; "6m": number; ytd: number; "1y": number; ath: number }> = {
-    NVDA: { week: 3.2, month: 14.8, "6m": 72.3, ytd: 148.5, "1y": 182.4, ath: -2.4 },
-    MSFT: { week: 0.8, month: 3.5, "6m": 8.4, ytd: 12.4, "1y": 18.7, ath: -4.8 },
-    META: { week: 1.5, month: 6.8, "6m": 24.5, ytd: 42.1, "1y": 58.2, ath: -1.2 },
-    AMZN: { week: -0.4, month: -1.2, "6m": 12.0, ytd: 18.2, "1y": 24.6, ath: -5.6 },
-    GOOGL: { week: 0.5, month: 2.4, "6m": 10.5, ytd: 15.6, "1y": 22.4, ath: -3.1 },
-    AVGO: { week: 2.1, month: 8.7, "6m": 35.2, ytd: 54.3, "1y": 78.5, ath: -2.9 },
-    MAGS: { week: 1.1, month: 4.2, "6m": 18.3, ytd: 26.4, "1y": 32.1, ath: -3.5 },
-    IREN: { week: -2.5, month: -12.4, "6m": -22.5, ytd: -34.8, "1y": -28.4, ath: -45.2 },
-    CRWV: { week: 0.9, month: 3.8, "6m": 7.5, ytd: 11.2, "1y": 15.5, ath: -8.7 },
-    NBIS: { week: 0.9, month: 3.8, "6m": 7.5, ytd: 11.2, "1y": 15.5, ath: -8.7 },
-    AAPL: { week: 1.2, month: 5.1, "6m": 11.2, ytd: 16.4, "1y": 21.8, ath: -1.5 },
-    TSLA: { week: -3.4, month: -8.5, "6m": -10.0, ytd: -12.3, "1y": -4.2, ath: -28.6 },
-    NFLX: { week: 1.8, month: 7.2, "6m": 22.4, ytd: 35.8, "1y": 48.2, ath: -0.8 },
-    VOO: { week: 0.6, month: 2.1, "6m": 7.4, ytd: 11.8, "1y": 15.2, ath: -0.5 },
-    QQQ: { week: 0.7, month: 2.8, "6m": 9.1, ytd: 14.2, "1y": 18.6, ath: -1.1 },
-  };
-
-  if (performanceMap[symbol]) {
-    return performanceMap[symbol][timeframe];
-  }
-
-  // Deterministic fallback based on hash
-  let hash = 0;
-  for (let i = 0; i < symbol.length; i++) {
-    hash = symbol.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const absHash = Math.abs(hash);
-
-  if (timeframe === "week") {
-    return parseFloat(((absHash % 100) / 10 - 3).toFixed(1)); // -3% to +7%
-  } else if (timeframe === "month") {
-    return parseFloat(((absHash % 300) / 10 - 10).toFixed(1)); // -10% to +20%
-  } else if (timeframe === "6m") {
-    return parseFloat(((absHash % 750) / 10 - 15).toFixed(1)); // -15% to +60%
-  } else if (timeframe === "ytd") {
-    return parseFloat(((absHash % 1200) / 10 - 20).toFixed(1)); // -20% to +100%
-  } else if (timeframe === "ath") {
-    return parseFloat((-(absHash % 150) / 10).toFixed(1)); // -15% to 0%
-  } else {
-    return parseFloat(((absHash % 1800) / 10 - 30).toFixed(1)); // -30% to +150%
-  }
+function getTickerPerformanceData(ticker: string, timeframe: string, pos?: any): number | null {
+  // Solo dato real: el cambio del día de la cotización. Para otros periodos, sin gráfico de Yahoo no
+  // hay rentabilidad (antes, una tabla fija de 15 tickers o una cifra generada con un hash del ticker).
+  if (timeframe === "day" && pos && typeof pos.chgPct === "number" && Number.isFinite(pos.chgPct)) return pos.chgPct;
+  return null;
 }

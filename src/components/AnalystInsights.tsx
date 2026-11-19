@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { getAnalystData } from "../utils/analystData";
 import { Position } from "../types";
 import { 
   TrendingUp, 
@@ -21,23 +22,6 @@ interface AnalystInsightsProps {
 }
 
 // Fixed analyst target data to match the screenshot precisely for the default holdings
-const TICKER_ANALYST_DATA: Record<string, {
-  avgTarget: number;
-  highTarget: number;
-  recommendation: string;
-  epsCagr: number | null;
-}> = {
-  MSFT: { avgTarget: 561.11, highTarget: 870.00, recommendation: "Buy", epsCagr: 17.4 },
-  META: { avgTarget: 827.32, highTarget: 1015.00, recommendation: "Buy", epsCagr: 21.5 },
-  NVDA: { avgTarget: 298.93, highTarget: 500.00, recommendation: "Buy", epsCagr: 91.5 },
-  AVGO: { avgTarget: 523.73, highTarget: 650.00, recommendation: "Buy", epsCagr: 54.0 },
-  AMZN: { avgTarget: 312.99, highTarget: 370.00, recommendation: "Buy", epsCagr: 30.8 },
-  MAGS: { avgTarget: 0, highTarget: 0, recommendation: "N/A", epsCagr: null },
-  GOOGL: { avgTarget: 432.83, highTarget: 515.00, recommendation: "Buy", epsCagr: -3.1 },
-  IREN: { avgTarget: 80.93, highTarget: 126.00, recommendation: "Buy", epsCagr: -8.0 },
-  CRWV: { avgTarget: 143.41, highTarget: 303.00, recommendation: "Buy", epsCagr: null },
-  NBIS: { avgTarget: 143.41, highTarget: 303.00, recommendation: "Buy", epsCagr: null },
-};
 
 export default function AnalystInsights({ positions, language = "EN" }: AnalystInsightsProps) {
   const [viewMode, setViewMode] = useState<"table" | "cards">(() => {
@@ -160,53 +144,6 @@ export default function AnalystInsights({ positions, language = "EN" }: AnalystI
     return formatCurrency(val);
   };
 
-  const getAnalystData = (ticker: string, price: number) => {
-    const upperTicker = ticker.toUpperCase();
-    if (upperTicker === "CASH" || upperTicker === "USD") {
-      return {
-        avgTarget: null,
-        highTarget: null,
-        recommendation: null,
-        epsCagr: null
-      };
-    }
-    
-    if (TICKER_ANALYST_DATA[upperTicker] !== undefined) {
-      const data = TICKER_ANALYST_DATA[upperTicker];
-      return {
-        avgTarget: data.avgTarget === 0 ? null : data.avgTarget,
-        highTarget: data.highTarget === 0 ? null : data.highTarget,
-        recommendation: data.recommendation,
-        epsCagr: data.epsCagr
-      };
-    }
-
-    // Generate deterministic values for other tickers based on ticker hash or name
-    let hash = 0;
-    for (let i = 0; i < upperTicker.length; i++) {
-      hash = upperTicker.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    hash = Math.abs(hash);
-
-    const avgMultiplier = 1.15 + (hash % 20) / 100; // 1.15 to 1.35
-    const highMultiplier = avgMultiplier + 0.15 + (hash % 15) / 100; // +15% to +30%
-    const avgTarget = price * avgMultiplier;
-    const highTarget = price * highMultiplier;
-
-    // Recommendations
-    const recommendations = ["Buy", "Hold", "Buy", "Strong Buy"];
-    const recommendation = recommendations[hash % recommendations.length];
-
-    // EPS CAGR
-    const epsCagr = ((hash % 50) - 10); // -10 to +39
-
-    return {
-      avgTarget: Number(avgTarget.toFixed(2)),
-      highTarget: Number(highTarget.toFixed(2)),
-      recommendation,
-      epsCagr: Number(epsCagr.toFixed(1))
-    };
-  };
 
   // Score the stock valuation based on multiples (PEG and P/E)
   const getValuationClassification = (peg: number | null, pe: number | null) => {
@@ -248,7 +185,7 @@ export default function AnalystInsights({ positions, language = "EN" }: AnalystI
     if (pos.isCash || pos.ticker === "CASH" || pos.ticker === "USD") {
       return acc + (pos.shares * pos.price);
     }
-    const data = getAnalystData(pos.ticker, pos.price);
+    const data = getAnalystData(pos);
     const targetPrice = (pos.targetMeanPrice !== null && pos.targetMeanPrice !== undefined && pos.targetMeanPrice > 0)
       ? pos.targetMeanPrice
       : ((data.avgTarget !== null && data.avgTarget > 0) ? data.avgTarget : pos.price);
@@ -260,7 +197,7 @@ export default function AnalystInsights({ positions, language = "EN" }: AnalystI
     if (pos.isCash || pos.ticker === "CASH" || pos.ticker === "USD") {
       return acc + (pos.shares * pos.price);
     }
-    const data = getAnalystData(pos.ticker, pos.price);
+    const data = getAnalystData(pos);
     const targetPrice = (pos.targetHighPrice !== null && pos.targetHighPrice !== undefined && pos.targetHighPrice > 0)
       ? pos.targetHighPrice
       : ((data.highTarget !== null && data.highTarget > 0) ? data.highTarget : pos.price);
@@ -403,7 +340,7 @@ export default function AnalystInsights({ positions, language = "EN" }: AnalystI
               </thead>
               <tbody className="divide-y divide-slate-800">
                 {activePositions.map((pos, idx) => {
-                  const data = getAnalystData(pos.ticker, pos.price);
+                  const data = getAnalystData(pos);
                   
                   // Calculations
                   const hasAvgTarget = data.avgTarget !== null && data.avgTarget > 0;
@@ -503,7 +440,7 @@ export default function AnalystInsights({ positions, language = "EN" }: AnalystI
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {activePositions.filter(p => !p.isCash).map((pos, idx) => {
             const valuation = getValuationClassification(pos.peg, pos.pe);
-            const data = getAnalystData(pos.ticker, pos.price);
+            const data = getAnalystData(pos);
             const hasAvgTarget = data.avgTarget !== null && data.avgTarget > 0;
             const upsideAvg = hasAvgTarget ? (((data.avgTarget || 0) - pos.price) / pos.price) * 100 : null;
 

@@ -1972,13 +1972,26 @@ export function registerLegacyRoutes(app: LegacyApp) {
               let dividendRate: number | null = null;
               let fiftyDayAverage: number | null = null;
               let twoHundredDayAverage: number | null = null;
+              // Datos reales que antes el navegador inventaba con un hash del ticker
+              let beta: number | null = null;
+              let recommendationKey: string | null = null;
+              let numberOfAnalystOpinions: number | null = null;
+              let sector: string | null = null;
+              let industry: string | null = null;
               
               try {
                 const summary: any = await yahooFinance.quoteSummary(yahooTicker, {
-                  modules: ["summaryDetail", "defaultKeyStatistics", "financialData", "price"]
+                  modules: ["summaryDetail", "defaultKeyStatistics", "financialData", "price", "assetProfile"]
                 }, { validateResult: false });
                 
                 if (summary) {
+                  const rv = (v: any): number | null => (v && typeof v === "object" && typeof v.raw === "number" ? v.raw : typeof v === "number" ? v : null);
+                  beta = rv(summary.summaryDetail?.beta) ?? rv(summary.defaultKeyStatistics?.beta);
+                  const rk = summary.financialData?.recommendationKey;
+                  recommendationKey = typeof rk === "string" && rk !== "none" ? rk : null;
+                  numberOfAnalystOpinions = rv(summary.financialData?.numberOfAnalystOpinions);
+                  sector = summary.assetProfile?.sector || null;
+                  industry = summary.assetProfile?.industry || null;
                   // Extract trailingPE and pegRatio and fiftyTwoWeekHigh from summaryDetail
                   if (summary.summaryDetail) {
                     const sd = summary.summaryDetail;
@@ -2074,11 +2087,13 @@ export function registerLegacyRoutes(app: LegacyApp) {
 
                 // Extract after-hours / effective price if market is closed or extended
                 var priceInfo = extractPriceAndQuoteData(q, summary);
-                var pScore = calculatePiotroskiScoreFromSummary(summary, q);
+                var pScore: number | null = calculatePiotroskiScoreFromSummary(summary, q);
+                // Con resumen de Yahoo y sin dividendo en él, la empresa no reparte: 0 (no "sin dato")
+                if (dividendRate === null && summary?.summaryDetail && !q.dividendRate && !q.trailingAnnualDividendRate) dividendRate = 0;
               } catch (summaryErr: any) {
-                console.log(`[Summary Detail] Using fallback profile for ${yahooTicker}`, summaryErr);
+                console.log(`[Summary Detail] Sin resumen de Yahoo para ${yahooTicker}: ${summaryErr?.message || summaryErr}`);
                 var priceInfo = extractPriceAndQuoteData(q);
-                var pScore = 7;
+                var pScore: number | null = null;
               }
               
               return {
@@ -2101,6 +2116,11 @@ export function registerLegacyRoutes(app: LegacyApp) {
                 targetHighPrice: targetHighPrice !== null ? targetHighPrice : null,
                 dividendRate: dividendRate !== null ? dividendRate : (q.dividendRate || q.trailingAnnualDividendRate || null),
                 piotroskiScore: pScore,
+                beta: beta ?? (typeof q.beta === "number" ? q.beta : null),
+                recommendationKey,
+                numberOfAnalystOpinions,
+                sector,
+                industry,
                 fiftyDayAverage: fiftyDayAverage !== null ? fiftyDayAverage : (q.fiftyDayAverage || null),
                 twoHundredDayAverage: twoHundredDayAverage !== null ? twoHundredDayAverage : (q.twoHundredDayAverage || null),
               };
@@ -2230,7 +2250,12 @@ export function registerLegacyRoutes(app: LegacyApp) {
           targetHighPrice: (quoteSource.targetHighPrice !== undefined && quoteSource.targetHighPrice !== null) ? quoteSource.targetHighPrice : null,
           fiftyDayAverage: (quoteSource.fiftyDayAverage !== undefined && quoteSource.fiftyDayAverage !== null) ? quoteSource.fiftyDayAverage : null,
           twoHundredDayAverage: (quoteSource.twoHundredDayAverage !== undefined && quoteSource.twoHundredDayAverage !== null) ? quoteSource.twoHundredDayAverage : null,
-          piotroskiScore: (quoteSource.piotroskiScore !== undefined && quoteSource.piotroskiScore !== null) ? quoteSource.piotroskiScore : 7,
+          piotroskiScore: typeof quoteSource.piotroskiScore === "number" ? quoteSource.piotroskiScore : null,
+          beta: typeof quoteSource.beta === "number" ? quoteSource.beta : null,
+          recommendationKey: quoteSource.recommendationKey ?? null,
+          numberOfAnalystOpinions: typeof quoteSource.numberOfAnalystOpinions === "number" ? quoteSource.numberOfAnalystOpinions : null,
+          sector: quoteSource.sector ?? null,
+          industry: quoteSource.industry ?? null,
         };
       });
 
@@ -3547,11 +3572,12 @@ Respond strictly with valid JSON conforming to this schema:
 
       // Extract company profile
       const companyName = q?.longName || q?.shortName || getVal(sp.longName) || getVal(sp.shortName) || cached?.longName || FALLBACK_QUOTES[rawSymbol]?.longName || rawSymbol;
-      const sector = ap.sector || "Technology";
-      const industry = ap.industry || "Software & Technology";
+      // Sin perfil de Yahoo: null (antes "Technology" / "Software & Technology" / "United States" inventados)
+      const sector = ap.sector || null;
+      const industry = ap.industry || null;
       const description = ap.longBusinessSummary || "";
       const website = ap.website || "";
-      const country = ap.country || "United States";
+      const country = ap.country || null;
       const city = ap.city || "";
       const employees = ap.fullTimeEmployees || null;
       const officers = Array.isArray(ap.companyOfficers) 
@@ -3579,13 +3605,14 @@ Respond strictly with valid JSON conforming to this schema:
       const beta = getVal(sd.beta) ?? getVal(dks.beta) ?? getVal(q?.beta) ?? null;
 
       // Price ranges
-      const dayHigh = getVal(sd.dayHigh) ?? getVal(q?.regularMarketDayHigh) ?? price * 1.01;
-      const dayLow = getVal(sd.dayLow) ?? getVal(q?.regularMarketDayLow) ?? price * 0.99;
-      const dayOpen = getVal(sp.regularMarketOpen) ?? getVal(sd.regularMarketOpen) ?? getVal(q?.regularMarketOpen) ?? prevClose;
-      const volume = getVal(sp.regularMarketVolume) ?? getVal(sd.regularMarketVolume) ?? getVal(q?.regularMarketVolume) ?? 0;
-      const avgVolume = getVal(sd.averageVolume) ?? getVal(sd.averageDailyVolume3Month) ?? getVal(q?.averageDailyVolume3Month) ?? 0;
-      const fiftyTwoWeekHigh = getVal(sd.fiftyTwoWeekHigh) ?? getVal(q?.fiftyTwoWeekHigh) ?? price * 1.25;
-      const fiftyTwoWeekLow = getVal(sd.fiftyTwoWeekLow) ?? getVal(q?.fiftyTwoWeekLow) ?? price * 0.75;
+      // Sin dato de Yahoo → null (antes: ±1 % del precio para el día, ±25 % para 52 semanas, volumen 0)
+      const dayHigh = getVal(sd.dayHigh) ?? getVal(q?.regularMarketDayHigh) ?? null;
+      const dayLow = getVal(sd.dayLow) ?? getVal(q?.regularMarketDayLow) ?? null;
+      const dayOpen = getVal(sp.regularMarketOpen) ?? getVal(sd.regularMarketOpen) ?? getVal(q?.regularMarketOpen) ?? null;
+      const volume = getVal(sp.regularMarketVolume) ?? getVal(sd.regularMarketVolume) ?? getVal(q?.regularMarketVolume) ?? null;
+      const avgVolume = getVal(sd.averageVolume) ?? getVal(sd.averageDailyVolume3Month) ?? getVal(q?.averageDailyVolume3Month) ?? null;
+      const fiftyTwoWeekHigh = getVal(sd.fiftyTwoWeekHigh) ?? getVal(q?.fiftyTwoWeekHigh) ?? null;
+      const fiftyTwoWeekLow = getVal(sd.fiftyTwoWeekLow) ?? getVal(q?.fiftyTwoWeekLow) ?? null;
       const fiftyDayAverage = getVal(sd.fiftyDayAverage) ?? getVal(q?.fiftyDayAverage) ?? null;
       const twoHundredDayAverage = getVal(sd.twoHundredDayAverage) ?? getVal(q?.twoHundredDayAverage) ?? null;
 
@@ -3649,6 +3676,18 @@ Respond strictly with valid JSON conforming to this schema:
       if (ce.earnings && ce.earnings.earningsDate && ce.earnings.earningsDate.length > 0) {
         nextEarningsDate = parseSafeDate(ce.earnings.earningsDate[0]);
       }
+
+      // BPA ajustado real frente al consenso de los últimos trimestres y estimación del siguiente
+      // (módulo "earnings" de Yahoo). Lo usa la ficha de la posición en Holdings.
+      const ec = summary?.earnings?.earningsChart || {};
+      const earningsQuarterly = (Array.isArray(ec.quarterly) ? ec.quarterly : [])
+        .map((e: any) => ({ quarter: String(e.date ?? ""), actual: getVal(e.actual), estimate: getVal(e.estimate) }))
+        .filter((e: any) => e.quarter && (typeof e.actual === "number" || typeof e.estimate === "number"));
+      const nextQuarterEstimate = getVal(ec.currentQuarterEstimate);
+      const earningsNext =
+        typeof nextQuarterEstimate === "number" && ec.currentQuarterEstimateDate
+          ? { quarter: `${ec.currentQuarterEstimateDate}${ec.currentQuarterEstimateYear ?? ""}`, estimate: nextQuarterEstimate }
+          : null;
 
       // Piotroski score calculation
       const piotroskiScore = calculatePiotroskiScoreFromSummary(summary, q);
@@ -3724,6 +3763,8 @@ Respond strictly with valid JSON conforming to this schema:
         numberOfAnalystOpinions,
         recommendationTrends: rt,
         nextEarningsDate,
+        earningsQuarterly,
+        earningsNext,
         piotroskiScore,
         sharesOutstanding,
         floatShares,

@@ -39,6 +39,12 @@ export interface Position {
   piotroskiScore?: number | null;
   fiftyDayAverage?: number | null;
   twoHundredDayAverage?: number | null;
+  /** De Yahoo vía /api/portfolio/quotes (null si no hay dato) */
+  beta?: number | null;
+  recommendationKey?: string | null;
+  numberOfAnalystOpinions?: number | null;
+  sector?: string | null;
+  industry?: string | null;
 }
 
 export interface PortfolioTotals {

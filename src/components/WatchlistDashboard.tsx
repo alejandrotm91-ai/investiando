@@ -311,9 +311,10 @@ export default function WatchlistDashboard({
           } catch (err) {
             console.error(`Failed to fetch performance for ${ticker}:`, err);
           }
-          // Fallback value if fetch fails or yields invalid data
+          // Sin gráfico: solo el cambio del día real; si no, el valor queda fuera de las barras
           const item = items.find(it => it.symbol.toUpperCase() === ticker);
-          results[ticker] = getTickerPerformanceData(ticker, performanceTimeframe, item ? { chgPct: item.changePct } : undefined);
+          const fb = getTickerPerformanceData(ticker, performanceTimeframe, item ? { chgPct: item.changePct } : undefined);
+          if (fb !== null) results[ticker] = fb;
         })
       );
 
@@ -341,8 +342,10 @@ export default function WatchlistDashboard({
         performance: perf,
       };
     });
+    // Sin dato real no se dibuja
+    const withData = data.filter((d): d is { name: string; performance: number } => typeof d.performance === "number");
     // Sort descending by performance
-    return data.sort((a, b) => b.performance - a.performance);
+    return withData.sort((a, b) => b.performance - a.performance);
   }, [items, performanceTimeframe, dynamicPerformance]);
 
   // Generate scored items map for the watchlist using the unified Master Stock Score Matrix
@@ -975,61 +978,9 @@ const CustomPerformanceTooltip = ({ active, payload, label, language = "EN" }: C
   return null;
 };
 
-function getTickerPerformanceData(ticker: string, timeframe: "day" | "month" | "6m" | "ytd" | "1y", pos?: any) {
-  const symbol = ticker.toUpperCase();
-  
-  // Base daily change from live position data if available
-  let dayVal = pos && typeof pos.chgPct === "number" ? pos.chgPct : null;
-  if (dayVal === null) {
-    // Deterministic fallback for day
-    let hash = 0;
-    for (let i = 0; i < symbol.length; i++) {
-      hash = symbol.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    dayVal = ((Math.abs(hash) % 120) - 50) / 10; // -5% to +7%
-  }
-  
-  if (timeframe === "day") {
-    return dayVal;
-  }
-  
-  // Custom baseline mapping for known tickers
-  const performanceMap: Record<string, { month: number; "6m": number; ytd: number; "1y": number }> = {
-    NVDA: { month: 14.8, "6m": 72.3, ytd: 148.5, "1y": 182.4 },
-    MSFT: { month: 3.5, "6m": 8.4, ytd: 12.4, "1y": 18.7 },
-    META: { month: 6.8, "6m": 24.5, ytd: 42.1, "1y": 58.2 },
-    AMZN: { month: -1.2, "6m": 12.0, ytd: 18.2, "1y": 24.6 },
-    GOOGL: { month: 2.4, "6m": 10.5, ytd: 15.6, "1y": 22.4 },
-    AVGO: { month: 8.7, "6m": 35.2, ytd: 54.3, "1y": 78.5 },
-    MAGS: { month: 4.2, "6m": 18.3, ytd: 26.4, "1y": 32.1 },
-    IREN: { month: -12.4, "6m": -22.5, ytd: -34.8, "1y": -28.4 },
-    CRWV: { month: 3.8, "6m": 7.5, ytd: 11.2, "1y": 15.5 },
-    NBIS: { month: 3.8, "6m": 7.5, ytd: 11.2, "1y": 15.5 },
-    AAPL: { month: 5.1, "6m": 11.2, ytd: 16.4, "1y": 21.8 },
-    TSLA: { month: -8.5, "6m": -10.0, ytd: -12.3, "1y": -4.2 },
-    NFLX: { month: 7.2, "6m": 22.4, ytd: 35.8, "1y": 48.2 },
-    VOO: { month: 2.1, "6m": 7.4, ytd: 11.8, "1y": 15.2 },
-    QQQ: { month: 2.8, "6m": 9.1, ytd: 14.2, "1y": 18.6 },
-  };
-
-  if (performanceMap[symbol]) {
-    return performanceMap[symbol][timeframe];
-  }
-
-  // Deterministic fallback based on hash
-  let hash = 0;
-  for (let i = 0; i < symbol.length; i++) {
-    hash = symbol.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const absHash = Math.abs(hash);
-  
-  if (timeframe === "month") {
-    return parseFloat(((absHash % 300) / 10 - 10).toFixed(1)); // -10% to +20%
-  } else if (timeframe === "6m") {
-    return parseFloat(((absHash % 750) / 10 - 15).toFixed(1)); // -15% to +60%
-  } else if (timeframe === "ytd") {
-    return parseFloat(((absHash % 1200) / 10 - 20).toFixed(1)); // -20% to +100%
-  } else {
-    return parseFloat(((absHash % 1800) / 10 - 30).toFixed(1)); // -30% to +150%
-  }
+function getTickerPerformanceData(ticker: string, timeframe: string, pos?: any): number | null {
+  // Solo dato real: el cambio del día de la cotización. Para otros periodos, sin gráfico de Yahoo no
+  // hay rentabilidad (antes, una tabla fija de 15 tickers o una cifra generada con un hash del ticker).
+  if (timeframe === "day" && pos && typeof pos.chgPct === "number" && Number.isFinite(pos.chgPct)) return pos.chgPct;
+  return null;
 }

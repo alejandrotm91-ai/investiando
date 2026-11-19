@@ -49,7 +49,7 @@ import {
   ReferenceLine,
   Legend
 } from "recharts";
-import { CompanyLogo, getTickerSector, getSectorSpanish, getSectorColor, getTypeBadgeConfig } from "./HoldingsTable";
+import { CompanyLogo, getTickerSector, getSectorSpanish, getSectorColor, getTypeBadgeConfig, registerTickerProfiles } from "./HoldingsTable";
 import { CompanyFinancials } from "./CompanyFinancials";
 import BogleAnalysisDashboard from "./BogleAnalysisDashboard";
 import ThreeStatementModel from "./ThreeStatementModel";
@@ -134,11 +134,11 @@ interface StockDetails {
   stale?: boolean;
   quoteAsOf?: string | null;
   profile: {
-    sector: string;
-    industry: string;
+    sector: string | null;
+    industry: string | null;
     description: string;
     website: string;
-    country: string;
+    country: string | null;
     city: string;
     employees: number | null;
     officers: Array<{ name: string; title: string; totalPay: number | null; yearBorn: number | null }>;
@@ -428,6 +428,8 @@ export default function StockSearchExplorer({
         throw new Error(`Failed to load stock data for ${cleanTicker}`);
       }
       const data: StockDetails = await res.json();
+      // Sector e industria reales de Yahoo para los tickers fuera de la clasificación fija
+      registerTickerProfiles([{ ticker: data.symbol, sector: data.profile?.sector, industry: data.profile?.industry }]);
       setStockData(data);
       
       // Update recent searches
@@ -646,7 +648,7 @@ export default function StockSearchExplorer({
   const scoredRow = useMemo<ScoredRow | null>(() => {
     if (!stockData) return null;
     const sym = stockData.symbol.toUpperCase();
-    const sector = getTickerSector(sym, false) || stockData.profile?.sector || "Technology";
+    const sector = getTickerSector(sym, false);
     let raw = { ...getRawFeatures(sym, stockData.name, sector) };
 
     if (financialsData) {
@@ -1236,18 +1238,26 @@ export default function StockSearchExplorer({
                     <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-theme-input border border-theme-border text-theme-text-muted">
                       {stockData.exchange} • {stockData.currency}
                     </span>
-                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold text-white shadow-sm ${getSectorColor(stockData.profile.sector)}`}>
-                      {language === "EN" ? stockData.profile.sector : getSectorSpanish(stockData.profile.sector)}
-                    </span>
+                    {(() => {
+                      // Sector con los nombres de la app (clasificación fija o el de Yahoo traducido); sin dato, no se muestra
+                      const sec = getTickerSector(stockData.symbol, false);
+                      return sec && sec !== "Other" ? (
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold text-white shadow-sm ${getSectorColor(sec)}`}>
+                          {language === "EN" ? sec : getSectorSpanish(sec)}
+                        </span>
+                      ) : null;
+                    })()}
                   </div>
                   <h2 className="text-sm sm:text-base font-semibold text-theme-text-muted truncate mt-1">
                     {stockData.name}
                   </h2>
                   <div className="flex flex-wrap items-center gap-3 text-xs text-theme-text-muted mt-2">
-                    <span className="flex items-center gap-1">
-                      <Briefcase size={12} className="text-emerald-400" />
-                      {stockData.profile.industry}
-                    </span>
+                    {stockData.profile.industry && (
+                      <span className="flex items-center gap-1">
+                        <Briefcase size={12} className="text-emerald-400" />
+                        {stockData.profile.industry}
+                      </span>
+                    )}
                     {stockData.profile.country && (
                       <span className="flex items-center gap-1">
                         <MapPin size={12} className="text-blue-400" />
@@ -2098,7 +2108,7 @@ export default function StockSearchExplorer({
                     </div>
                     <div className="flex justify-between items-center py-1">
                       <span className="text-theme-text-muted">{language === "EN" ? "Piotroski F-Score" : "Puntaje Piotroski"}</span>
-                      <span className="font-mono font-bold text-amber-400">{stockData.piotroskiScore ?? 7}/9</span>
+                      <span className="font-mono font-bold text-amber-400">{stockData.piotroskiScore == null ? "—" : `${stockData.piotroskiScore}/9`}</span>
                     </div>
                   </div>
                 </div>

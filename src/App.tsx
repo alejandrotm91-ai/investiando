@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { Holding, Position, PortfolioData, TabType, SidebarTabType, UserPortfolio } from "./types";
 import { getMarketStatus } from "./utils/market";
 import SummaryDashboard from "./components/SummaryDashboard";
-import HoldingsTable from "./components/HoldingsTable";
+import HoldingsTable, { registerTickerProfiles } from "./components/HoldingsTable";
 import HedgeFundReport from "./components/HedgeFundReport";
 import AnalystInsights from "./components/AnalystInsights";
 import StockScorecard from "./components/StockScorecard";
@@ -504,12 +504,17 @@ export default function App() {
   const quoteRetryRef = useRef(0);
   const quoteRetryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fetchQuotesAndCalculationsRef = useRef<((h: Holding[], isRefresh?: boolean) => Promise<void>) | null>(null);
+  // Número de la última petición de cotizaciones: una respuesta que llega tarde (p. ej. la de la cartera
+  // por defecto antes de cargar la del usuario) no debe pisar la de una petición más reciente.
+  const quotesSeqRef = useRef(0);
 
   // Fetch portfolio quotes & calculations with retry & fallback
   const fetchQuotesAndCalculations = useCallback(async (currentHoldings: Holding[], isRefresh = false) => {
     // Una petición nueva cancela el reintento pendiente (p. ej. al cambiar de cartera).
     if (quoteRetryTimer.current) { clearTimeout(quoteRetryTimer.current); quoteRetryTimer.current = null; }
     if (!isRefresh) quoteRetryRef.current = 0;
+    const seq = ++quotesSeqRef.current;
+    const stale = () => seq !== quotesSeqRef.current;
     if (!currentHoldings || currentHoldings.length === 0) {
       setPortfolioData(null);
       setLoading(false);
@@ -548,7 +553,9 @@ export default function App() {
 
     try {
       const data = await executeFetch();
+      if (stale()) return;
       if (data && Array.isArray(data.positions)) {
+        registerTickerProfiles(data.positions);
         setPortfolioData(data);
         if (selectedPortfolioId === "user") {
           setUserPortfolioData(data);
@@ -568,6 +575,7 @@ export default function App() {
         }
       }
     } catch (err) {
+      if (stale()) return;
       console.warn("Portfolio quotes API unavailable, calculating offline fallback:", err);
       // Construct fallback portfolio data so the UI remains interactive
       const fallbackPositions: Position[] = currentHoldings.map(h => {
@@ -592,6 +600,8 @@ export default function App() {
           returnPct: 0,
           isCash: h.ticker.toUpperCase() === "CASH" || Boolean(h.isCash),
           isMargin: Boolean(h.isMargin),
+          // Sin servidor: el precio es el costo medio, provisional (la vista lo marca como no en vivo)
+          dataSource: "synthetic",
         };
       });
       const totalMktValue = fallbackPositions.reduce((s, p) => s + p.mktValue, 0);
@@ -615,8 +625,10 @@ export default function App() {
         setUserPortfolioData(fallbackData);
       }
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (!stale()) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [selectedPortfolioId]);
   fetchQuotesAndCalculationsRef.current = fetchQuotesAndCalculations;
@@ -651,7 +663,8 @@ export default function App() {
           });
           if (response.ok && response.headers.get("content-type")?.includes("application/json")) {
             const data = await response.json();
-            setPortfolioData(data);
+            registerTickerProfiles(data.positions);
+        setPortfolioData(data);
           } else {
             console.warn("Notice: combined superinvestors not ready yet");
           }
@@ -940,7 +953,10 @@ export default function App() {
       })
         .then((res) => (res.ok && res.headers.get("content-type")?.includes("application/json") ? res.json() : null))
         .then((data) => {
-          if (data) setPortfolioData(data);
+          if (data) {
+            registerTickerProfiles(data.positions);
+            setPortfolioData(data);
+          }
         })
         .catch((err) => console.warn("Notice fetching combined superinvestors:", err))
         .finally(() => setRefreshing(false));

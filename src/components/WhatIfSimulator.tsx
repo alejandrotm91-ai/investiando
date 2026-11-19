@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { getAnalystData } from "../utils/analystData";
 import { Position, PortfolioData, SearchResult } from "../types";
 import { 
   Sparkles, 
@@ -26,7 +27,7 @@ import {
   Table
 } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
-import { getTickerSector, getSectorSpanish, getSectorColor, getTickerSubsector, CompanyLogo, HealthMetricsTooltip } from "./HoldingsTable";
+import { getTickerSector, getSectorSpanish, getSectorColor, getTickerSubsector, CompanyLogo, HealthMetricsTooltip, registerTickerProfiles } from "./HoldingsTable";
 import { CompanyFinancials } from "./CompanyFinancials";
 import { saveUserCloudData, subscribeUserCloudData } from "../lib/cloudData";
 import { getRawFeatures, buildScores, overrideFeaturesWithFinancials } from "../utils/engine";
@@ -34,23 +35,6 @@ import { useScoreBenchmarks } from "../utils/useScoreBenchmarks";
 import { expectedAnnualReturn, type ExpectedReturn } from "../utils/expectedReturn";
 
 // Fixed analyst target data to match the screenshot precisely for the default holdings
-const TICKER_ANALYST_DATA: Record<string, {
-  avgTarget: number;
-  highTarget: number;
-  recommendation: string;
-  epsCagr: number | null;
-}> = {
-  MSFT: { avgTarget: 561.11, highTarget: 870.00, recommendation: "Buy", epsCagr: 17.4 },
-  META: { avgTarget: 827.32, highTarget: 1015.00, recommendation: "Buy", epsCagr: 21.5 },
-  NVDA: { avgTarget: 298.93, highTarget: 500.00, recommendation: "Buy", epsCagr: 91.5 },
-  AVGO: { avgTarget: 523.73, highTarget: 650.00, recommendation: "Buy", epsCagr: 54.0 },
-  AMZN: { avgTarget: 312.99, highTarget: 370.00, recommendation: "Buy", epsCagr: 30.8 },
-  MAGS: { avgTarget: 0, highTarget: 0, recommendation: "N/A", epsCagr: null },
-  GOOGL: { avgTarget: 432.83, highTarget: 515.00, recommendation: "Buy", epsCagr: -3.1 },
-  IREN: { avgTarget: 80.93, highTarget: 126.00, recommendation: "Buy", epsCagr: -8.0 },
-  CRWV: { avgTarget: 143.41, highTarget: 303.00, recommendation: "Buy", epsCagr: null },
-  NBIS: { avgTarget: 143.41, highTarget: 303.00, recommendation: "Buy", epsCagr: null },
-};
 
 const ScoreDonut = ({ score, label, colorClass }: { score: number; label: string; colorClass: string }) => {
   const displayScore = Math.ceil(score || 0);
@@ -951,6 +935,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
       if (!r.ok) return null;
       const d = await r.json();
       if (!d || d.isFallback || !(d.price > 0)) return null;
+      registerTickerProfiles([{ ticker: symbol, sector: d.profile?.sector, industry: d.profile?.industry }]);
       const n = (v: any) => (typeof v === "number" && Number.isFinite(v) ? v : null);
       return {
         price: d.price,
@@ -965,6 +950,10 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
         targetMeanPrice: n(d.targetMeanPrice),
         targetHighPrice: n(d.targetHighPrice),
         piotroskiScore: n(d.piotroskiScore),
+        recommendationKey: typeof d.recommendationKey === "string" ? d.recommendationKey : null,
+        beta: n(d.beta),
+        sector: d.profile?.sector || null,
+        industry: d.profile?.industry || null,
         dataSource: "live",
       };
     } catch {
@@ -1399,53 +1388,6 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
     }
   }, [projectionTab, weightedCagr, weightedMarginCagr, combinedWeightedCagr]);
 
-  const getAnalystData = (ticker: string, price: number) => {
-    const upperTicker = ticker.toUpperCase();
-    if (upperTicker === "CASH" || upperTicker === "USD") {
-      return {
-        avgTarget: null,
-        highTarget: null,
-        recommendation: null,
-        epsCagr: null
-      };
-    }
-    
-    if (TICKER_ANALYST_DATA[upperTicker] !== undefined) {
-      const data = TICKER_ANALYST_DATA[upperTicker];
-      return {
-        avgTarget: data.avgTarget === 0 ? null : data.avgTarget,
-        highTarget: data.highTarget === 0 ? null : data.highTarget,
-        recommendation: data.recommendation,
-        epsCagr: data.epsCagr
-      };
-    }
-
-    // Generate deterministic values for other tickers based on ticker hash or name
-    let hash = 0;
-    for (let i = 0; i < upperTicker.length; i++) {
-      hash = upperTicker.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    hash = Math.abs(hash);
-
-    const avgMultiplier = 1.15 + (hash % 20) / 100; // 1.15 to 1.35
-    const highMultiplier = avgMultiplier + 0.15 + (hash % 15) / 100; // +15% to +30%
-    const avgTarget = price * avgMultiplier;
-    const highTarget = price * highMultiplier;
-
-    // Recommendations
-    const recommendations = ["Buy", "Hold", "Buy", "Strong Buy"];
-    const recommendation = recommendations[hash % recommendations.length];
-
-    // EPS CAGR
-    const epsCagr = ((hash % 50) - 10); // -10 to +39
-
-    return {
-      avgTarget: Number(avgTarget.toFixed(2)),
-      highTarget: Number(highTarget.toFixed(2)),
-      recommendation,
-      epsCagr: Number(epsCagr.toFixed(1))
-    };
-  };
 
   // --- MARGIN POSITIONS TOTAL ROW SUMMARY METRICS ---
   const marginTotalCostBasis = useMemo(() => {
@@ -1490,7 +1432,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
 
   const marginTotalAvgValue = useMemo(() => {
     return processedMarginPositions.reduce((acc, pos) => {
-      const analyst = getAnalystData(pos.ticker, pos.price);
+      const analyst = getAnalystData(pos);
       const targetAvg = pos.targetMeanPrice || analyst.avgTarget || pos.price;
       return acc + ((pos.shares || 0) * targetAvg);
     }, 0);
@@ -1498,7 +1440,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
 
   const marginTotalHighValue = useMemo(() => {
     return processedMarginPositions.reduce((acc, pos) => {
-      const analyst = getAnalystData(pos.ticker, pos.price);
+      const analyst = getAnalystData(pos);
       const targetHigh = pos.targetHighPrice || analyst.highTarget || pos.price;
       return acc + ((pos.shares || 0) * targetHigh);
     }, 0);
@@ -1519,8 +1461,11 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
   const marginPiotroskiScoreAvg = useMemo(() => {
     const valid = processedMarginPositions.filter(p => !p.isCash && p.ticker && p.ticker.toUpperCase() !== "MARGIN_PAID");
     if (valid.length === 0) return "—";
-    const sum = valid.reduce((acc, p) => acc + (p.piotroskiScore ?? 7), 0);
-    return (sum / valid.length).toFixed(1);
+    // Solo las posiciones con F-Score real (antes las demás contaban como 7)
+    const scored = valid.filter((p) => typeof p.piotroskiScore === "number");
+    if (scored.length === 0) return "—";
+    const sum = scored.reduce((acc, p) => acc + (p.piotroskiScore as number), 0);
+    return (sum / scored.length).toFixed(1);
   }, [processedMarginPositions]);
 
   const marginWeightedScore = useMemo(() => {
@@ -1604,7 +1549,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
 
   const simTotalAvgValue = useMemo(() => {
     return processedPositions.reduce((acc, pos) => {
-      const analyst = getAnalystData(pos.ticker, pos.price);
+      const analyst = getAnalystData(pos);
       const targetAvg = pos.targetMeanPrice || analyst.avgTarget || pos.price;
       return acc + ((pos.shares || 0) * targetAvg);
     }, 0);
@@ -1612,7 +1557,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
 
   const simTotalHighValue = useMemo(() => {
     return processedPositions.reduce((acc, pos) => {
-      const analyst = getAnalystData(pos.ticker, pos.price);
+      const analyst = getAnalystData(pos);
       const targetHigh = pos.targetHighPrice || analyst.highTarget || pos.price;
       return acc + ((pos.shares || 0) * targetHigh);
     }, 0);
@@ -1633,8 +1578,11 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
   const simPiotroskiScoreAvg = useMemo(() => {
     const valid = processedPositions.filter(p => !p.isCash && p.ticker && p.ticker.toUpperCase() !== "MARGIN_PAID");
     if (valid.length === 0) return "—";
-    const sum = valid.reduce((acc, p) => acc + (p.piotroskiScore ?? 7), 0);
-    return (sum / valid.length).toFixed(1);
+    // Solo las posiciones con F-Score real (antes las demás contaban como 7)
+    const scored = valid.filter((p) => typeof p.piotroskiScore === "number");
+    if (scored.length === 0) return "—";
+    const sum = scored.reduce((acc, p) => acc + (p.piotroskiScore as number), 0);
+    return (sum / scored.length).toFixed(1);
   }, [processedPositions]);
 
   const t = {
@@ -1741,7 +1689,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
     const currentVal = principalList.reduce((acc, pos) => acc + (pos.shares * pos.price), 0);
     const futureVal = principalList.reduce((acc, pos) => {
       if (pos.isCash || pos.ticker === "CASH" || pos.ticker === "USD") return acc + (pos.shares * pos.price);
-      const data = getAnalystData(pos.ticker, pos.price);
+      const data = getAnalystData(pos);
       const targetPrice = (pos.targetMeanPrice !== null && pos.targetMeanPrice !== undefined && pos.targetMeanPrice > 0)
         ? pos.targetMeanPrice
         : ((data.avgTarget !== null && data.avgTarget > 0) ? data.avgTarget : pos.price);
@@ -1756,7 +1704,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
     const marginList = selectedPositions.filter(p => (p.isMargin || projectionTab === "margin") && !p.isCash && p.ticker !== "CASH" && p.ticker !== "USD");
     const currentVal = marginList.reduce((acc, pos) => acc + (pos.shares * pos.price), 0);
     const grossFutureVal = marginList.reduce((acc, pos) => {
-      const data = getAnalystData(pos.ticker, pos.price);
+      const data = getAnalystData(pos);
       const targetPrice = (pos.targetMeanPrice !== null && pos.targetMeanPrice !== undefined && pos.targetMeanPrice > 0)
         ? pos.targetMeanPrice
         : ((data.avgTarget !== null && data.avgTarget > 0) ? data.avgTarget : pos.price);
@@ -1781,7 +1729,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
     const currentVal = principalList.reduce((acc, pos) => acc + (pos.shares * pos.price), 0);
     const futureVal = principalList.reduce((acc, pos) => {
       if (pos.isCash || pos.ticker === "CASH" || pos.ticker === "USD") return acc + (pos.shares * pos.price);
-      const data = getAnalystData(pos.ticker, pos.price);
+      const data = getAnalystData(pos);
       const targetPrice = (pos.targetHighPrice !== null && pos.targetHighPrice !== undefined && pos.targetHighPrice > 0)
         ? pos.targetHighPrice
         : ((data.highTarget !== null && data.highTarget > 0) ? data.highTarget : pos.price);
@@ -1796,7 +1744,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
     const marginList = selectedPositions.filter(p => (p.isMargin || projectionTab === "margin") && !p.isCash && p.ticker !== "CASH" && p.ticker !== "USD");
     const currentVal = marginList.reduce((acc, pos) => acc + (pos.shares * pos.price), 0);
     const grossFutureVal = marginList.reduce((acc, pos) => {
-      const data = getAnalystData(pos.ticker, pos.price);
+      const data = getAnalystData(pos);
       const targetPrice = (pos.targetHighPrice !== null && pos.targetHighPrice !== undefined && pos.targetHighPrice > 0)
         ? pos.targetHighPrice
         : ((data.highTarget !== null && data.highTarget > 0) ? data.highTarget : pos.price);
@@ -2368,13 +2316,15 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                             "—"
                           ) : (
                             <span className={`inline-flex items-center gap-1 font-bold px-2 py-0.5 rounded text-xs tracking-wide ${
-                              (pos.piotroskiScore ?? 7) >= 7
+                              pos.piotroskiScore == null
+                                ? "text-theme-text-muted"
+                                : pos.piotroskiScore >= 7
                                 ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
-                                : (pos.piotroskiScore ?? 7) >= 4
+                                : pos.piotroskiScore >= 4
                                 ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
                                 : "bg-rose-500/15 text-rose-400 border border-rose-500/30"
                             }`}>
-                              {pos.piotroskiScore ?? 7} / 9
+                              {pos.piotroskiScore == null ? "—" : `${pos.piotroskiScore} / 9`}
                             </span>
                           )}
                         </td>
@@ -2842,7 +2792,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                     // Índice real en marginPositions (la tabla puede estar ordenada)
                     const index = marginPositions.findIndex(p => p.ticker === pos.ticker);
                     const cagrVal = getPositionCagr(pos.ticker);
-                    const analyst = getAnalystData(pos.ticker, pos.price);
+                    const analyst = getAnalystData(pos);
                     
                     const targetAvg = pos.targetMeanPrice || analyst.avgTarget;
                     const targetHigh = pos.targetHighPrice || analyst.highTarget;
@@ -3033,13 +2983,15 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                                 "—"
                               ) : (
                                 <span className={`inline-flex items-center gap-1 font-bold px-2 py-0.5 rounded text-xs tracking-wide ${
-                                  (pos.piotroskiScore ?? 7) >= 7
+                                  pos.piotroskiScore == null
+                                ? "text-theme-text-muted"
+                                : pos.piotroskiScore >= 7
                                     ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
-                                    : (pos.piotroskiScore ?? 7) >= 4
+                                    : pos.piotroskiScore >= 4
                                     ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
                                     : "bg-rose-500/15 text-rose-400 border border-rose-500/30"
                                 }`}>
-                                  {pos.piotroskiScore ?? 7} / 9
+                                  {pos.piotroskiScore == null ? "—" : `${pos.piotroskiScore} / 9`}
                                 </span>
                               )}
                             </td>

@@ -14,7 +14,7 @@ import {
   Legend,
 } from "recharts";
 import { TrendingUp, TrendingDown, DollarSign, Wallet, ArrowUpRight, ArrowDownRight, Activity, Calendar, Loader2, PieChart as PieChartIcon, ChevronDown, ChevronRight, BarChart3, Rocket, Eye, EyeOff, X } from "lucide-react";
-import { getTickerSector, getSectorSpanish, getSectorColor, getTickerBeta, getTickerSubsector, getDividendPerShare } from "./HoldingsTable";
+import { getTickerSector, getSectorSpanish, getSectorColor, getTickerBeta, weightedBetaOf, getTickerSubsector, getDividendPerShare } from "./HoldingsTable";
 import { PortfolioDistributionDonut } from "./PortfolioDistributionDonut";
 import { getRawFeatures, buildScores, overrideFeaturesWithFinancials } from "../utils/engine";
 import { calculatePortfolioScoreFromMatrix, getStockScore } from "../utils/stockScoresMatrix";
@@ -607,9 +607,7 @@ export default function SummaryDashboard({
   const totalWeight = sortedPositions.reduce((sum, p) => sum + p.weight, 0);
 
   // Weighted Beta
-  const weightedBeta = totalWeight > 0
-    ? sortedPositions.reduce((sum, p) => sum + (getTickerBeta(p.ticker, p.isCash) * p.weight), 0) / totalWeight
-    : 0;
+  const weightedBeta = weightedBetaOf(sortedPositions);
 
   // Weighted PE (only include positions with valid pe > 0)
   const pePositions = sortedPositions.filter(p => p.pe !== null && p.pe > 0);
@@ -1318,7 +1316,7 @@ export default function SummaryDashboard({
                       </span>
                       <span className="font-bold text-white text-xs">
                         {selectedPosition
-                          ? formatNumber(getTickerBeta(selectedPosition.ticker, selectedPosition.isCash), 2)
+                          ? formatNumber(getTickerBeta(selectedPosition), 2)
                           : formatNumber(weightedBeta, 2)}
                       </span>
                     </div>
