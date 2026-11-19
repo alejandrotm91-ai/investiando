@@ -461,7 +461,6 @@ const getEPSData = (stock: StockInfo | null, language: "EN" | "ES") => {
   };
 
 function StockDetailPanel({ position, language, onClose, financialsData }: { position: Position; language: "EN" | "ES"; onClose: () => void; financialsData?: { annual: any[]; quarterly: any[] } | null }) {
-  const [epsType, setEpsType] = useState<"Normalized" | "Fundamentals">("Normalized");
   const [activeQuarterIndex, setActiveQuarterIndex] = useState<number | null>(null);
   // Datos reales: cotización y resumen (/api/stock) y cierres mensuales de 10 años (/api/chart)
   const [stockInfo, setStockInfo] = useState<StockInfo | null>(null);
@@ -493,41 +492,6 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
   }, [position.ticker, position.isCash, hasFin]);
 
   const dt = getStockDetails(position, stockInfo, hasFin ? financialsData : finLocal, priceHistory, language);
-
-  // Gráfico anual: ejercicios de la SEC con su precio real al cierre, cierres mensuales reales desde el
-  // último ejercicio (el último punto = hoy, con el BPA de los últimos 12 meses) y la estimación.
-  const fundamentalsChartData = useMemo(() => {
-    const past = dt.fundamentals.filter((f) => !f.isEstimate);
-    const est = dt.fundamentals.find((f) => f.isEstimate);
-    const lastDate = past.length ? past[past.length - 1].date : null;
-    const monthNames = language === "ES" ? ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"] : ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    const fmt = (v: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v);
-    const ttm = stockInfo?.trailingEps;
-    // Un cierre por mes posterior al último ejercicio
-    const byMonth = new Map<string, { date: string; close: number }>();
-    for (const pt of priceHistory) {
-      if (lastDate && pt.date <= lastDate) continue;
-      byMonth.set(pt.date.slice(0, 7), pt);
-    }
-    const months = [...byMonth.values()].sort((x, y) => x.date.localeCompare(y.date)).slice(lastDate ? 0 : -12);
-    const monthly = months.map((pt, i) => {
-      const isLast = i === months.length - 1;
-      const d = new Date(pt.date);
-      return {
-        year: isLast ? (language === "ES" ? "Hoy" : "Now") : `${monthNames[d.getUTCMonth()]} ${String(d.getUTCFullYear()).slice(-2)}`,
-        rawPrice: isLast ? position.price : pt.close,
-        rawEps: isLast && typeof ttm === "number" ? ttm : null,
-        price: fmt(isLast ? position.price : pt.close),
-        eps: isLast && typeof ttm === "number" ? fmt(ttm) : "—",
-        priceYoY: "—",
-        epsYoY: "—",
-        pe: isLast && typeof ttm === "number" && ttm > 0 ? `${(position.price / ttm).toFixed(1)}x` : "—",
-      };
-    });
-    const rows = past.map((f) => ({ year: f.year, rawPrice: f.rawPrice, rawEps: f.rawEps, price: f.price, eps: f.eps, priceYoY: f.priceYoY, epsYoY: f.epsYoY, pe: f.pe }));
-    const future = est ? [{ year: est.year, rawPrice: null, rawEps: est.rawEps, price: "—", eps: est.eps, priceYoY: "—", epsYoY: est.epsYoY, pe: "—" }] : [];
-    return [...rows, ...monthly, ...future];
-  }, [dt.fundamentals, position.price, priceHistory, stockInfo?.trailingEps, language]);
 
   const epsData = getEPSData(stockInfo, language);
   // Por defecto, el último trimestre ya publicado
@@ -796,40 +760,18 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
         <div className="lg:col-span-7 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-900/60 pb-1.5">
             <span className="text-xs font-bold text-slate-500 tracking-wider uppercase font-mono">
-              {epsType === "Fundamentals"
-                ? (language === "ES" ? "Fundamentales Anuales" : "Annual Fundamentals")
-                : (language === "ES" ? "Ganancias por Acción" : "Earnings Per Share")}
+              {language === "ES" ? "BPA vs. consenso" : "EPS vs. consensus"}
             </span>
-
-            {/* BPA vs. consenso (Yahoo) / Precio y BPA anual (SEC) */}
-            <div data-toggle className="flex bg-[#0f111a] border border-slate-800 rounded-full p-0.5">
-              <button aria-pressed={!!(epsType === "Normalized")}
-                onClick={(e) => { e.stopPropagation(); setEpsType("Normalized"); }}
-                className={`text-[10px] font-bold px-3 py-1 rounded-full transition-all cursor-pointer ${
-                  epsType === "Normalized" ? "bg-slate-800 text-white font-extrabold" : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                {language === "ES" ? "BPA vs. consenso" : "EPS vs. consensus"}
-              </button>
-              <button aria-pressed={!!(epsType === "Fundamentals")}
-                onClick={(e) => { e.stopPropagation(); setEpsType("Fundamentals"); }}
-                className={`text-[10px] font-bold px-3 py-1 rounded-full transition-all cursor-pointer ${
-                  epsType === "Fundamentals" ? "bg-slate-800 text-white font-extrabold" : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                {language === "ES" ? "Precio y EPS" : "Price & EPS"}
-              </button>
-            </div>
           </div>
 
           {/* Subheader detail row */}
-          {epsType !== "Fundamentals" && !selectedQ ? (
+          {!selectedQ ? (
             <div className="text-xs text-slate-500">
               {stockInfo
                 ? (language === "ES" ? "Yahoo no tiene estimaciones de BPA para esta empresa." : "Yahoo has no EPS estimates for this company.")
                 : (language === "ES" ? "Cargando…" : "Loading…")}
             </div>
-          ) : epsType !== "Fundamentals" ? (
+          ) : (
             <div className="flex flex-wrap items-center gap-4 text-xs font-semibold text-slate-300 font-mono">
               <span className="text-sm font-bold text-white uppercase tracking-wider">{selectedQ.quarter}</span>
               <span className="flex items-center gap-1.5 text-slate-400">
@@ -863,123 +805,10 @@ function StockDetailPanel({ position, language, onClose, financialsData }: { pos
                 </span>
               )}
             </div>
-          ) : (
-            <div className="flex flex-wrap items-center gap-4 text-xs font-semibold text-slate-300 font-mono">
-              <span className="flex items-center gap-1.5 text-emerald-400">
-                <span className="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
-                {language === "ES" ? "Precio de Acción (Eje Y Izq)" : "Stock Price (Left Y-Axis)"}
-              </span>
-              <span className="flex items-center gap-1.5 text-purple-400">
-                <span className="inline-block w-2 h-2 rounded-full bg-purple-500"></span>
-                {language === "ES" ? "EPS Anual (Eje Y Der)" : "Annual EPS (Right Y-Axis)"}
-              </span>
-            </div>
           )}
 
           <div className="h-60 w-full mt-2" onClick={(e) => e.stopPropagation()}>
-            {epsType === "Fundamentals" ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={fundamentalsChartData} margin={{ top: 20, right: 20, left: -5, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" opacity={0.3} vertical={false} />
-                  <XAxis
-                    dataKey="year"
-                    stroke="#475569"
-                    fontSize={11}
-                    tickLine={false}
-                    className="font-mono font-bold"
-                    ticks={["2022", "2023", "2024", "2025", "2026", "2027E"]}
-                  />
-                  <YAxis
-                    yAxisId="left"
-                    stroke="#10b981"
-                    fontSize={10}
-                    tickLine={false}
-                    tickFormatter={(v) => `$${v}`}
-                    width={45}
-                    className="font-mono"
-                  />
-                  <YAxis
-                    yAxisId="right"
-                    orientation="right"
-                    stroke="#c084fc"
-                    fontSize={10}
-                    tickLine={false}
-                    tickFormatter={(v) => `$${v.toFixed(2)}`}
-                    width={45}
-                    className="font-mono"
-                  />
-                  <Tooltip
-                    content={({ active, payload }) => {
-                      if (active && payload && payload.length) {
-                        const data = payload[0].payload;
-                        return (
-                          <div className="bg-[#0f111a] border border-slate-800 p-3 rounded-xl text-xs space-y-1.5 shadow-2xl font-mono text-left">
-                            <p className="font-bold text-white uppercase text-[11px] tracking-wide">{data.year}</p>
-                            <p className="flex justify-between gap-4 text-slate-400">
-                              <span className="flex items-center gap-1.5">
-                                <span className="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
-                                {language === "ES" ? "Precio:" : "Price:"}
-                              </span>
-                              <span className="text-emerald-400 font-bold">{data.price !== "—" ? data.price : "—"}</span>
-                            </p>
-                            {data.priceYoY !== "—" && (
-                              <p className="flex justify-between gap-4 text-slate-500 text-[10px] pl-3.5">
-                                <span>YoY (Price):</span>
-                                <span className="text-emerald-400/80 font-semibold">{data.priceYoY}</span>
-                              </p>
-                            )}
-                            <p className="flex justify-between gap-4 text-slate-400">
-                              <span className="flex items-center gap-1.5">
-                                <span className="inline-block w-2 h-2 rounded-full bg-purple-400"></span>
-                                EPS:
-                              </span>
-                              <span className="text-purple-400 font-bold">{data.eps}</span>
-                            </p>
-                            {data.epsYoY !== "—" && (
-                              <p className="flex justify-between gap-4 text-slate-500 text-[10px] pl-3.5">
-                                <span>YoY (EPS):</span>
-                                <span className="text-purple-400/80 font-semibold">{data.epsYoY}</span>
-                              </p>
-                            )}
-                            {data.pe !== "—" && (
-                              <p className="flex justify-between gap-4 text-slate-400 text-[10px] pt-1.5 border-t border-slate-900">
-                                <span className="pl-3.5">P/E Ratio:</span>
-                                <span className="text-white font-bold">{data.pe}</span>
-                              </p>
-                            )}
-                          </div>
-                        );
-                      }
-                      return null;
-                    }}
-                  />
-                  {/* Price Line (Left Axis) */}
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="rawPrice"
-                    stroke="#10b981"
-                    strokeWidth={3}
-                    dot={{ r: 5, stroke: "#10b981", strokeWidth: 2, fill: "#0b0c16" }}
-                    activeDot={{ r: 7, stroke: "#ffffff", strokeWidth: 2, fill: "#10b981" }}
-                    name="Price"
-                    connectNulls={true}
-                  />
-                  {/* EPS Line (Right Axis) */}
-                  <Line
-                    yAxisId="right"
-                    type="monotone"
-                    dataKey="rawEps"
-                    stroke="#c084fc"
-                    strokeWidth={3}
-                    dot={{ r: 5, stroke: "#c084fc", strokeWidth: 2, fill: "#0b0c16" }}
-                    activeDot={{ r: 7, stroke: "#ffffff", strokeWidth: 2, fill: "#c084fc" }}
-                    name="EPS"
-                    connectNulls={true}
-                  />
-                </ComposedChart>
-              </ResponsiveContainer>
-            ) : !selectedQ ? null : (
+            {!selectedQ ? null : (
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={epsData} margin={{ top: 20, right: 35, left: -20, bottom: 45 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" opacity={0.3} vertical={false} />
