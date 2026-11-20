@@ -190,8 +190,10 @@ export const KPI_DEFS_MORE: Record<string, CompanyKpis> = {
     kpis: [lvl("combined_ratio", "P&C combined ratio", "Ratio combinado (P&C)", "Property and casualty combined ratio of the quarter (as reported, including catastrophe losses)", [50, 150]), lvl("combined_ratio_cay", "P&C current accident year combined ratio ex-CAT", "Ratio combinado año en curso sin catástrofes", "P&C current accident year combined ratio excluding catastrophe losses", [50, 130]), gr("npw_growth", "P&C net premiums written growth", "Crecimiento de primas netas emitidas (P&C)", "P&C net premiums written growth (constant dollars if both are given)"), usd("core_oi", "Core operating income", "Beneficio operativo core", "Core operating income in the quarter", [-5000, 20000]), dol("tbvps", "Tangible book value per share", "Valor contable tangible por acción", "Tangible book value per share at quarter end", [20, 1000])],
     charts: [ch("cr", "Combined ratio (reported / current accident year ex-CAT)", "Ratio combinado (publicado / año en curso sin catástrofes)", "line", ["combined_ratio", "combined_ratio_cay"]), ch("npw", "Net premiums written growth", "Crecimiento de primas", "line", ["npw_growth"]), ch("coi", "Core operating income", "Beneficio operativo core", "bar", ["core_oi"]), ch("tbv", "Tangible book value per share", "Valor contable tangible por acción", "line", ["tbvps"])],
   },
+  // Progressive: la cuenta de resultados del comunicado es la del mes; del trimestre solo da el beneficio neto
   PGR: {
     from: "2023-01-01",
+    anchor: "net_income",
     note: { en: "Progressive also publishes monthly results; only quarterly figures are used.", es: "Progressive publica también resultados mensuales; solo se usan las cifras trimestrales." },
     kpis: [lvl("combined_ratio", "Combined ratio (quarter)", "Ratio combinado (trimestre)", "Companywide GAAP combined ratio for the QUARTER (not the single month); omit if the release only covers a month", [50, 150]), usd("npw", "Net premiums written (quarter)", "Primas netas emitidas (trimestre)", "Companywide net premiums written for the QUARTER (not the month); omit if only monthly", [1000, 100000]), mil("pif", "Policies in force", "Pólizas en vigor", "Total companywide policies in force at quarter end (e.g. '35,962.2 thousand' -> 35.9622)", [5, 200])],
     charts: [ch("cr", "Combined ratio", "Ratio combinado", "line", ["combined_ratio"]), ch("npw", "Net premiums written", "Primas netas emitidas", "bar", ["npw"]), ch("pif", "Policies in force", "Pólizas en vigor", "line", ["pif"])],
@@ -385,6 +387,7 @@ export const KPI_DEFS_MORE: Record<string, CompanyKpis> = {
   },
   COP: {
     from: "2023-01-01",
+    revenueHint: "revenue = 'Sales and other operating revenues' (not 'Total revenues and other income')",
     kpis: [{ key: "production", en: "Production", es: "Producción", unit: "kbd", kind: "avg", range: [1000, 5000], hint: "Total company production in the quarter, thousand barrels of oil equivalent per day (MBOED)" }, { key: "l48_production", en: "Lower 48 production", es: "Producción Lower 48", unit: "kbd", kind: "avg", range: [300, 3000], hint: "Lower 48 production, MBOED" }, fcf()],
     charts: [ch("prod", "Production (total / Lower 48)", "Producción (total / Lower 48)", "line", ["production", "l48_production"]), fcfChart()],
   },
