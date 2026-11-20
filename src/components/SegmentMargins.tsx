@@ -48,6 +48,8 @@ const PARTS: { key: string; es: string; en: string; light: string; dark: string 
   { key: "margin", es: "Margen operativo", en: "Operating margin", light: "#1baf7a", dark: "#199e70" },
 ];
 
+const STRUCTURE_COSTS = ["cogs", "sga", "sm", "ga", "rnd"];
+
 const pct = (v: number | null | undefined, d = 1) => (v === null || v === undefined || !Number.isFinite(v) ? "—" : `${(v * 100).toFixed(d)}%`);
 const money = (v: number | undefined) => {
   if (v === undefined || !Number.isFinite(v)) return "—";
@@ -89,7 +91,8 @@ const cashOf = (p: MarginPeriod, m: string) => {
 
 export default function SegmentMargins({ periods, series, label, theme, isES }: Props) {
   const [metric, setMetric] = useState<Metric>("operating");
-  const withCosts = periods.filter((p) => p.costs && Object.keys(p.costs).length);
+  // Periodos con algún gasto de la estructura (solo amortizaciones o capex no bastan: T-Mobile mostraba un gráfico vacío)
+  const withCosts = periods.filter((p) => p.costs && Object.keys(p.costs).some((k) => STRUCTURE_COSTS.includes(k)));
   const hasGross = periods.some((p) => series.some((s) => grossMargin(p, s.id) !== null));
   const hasCash = periods.some((p) => series.some((s) => cashOf(p, s.id) !== null));
   const hasOI = periods.some((p) => series.some((s) => p.operatingIncome[s.id] !== undefined && revOf(p, s.id) > 0));

@@ -545,7 +545,11 @@ export function buildSegments(facts: SegFact[], annual: SecPeriod[], quarterly: 
       // Si el desglose no suma el total actual (rehecho después: escisiones, operaciones
       // interrumpidas), se prueba con el total que publicó el mismo informe que el desglose
       const asRep: (number | undefined)[] = [];
-      const differs = (t: number, total: number | null) => total === null || Math.abs(t - total) > Math.abs(t) * 0.003 + 1e6;
+      // El total publicado debe ser del mismo orden que el actual: una escisión lo cambia, pero no a menos
+      // de la mitad. Si no, la etiqueta es una cifra parcial (bancos: RevenueFromContract… son solo las
+      // comisiones, ~15 % de los ingresos de Capital One) y su desglose no vale como ingresos por segmento
+      const differs = (t: number, total: number | null) =>
+        total === null || (Math.abs(t - total) > Math.abs(t) * 0.003 + 1e6 && t >= total * 0.5 && t <= total * 3);
       const choices = refs.map((p, pi) => {
         if (!perPeriod[pi].length) return null;
         const c = p.total !== null ? bestSubset(perPeriod[pi], p.total, confirmParent) : null;

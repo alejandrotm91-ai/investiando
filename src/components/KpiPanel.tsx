@@ -46,8 +46,10 @@ function fmt(v: number | undefined | null, unitIn: KpiMeta["unit"] | "x" | "frac
   if (v === 0) return unitIn === "%" || unitIn === "frac" || unitIn === "share" ? "0%" : unitIn === "$M" || unitIn === "$" ? "$0" : "0";
   const a = Math.abs(v), sign = v < 0 ? "−" : "";
   if (unit === "%") return `${(v * 100).toFixed(1)}%`;
-  if (unit === "pct") return `${v > 0 ? "+" : ""}${v.toFixed(v % 1 ? 1 : 0)}%`;
-  if (unit === "share") return `${v.toFixed(v % 1 ? 1 : 0)}%`;
+  // Hasta 2 decimales: con 1, los ejes de rango estrecho (bajas de 0,85 % a 1,1 %) repetían etiquetas
+  const dec = Math.round(v * 100) % 10 ? 2 : Math.round(v * 10) % 10 ? 1 : 0;
+  if (unit === "pct") return `${v > 0 ? "+" : ""}${v.toFixed(dec)}%`;
+  if (unit === "share") return `${v.toFixed(dec)}%`;
   if (unit === "GWh") return `${v.toFixed(1)} GWh`;
   if (unit === "d") return `${v.toFixed(0)} d`;
   if (unit === "kbd") return `${Math.round(v).toLocaleString("en-US")} kb/d`;
