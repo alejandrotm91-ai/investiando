@@ -1425,7 +1425,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
 
   const marginTotal52HighValue = useMemo(() => {
     return processedMarginPositions.reduce((acc, pos) => {
-      const high52 = pos.fiftyTwoWeekHigh || (pos.price * 1.34668);
+      const high52 = pos.fiftyTwoWeekHigh || pos.price;
       return acc + ((pos.shares || 0) * high52);
     }, 0);
   }, [processedMarginPositions]);
@@ -1542,7 +1542,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
 
   const simTotal52HighValue = useMemo(() => {
     return processedPositions.reduce((acc, pos) => {
-      const high52 = pos.fiftyTwoWeekHigh || (pos.price * 1.34668);
+      const high52 = pos.fiftyTwoWeekHigh || pos.price;
       return acc + ((pos.shares || 0) * high52);
     }, 0);
   }, [processedPositions]);
@@ -1643,7 +1643,6 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
       .reduce((sum, p) => sum + (p.shares * (p.avgCost || p.price)), 0);
   }, [selectedPositions, projectionTab]);
 
-  const netSelectedMktValue = Math.max(0, selectedTotalMktValue - marginFinancedPrincipal);
 
   // 1. 52wk High calculations & breakdown
   const principal52wk = useMemo(() => {
@@ -1653,7 +1652,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
       if (pos.isCash || pos.ticker === "CASH" || pos.ticker === "USD") return acc + (pos.shares * pos.price);
       const highPrice = (pos.fiftyTwoWeekHigh !== null && pos.fiftyTwoWeekHigh !== undefined && pos.fiftyTwoWeekHigh > 0)
         ? pos.fiftyTwoWeekHigh
-        : pos.price * 1.34668;
+        : pos.price;
       return acc + (pos.shares * highPrice);
     }, 0);
     const gain = futureVal - currentVal;
@@ -1667,21 +1666,19 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
     const grossFutureVal = marginList.reduce((acc, pos) => {
       const highPrice = (pos.fiftyTwoWeekHigh !== null && pos.fiftyTwoWeekHigh !== undefined && pos.fiftyTwoWeekHigh > 0)
         ? pos.fiftyTwoWeekHigh
-        : pos.price * 1.34668;
+        : pos.price;
       return acc + (pos.shares * highPrice);
     }, 0);
-    const netFutureVal = Math.max(0, grossFutureVal - marginFinancedPrincipal);
     const gain = grossFutureVal - currentVal;
-    const debtBase = marginFinancedPrincipal > 0 ? marginFinancedPrincipal : currentVal;
-    const gainPct = debtBase > 0 ? (gain / debtBase) * 100 : 0;
-    return { currentVal, grossFutureVal, netFutureVal, gain, gainPct };
-  }, [selectedPositions, projectionTab, marginFinancedPrincipal]);
+    const gainPct = currentVal > 0 ? (gain / currentVal) * 100 : 0;
+    return { currentVal, grossFutureVal, gain, gainPct };
+  }, [selectedPositions, projectionTab]);
 
   const fiftyTwoWeekHighTotal = useMemo(() => {
-    return principal52wk.futureVal + margin52wk.netFutureVal;
-  }, [principal52wk.futureVal, margin52wk.netFutureVal]);
+    return principal52wk.futureVal + margin52wk.grossFutureVal;
+  }, [principal52wk.futureVal, margin52wk.grossFutureVal]);
 
-  const total52wkGain = fiftyTwoWeekHighTotal - netSelectedMktValue;
+  const total52wkGain = fiftyTwoWeekHighTotal - selectedTotalMktValue;
 
   // 2. Avg Target calculations & breakdown
   const principalAvgTarget = useMemo(() => {
@@ -1710,18 +1707,16 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
         : ((data.avgTarget !== null && data.avgTarget > 0) ? data.avgTarget : pos.price);
       return acc + (pos.shares * targetPrice);
     }, 0);
-    const netFutureVal = Math.max(0, grossFutureVal - marginFinancedPrincipal);
     const gain = grossFutureVal - currentVal;
-    const debtBase = marginFinancedPrincipal > 0 ? marginFinancedPrincipal : currentVal;
-    const gainPct = debtBase > 0 ? (gain / debtBase) * 100 : 0;
-    return { currentVal, grossFutureVal, netFutureVal, gain, gainPct };
-  }, [selectedPositions, projectionTab, marginFinancedPrincipal]);
+    const gainPct = currentVal > 0 ? (gain / currentVal) * 100 : 0;
+    return { currentVal, grossFutureVal, gain, gainPct };
+  }, [selectedPositions, projectionTab]);
 
   const avgTargetValueTotal = useMemo(() => {
-    return principalAvgTarget.futureVal + marginAvgTarget.netFutureVal;
-  }, [principalAvgTarget.futureVal, marginAvgTarget.netFutureVal]);
+    return principalAvgTarget.futureVal + marginAvgTarget.grossFutureVal;
+  }, [principalAvgTarget.futureVal, marginAvgTarget.grossFutureVal]);
 
-  const totalAvgTargetGain = avgTargetValueTotal - netSelectedMktValue;
+  const totalAvgTargetGain = avgTargetValueTotal - selectedTotalMktValue;
 
   // 3. High Target calculations & breakdown
   const principalHighTarget = useMemo(() => {
@@ -1750,40 +1745,34 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
         : ((data.highTarget !== null && data.highTarget > 0) ? data.highTarget : pos.price);
       return acc + (pos.shares * targetPrice);
     }, 0);
-    const netFutureVal = Math.max(0, grossFutureVal - marginFinancedPrincipal);
     const gain = grossFutureVal - currentVal;
-    const debtBase = marginFinancedPrincipal > 0 ? marginFinancedPrincipal : currentVal;
-    const gainPct = debtBase > 0 ? (gain / debtBase) * 100 : 0;
-    return { currentVal, grossFutureVal, netFutureVal, gain, gainPct };
-  }, [selectedPositions, projectionTab, marginFinancedPrincipal]);
+    const gainPct = currentVal > 0 ? (gain / currentVal) * 100 : 0;
+    return { currentVal, grossFutureVal, gain, gainPct };
+  }, [selectedPositions, projectionTab]);
 
   const highTargetValueTotal = useMemo(() => {
-    return principalHighTarget.futureVal + marginHighTarget.netFutureVal;
-  }, [principalHighTarget.futureVal, marginHighTarget.netFutureVal]);
+    return principalHighTarget.futureVal + marginHighTarget.grossFutureVal;
+  }, [principalHighTarget.futureVal, marginHighTarget.grossFutureVal]);
 
-  const totalHighTargetGain = highTargetValueTotal - netSelectedMktValue;
+  const totalHighTargetGain = highTargetValueTotal - selectedTotalMktValue;
 
-  const baseValueForUpside = useMemo(() => {
-    if (projectionTab === "margin") {
-      return marginFinancedPrincipal > 0 ? marginFinancedPrincipal : (netSelectedMktValue > 0 ? netSelectedMktValue : selectedTotalMktValue);
-    }
-    return netSelectedMktValue > 0 ? netSelectedMktValue : selectedTotalMktValue;
-  }, [projectionTab, marginFinancedPrincipal, netSelectedMktValue, selectedTotalMktValue]);
+  // Valores en bruto (acciones × precio): el préstamo de margen no se resta, lo descuenta el usuario
+  const baseValueForUpside = selectedTotalMktValue;
 
   const high52wkUpside = useMemo(() => {
     if (baseValueForUpside <= 0) return 0;
-    return ((fiftyTwoWeekHighTotal - netSelectedMktValue) / baseValueForUpside) * 100;
-  }, [fiftyTwoWeekHighTotal, netSelectedMktValue, baseValueForUpside]);
+    return ((fiftyTwoWeekHighTotal - selectedTotalMktValue) / baseValueForUpside) * 100;
+  }, [fiftyTwoWeekHighTotal, selectedTotalMktValue, baseValueForUpside]);
 
   const avgTargetUpside = useMemo(() => {
     if (baseValueForUpside <= 0) return 0;
-    return ((avgTargetValueTotal - netSelectedMktValue) / baseValueForUpside) * 100;
-  }, [avgTargetValueTotal, netSelectedMktValue, baseValueForUpside]);
+    return ((avgTargetValueTotal - selectedTotalMktValue) / baseValueForUpside) * 100;
+  }, [avgTargetValueTotal, selectedTotalMktValue, baseValueForUpside]);
 
   const highTargetUpside = useMemo(() => {
     if (baseValueForUpside <= 0) return 0;
-    return ((highTargetValueTotal - netSelectedMktValue) / baseValueForUpside) * 100;
-  }, [highTargetValueTotal, netSelectedMktValue, baseValueForUpside]);
+    return ((highTargetValueTotal - selectedTotalMktValue) / baseValueForUpside) * 100;
+  }, [highTargetValueTotal, selectedTotalMktValue, baseValueForUpside]);
 
   // 2. Projection Calculations (Option A: strictly match the user-selected CAGR)
   const baseGrowthRate = cagr / 100;
@@ -2796,7 +2785,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                     
                     const targetAvg = pos.targetMeanPrice || analyst.avgTarget;
                     const targetHigh = pos.targetHighPrice || analyst.highTarget;
-                    const high52 = pos.fiftyTwoWeekHigh || (pos.price * 1.34668);
+                    const high52 = pos.fiftyTwoWeekHigh || pos.price;
 
                     const highUpside = pos.price > 0 ? ((high52 - pos.price) / pos.price) * 100 : null;
                     const upsideAvg = pos.price > 0 && targetAvg ? ((targetAvg - pos.price) / pos.price) * 100 : null;
@@ -3553,8 +3542,8 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                               </div>
                               
                               <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1.5 border-t border-slate-800/80 font-mono">
-                                <span>{language === "ES" ? "Deuda financiada restada:" : "Deducted financing:"}</span>
-                                <span className="text-rose-400">-{formatCurrency(marginFinancedPrincipal)}</span>
+                                <span>{language === "ES" ? "Préstamo de margen (no restado):" : "Margin loan (not deducted):"}</span>
+                                <span className="text-slate-300">{formatCurrency(marginFinancedPrincipal)}</span>
                               </div>
                             </>
                           ) : (
@@ -3569,7 +3558,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                     </div>
 
                     <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded font-mono">
-                      +{high52wkUpside.toFixed(1)}%
+                      {high52wkUpside >= 0 ? "+" : ""}{high52wkUpside.toFixed(1)}%
                     </span>
                   </div>
                 </div>
@@ -3631,8 +3620,8 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                               </div>
                               
                               <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1.5 border-t border-slate-800/80 font-mono">
-                                <span>{language === "ES" ? "Deuda financiada restada:" : "Deducted financing:"}</span>
-                                <span className="text-rose-400">-{formatCurrency(marginFinancedPrincipal)}</span>
+                                <span>{language === "ES" ? "Préstamo de margen (no restado):" : "Margin loan (not deducted):"}</span>
+                                <span className="text-slate-300">{formatCurrency(marginFinancedPrincipal)}</span>
                               </div>
                             </>
                           ) : (
@@ -3647,7 +3636,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                     </div>
 
                     <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded font-mono">
-                      +{avgTargetUpside.toFixed(1)}%
+                      {avgTargetUpside >= 0 ? "+" : ""}{avgTargetUpside.toFixed(1)}%
                     </span>
                   </div>
                 </div>
@@ -3709,8 +3698,8 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                               </div>
                               
                               <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1.5 border-t border-slate-800/80 font-mono">
-                                <span>{language === "ES" ? "Deuda financiada restada:" : "Deducted financing:"}</span>
-                                <span className="text-rose-400">-{formatCurrency(marginFinancedPrincipal)}</span>
+                                <span>{language === "ES" ? "Préstamo de margen (no restado):" : "Margin loan (not deducted):"}</span>
+                                <span className="text-slate-300">{formatCurrency(marginFinancedPrincipal)}</span>
                               </div>
                             </>
                           ) : (
@@ -3725,7 +3714,7 @@ export default function WhatIfSimulator({ portfolio, language = "EN", userEmail 
                     </div>
 
                     <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded font-mono">
-                      +{highTargetUpside.toFixed(1)}%
+                      {highTargetUpside >= 0 ? "+" : ""}{highTargetUpside.toFixed(1)}%
                     </span>
                   </div>
                 </div>

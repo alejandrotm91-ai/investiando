@@ -175,12 +175,6 @@ export default function AnalystInsights({ positions, language = "EN" }: AnalystI
   // 1. Dynamic future value calculations based on user's active holdings
   const currentPortfolioValue = activePositions.reduce((acc, pos) => acc + (pos.shares * pos.price), 0);
 
-  const marginCostBasis = activePositions
-    .filter((p) => p.isMargin && !p.isCash)
-    .reduce((sum, p) => sum + (p.shares * p.avgCost), 0);
-
-  const netCurrentPortfolioValue = Math.max(0, currentPortfolioValue - marginCostBasis);
-
   const grossAvgTargetValueTotal = activePositions.reduce((acc, pos) => {
     if (pos.isCash || pos.ticker === "CASH" || pos.ticker === "USD") {
       return acc + (pos.shares * pos.price);
@@ -191,7 +185,7 @@ export default function AnalystInsights({ positions, language = "EN" }: AnalystI
       : ((data.avgTarget !== null && data.avgTarget > 0) ? data.avgTarget : pos.price);
     return acc + (pos.shares * targetPrice);
   }, 0);
-  const avgTargetValueTotal = Math.max(0, grossAvgTargetValueTotal - marginCostBasis);
+  const avgTargetValueTotal = grossAvgTargetValueTotal;
 
   const grossHighTargetValueTotal = activePositions.reduce((acc, pos) => {
     if (pos.isCash || pos.ticker === "CASH" || pos.ticker === "USD") {
@@ -203,7 +197,7 @@ export default function AnalystInsights({ positions, language = "EN" }: AnalystI
       : ((data.highTarget !== null && data.highTarget > 0) ? data.highTarget : pos.price);
     return acc + (pos.shares * targetPrice);
   }, 0);
-  const highTargetValueTotal = Math.max(0, grossHighTargetValueTotal - marginCostBasis);
+  const highTargetValueTotal = grossHighTargetValueTotal;
 
   const grossFiftyTwoWeekHighTotal = activePositions.reduce((acc, pos) => {
     if (pos.isCash || pos.ticker === "CASH" || pos.ticker === "USD") {
@@ -211,23 +205,24 @@ export default function AnalystInsights({ positions, language = "EN" }: AnalystI
     }
     const highPrice = (pos.fiftyTwoWeekHigh !== null && pos.fiftyTwoWeekHigh !== undefined && pos.fiftyTwoWeekHigh > 0)
       ? pos.fiftyTwoWeekHigh
-      : pos.price * 1.34668;
+      : pos.price;
     return acc + (pos.shares * highPrice);
   }, 0);
-  const fiftyTwoWeekHighTotal = Math.max(0, grossFiftyTwoWeekHighTotal - marginCostBasis);
+  const fiftyTwoWeekHighTotal = grossFiftyTwoWeekHighTotal;
 
-  const baseValueForUpside = netCurrentPortfolioValue > 0 ? netCurrentPortfolioValue : currentPortfolioValue;
+  // Valores en bruto (acciones × precio): el préstamo de margen no se resta, lo descuenta el usuario
+  const baseValueForUpside = currentPortfolioValue;
 
   const high52wkUpside = baseValueForUpside > 0 
-    ? ((fiftyTwoWeekHighTotal - netCurrentPortfolioValue) / baseValueForUpside) * 100 
+    ? ((fiftyTwoWeekHighTotal - currentPortfolioValue) / baseValueForUpside) * 100 
     : 0;
 
   const avgTargetUpside = baseValueForUpside > 0 
-    ? ((avgTargetValueTotal - netCurrentPortfolioValue) / baseValueForUpside) * 100 
+    ? ((avgTargetValueTotal - currentPortfolioValue) / baseValueForUpside) * 100 
     : 0;
 
   const highTargetUpside = baseValueForUpside > 0 
-    ? ((highTargetValueTotal - netCurrentPortfolioValue) / baseValueForUpside) * 100 
+    ? ((highTargetValueTotal - currentPortfolioValue) / baseValueForUpside) * 100 
     : 0;
 
   // 2. Projection Calculations (Option A: strictly match the user-selected CAGR)
