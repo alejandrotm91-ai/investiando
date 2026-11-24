@@ -889,8 +889,11 @@ export async function processKpiRelease(db: D1Database, env: ClaudeEnv & { SEC_U
 /** Tarea programada: encola comunicados nuevos (cada 12 h por empresa) y procesa hasta `max`. */
 export async function runKpisCron(db: D1Database, env: ClaudeEnv & { SEC_USER_AGENT?: string }, max = 6): Promise<Record<string, unknown>> {
   const out: Record<string, unknown> = {};
+  // Encolar como mucho 4 empresas por ejecución y sin bajar de 24 conexiones, para que siempre quede
+  // presupuesto para procesar comunicados (si no, al añadir muchas empresas la cola no avanza)
+  let queued = 0;
   for (const ticker of Object.keys(KPI_DEFS)) {
-    if (fetchBudgetLeft() < 10) break;
+    if (queued >= 4 || fetchBudgetLeft() < 24) break;
     const meta = await db.prepare("SELECT updated_at FROM sec_meta WHERE key = ?").bind(`kpis_queue:${ticker}`).first<{ updated_at: number }>();
     if (meta && Date.now() - meta.updated_at < DAY / 2) continue;
     // Solo empresas con los estados de la SEC ya cargados: sin ellos no hay con qué validar los ingresos
@@ -901,6 +904,7 @@ export async function runKpisCron(db: D1Database, env: ClaudeEnv & { SEC_USER_AG
       if (isBudgetError(e)) throw e;
     });
     out[`queued:${ticker}`] = true;
+    queued++;
   }
   // Errores pasajeros: se reintentan al cabo de un día
   const { results } = await db
