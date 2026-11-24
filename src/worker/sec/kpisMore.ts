@@ -377,6 +377,8 @@ export const KPI_DEFS_MORE: Record<string, CompanyKpis> = {
   },
   PLD: {
     from: "2023-01-01",
+    // Los comunicados anteriores a octubre de 2024 no traen los ingresos totales (solo el anexo complementario)
+    anchor: "net_income",
     kpis: [lvl("occupancy", "Average occupancy", "Ocupación media", "Average occupancy of the operating portfolio in the quarter", [80, 100]), lvl("rent_change", "Net effective rent change", "Variación de la renta efectiva neta", "Net effective rent change on rollover (share of Prologis) in the quarter", [-50, 150]), dol("core_ffo_ps", "Core FFO per share", "Core FFO por acción", "Core FFO per diluted share for the QUARTER", [0.2, 5], "flow"), gr("ssnoi_cash", "Cash same store NOI growth", "Crecimiento del NOI comparable en caja", "Cash same store NOI change (share of Prologis)", [-30, 50])],
     charts: [ch("occ", "Average occupancy", "Ocupación media", "line", ["occupancy"]), ch("rent", "Net effective rent change", "Variación de la renta efectiva", "line", ["rent_change"]), ch("ffo", "Core FFO per share", "Core FFO por acción", "bar", ["core_ffo_ps"]), ch("noi", "Cash same store NOI growth", "NOI comparable en caja", "line", ["ssnoi_cash"])],
   },

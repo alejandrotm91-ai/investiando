@@ -149,7 +149,7 @@ function indexTag(facts: SecFact[] | undefined, instant: boolean): Map<string, P
 }
 
 /** Primer valor presentado para cada (inicio, fin) de una etiqueta: la cifra del informe original, antes de reexpresiones. */
-function indexTagFirst(facts: SecFact[] | undefined): Map<string, number> {
+function indexTagFirst(facts: SecFact[] | undefined): Map<string, { val: number; filed: string }> {
   const m = new Map<string, { val: number; filed: string }>();
   for (const f of facts || []) {
     if (!ALLOWED.has(f.form) || typeof f.val !== "number" || !f.start) continue;
@@ -157,7 +157,7 @@ function indexTagFirst(facts: SecFact[] | undefined): Map<string, number> {
     const prev = m.get(k);
     if (!prev || f.filed < prev.filed) m.set(k, { val: f.val, filed: f.filed });
   }
-  return new Map([...m].map(([k, v]) => [k, v.val]));
+  return m;
 }
 
 function unitFacts(cf: CompanyFacts, tag: string, kind: Kind): SecFact[] | undefined {
@@ -269,24 +269,29 @@ export function normalizeCompanyFacts(cf: CompanyFacts, opts: NormalizeOptions =
   // reclasificaciones). Los comunicados de resultados (capa 5) se validan con esta cifra o con la actual.
   const revConcept = CONCEPTS.find((c) => c.key === "totalRevenue")!;
   const firstIdx = revConcept.tags.map((tag) => ({ tag, m: indexTagFirst(unitFacts(cf, tag, "duration")) }));
-  const firstRev = (start: string, end: string): number | undefined => {
-    let best: number | undefined, fallback: number | undefined;
+  const firstRev = (start: string, end: string): { val: number; filed: string } | undefined => {
+    let best: { val: number; filed: string } | undefined, fallback: { val: number; filed: string } | undefined;
     for (const { tag, m } of firstIdx) {
       const v = m.get(`${start}|${end}`);
       if (v === undefined) continue;
       if (revConcept.maxExclude?.includes(tag)) fallback ??= v;
-      else if (best === undefined || v > best) best = v;
+      else if (best === undefined || v.val > best.val) best = v;
     }
     return best ?? fallback;
   };
+  // La cifra directa del trimestre puede aparecer por primera vez ya rehecha (Danaher: el 10-K de 2023
+  // trae los trimestres de 2022 sin Veralto); entonces vale la diferencia de acumulados, presentada antes
   const asFiledRevenue = (fyStart: string, qStart: string, qEnd: string, prevEnd: string | null): number | undefined => {
     const d = firstRev(qStart, qEnd);
-    if (d !== undefined) return d;
     const cum = firstRev(fyStart, qEnd);
-    if (cum === undefined) return undefined;
-    if (!prevEnd) return cum;
-    const cp = firstRev(fyStart, prevEnd);
-    return cp === undefined ? undefined : cum - cp;
+    let viaCum: { val: number; filed: string } | undefined;
+    if (cum && !prevEnd) viaCum = cum;
+    else if (cum && prevEnd) {
+      const cp = firstRev(fyStart, prevEnd);
+      if (cp) viaCum = { val: cum.val - cp.val, filed: cum.filed > cp.filed ? cum.filed : cp.filed };
+    }
+    if (d && viaCum) return (viaCum.filed < d.filed ? viaCum : d).val;
+    return (d ?? viaCum)?.val;
   };
 
   const annual: SecPeriod[] = [];
@@ -429,7 +434,15 @@ export function normalizeCompanyFacts(cf: CompanyFacts, opts: NormalizeOptions =
         // T4 calculado ≤ 0 cuando el informe original daba ingresos positivos: año rehecho tras una
         // escisión − 9 meses sin rehacer (Western Digital FY2023 sin Sandisk). No es un dato: se quita.
         // (Unos ingresos negativos reales, como los de Blackstone en 2022, coinciden con el original.)
-        if (p.totalRevenue <= 0 && p.derived.includes("totalRevenue") && af !== undefined && af > 0) {
+        // T4 calculado imposible (menos de la mitad o más del doble de la media de los otros trimestres
+        // del ejercicio) con el original dentro de ese rango: año rehecho − 9 meses sin rehacer con un
+        // resultado positivo (Danaher y J&J 2021). Se usa el original, coherente con los otros trimestres.
+        const others = qVals.map((q) => q.totalRevenue).filter((x): x is number => typeof x === "number" && x > 0);
+        const mean = others.length >= 2 ? others.reduce((a, b) => a + b, 0) / others.length : 0;
+        const plausible = (x: number) => mean > 0 && x >= mean * 0.5 && x <= mean * 2;
+        if (p.derived.includes("totalRevenue") && af !== undefined && af > 0 && mean > 0 && !plausible(p.totalRevenue) && plausible(af)) {
+          p.totalRevenue = af;
+        } else if (p.totalRevenue <= 0 && p.derived.includes("totalRevenue") && af !== undefined && af > 0) {
           delete p.totalRevenue;
           p.derived = p.derived.filter((k: string) => k !== "totalRevenue");
         } else if (af !== undefined && af > 0 && Math.abs(af - p.totalRevenue) > Math.abs(p.totalRevenue) * 0.003) p.totalRevenueAsFiled = af;
