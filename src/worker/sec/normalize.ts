@@ -148,6 +148,18 @@ function indexTag(facts: SecFact[] | undefined, instant: boolean): Map<string, P
   return m;
 }
 
+/** Primer valor presentado para cada (inicio, fin) de una etiqueta: la cifra del informe original, antes de reexpresiones. */
+function indexTagFirst(facts: SecFact[] | undefined): Map<string, number> {
+  const m = new Map<string, { val: number; filed: string }>();
+  for (const f of facts || []) {
+    if (!ALLOWED.has(f.form) || typeof f.val !== "number" || !f.start) continue;
+    const k = `${f.start}|${f.end}`;
+    const prev = m.get(k);
+    if (!prev || f.filed < prev.filed) m.set(k, { val: f.val, filed: f.filed });
+  }
+  return new Map([...m].map(([k, v]) => [k, v.val]));
+}
+
 function unitFacts(cf: CompanyFacts, tag: string, kind: Kind): SecFact[] | undefined {
   const node = cf.facts["us-gaap"]?.[tag];
   if (!node) return undefined;
@@ -251,6 +263,30 @@ export function normalizeCompanyFacts(cf: CompanyFacts, opts: NormalizeOptions =
       if (v) return v;
     }
     return undefined;
+  };
+
+  // Ingresos tal como se publicaron en el informe original de cada trimestre (antes de escisiones o
+  // reclasificaciones). Los comunicados de resultados (capa 5) se validan con esta cifra o con la actual.
+  const revConcept = CONCEPTS.find((c) => c.key === "totalRevenue")!;
+  const firstIdx = revConcept.tags.map((tag) => ({ tag, m: indexTagFirst(unitFacts(cf, tag, "duration")) }));
+  const firstRev = (start: string, end: string): number | undefined => {
+    let best: number | undefined, fallback: number | undefined;
+    for (const { tag, m } of firstIdx) {
+      const v = m.get(`${start}|${end}`);
+      if (v === undefined) continue;
+      if (revConcept.maxExclude?.includes(tag)) fallback ??= v;
+      else if (best === undefined || v > best) best = v;
+    }
+    return best ?? fallback;
+  };
+  const asFiledRevenue = (fyStart: string, qStart: string, qEnd: string, prevEnd: string | null): number | undefined => {
+    const d = firstRev(qStart, qEnd);
+    if (d !== undefined) return d;
+    const cum = firstRev(fyStart, qEnd);
+    if (cum === undefined) return undefined;
+    if (!prevEnd) return cum;
+    const cp = firstRev(fyStart, prevEnd);
+    return cp === undefined ? undefined : cum - cp;
   };
 
   const annual: SecPeriod[] = [];
@@ -387,6 +423,16 @@ export function normalizeCompanyFacts(cf: CompanyFacts, opts: NormalizeOptions =
       if (p.basicEPS === undefined && niCommon !== undefined && p.basicAverageShares > 0) {
         p.basicEPS = round4(niCommon / p.basicAverageShares);
         p.derived.push("basicEPS");
+      }
+      if (typeof p.totalRevenue === "number") {
+        const af = asFiledRevenue(fy.start, qStart, qEnd, prevEnd);
+        // T4 calculado ≤ 0 cuando el informe original daba ingresos positivos: año rehecho tras una
+        // escisión − 9 meses sin rehacer (Western Digital FY2023 sin Sandisk). No es un dato: se quita.
+        // (Unos ingresos negativos reales, como los de Blackstone en 2022, coinciden con el original.)
+        if (p.totalRevenue <= 0 && p.derived.includes("totalRevenue") && af !== undefined && af > 0) {
+          delete p.totalRevenue;
+          p.derived = p.derived.filter((k: string) => k !== "totalRevenue");
+        } else if (af !== undefined && af > 0 && Math.abs(af - p.totalRevenue) > Math.abs(p.totalRevenue) * 0.003) p.totalRevenueAsFiled = af;
       }
       qVals.push({ ...p });
       if (p.totalRevenue !== undefined || p.netIncome !== undefined) quarterly.push(finish(p));

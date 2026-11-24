@@ -780,7 +780,7 @@ function matchQuarter(date: string, quarterly: { date: string }[]): string | nul
 export interface KpiCheck { name: string; ok: boolean; detail: string }
 
 /** Valida lo extraído: ingresos frente a la SEC y rangos plausibles. Devuelve los trimestres limpios. */
-export function validateKpis(x: Extract, defs: KpiDef[], quarterly: { date: string; totalRevenue?: number | null; netIncome?: number | null }[], anchor: "revenue" | "net_income" = "revenue") {
+export function validateKpis(x: Extract, defs: KpiDef[], quarterly: { date: string; totalRevenue?: number | null; totalRevenueAsFiled?: number | null; netIncome?: number | null }[], anchor: "revenue" | "net_income" = "revenue") {
   const checks: KpiCheck[] = [];
   const out: { date: string; revenue?: number; values: Record<string, number> }[] = [];
   let matched = 0, mismatched = 0;
@@ -794,7 +794,10 @@ export function validateKpis(x: Extract, defs: KpiDef[], quarterly: { date: stri
       // Ingresos redondeados en el comunicado (Booking da los trimestres anteriores en miles de millones
       // con un decimal): se admite el medio paso del redondeo
       const rounding = mine % 100 === 0 ? 50e6 : mine % 10 === 0 ? 5e6 : 0;
-      const ok = Math.abs(mine * 1e6 - sec) <= Math.abs(sec) * 0.005 + 1e6 + rounding;
+      const near = (ref: number) => Math.abs(mine * 1e6 - ref) <= Math.abs(ref) * 0.005 + 1e6 + rounding;
+      // Comunicados anteriores a una escisión o reclasificación: valen los ingresos del 10-Q original
+      const asFiled = anchor === "revenue" ? qp?.totalRevenueAsFiled : null;
+      const ok = near(sec) || (typeof asFiled === "number" && near(asFiled));
       const what = anchor === "net_income" ? "beneficio" : "ingresos";
       checks.push({ name: `${what} ${date}`, ok, detail: `comunicado ${mine} M; SEC ${(sec / 1e6).toFixed(0)} M${ok ? "" : ": trimestre descartado"}` });
       if (!ok) {

@@ -382,6 +382,7 @@ export const KPI_DEFS_MORE: Record<string, CompanyKpis> = {
   },
   CVX: {
     from: "2023-01-01",
+    revenueHint: "revenue = 'Total revenues and other income' (not 'Sales and other operating revenues')",
     kpis: [{ key: "production", en: "Net oil-equivalent production", es: "Producción neta equivalente", unit: "kbd", kind: "avg", range: [1500, 6000], hint: "Worldwide net oil-equivalent production in the quarter, thousand barrels of oil-equivalent per day (MBOED)" }, { key: "us_production", en: "U.S. net oil-equivalent production", es: "Producción neta en EE. UU.", unit: "kbd", kind: "avg", range: [500, 4000], hint: "United States net oil-equivalent production, MBOED, only if stated" }, fcf("Free cash flow"), usd("cffo", "Cash flow from operations", "Flujo de caja operativo", "Cash flow from operations (CFFO) in the quarter", [-10000, 100000])],
     charts: [ch("prod", "Net oil-equivalent production (total / U.S.)", "Producción equivalente (total / EE. UU.)", "line", ["production", "us_production"]), ch("cf", "Cash flow from operations and free cash flow", "Flujo de caja operativo y libre", "line", ["cffo", "fcf"])],
   },
