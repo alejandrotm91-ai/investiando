@@ -5,34 +5,34 @@
 // de nivel (márgenes, ratios), "n" unidades sueltas, "kbd" miles de barriles/día.
 import type { CompanyKpis, KpiDef, KpiChart } from "./kpis";
 
-type R = [number, number];
-const usd = (key: string, en: string, es: string, hint: string, range: R = [-500000, 5000000], kind: KpiDef["kind"] = "flow"): KpiDef => ({ key, en, es, unit: "$M", kind, range, hint: `${hint}, in millions of USD (e.g. '$2.4 billion' -> 2400)` });
-const lvl = (key: string, en: string, es: string, hint: string, range: R = [-100, 200], kind: KpiDef["kind"] = "avg"): KpiDef => ({ key, en, es, unit: "share", kind, range, hint: `${hint}, in % (e.g. 52.3)` });
-const gr = (key: string, en: string, es: string, hint: string, range: R = [-80, 300]): KpiDef => ({ key, en, es, unit: "%", kind: "avg", range, hint: `${hint}, year-over-year % change for the quarter (three months, not year-to-date), e.g. 'up 7%' -> 7` });
-const dol = (key: string, en: string, es: string, hint: string, range: R, kind: KpiDef["kind"] = "stock"): KpiDef => ({ key, en, es, unit: "$", kind, range, hint: `${hint}, in USD` });
-const num = (key: string, en: string, es: string, hint: string, range: R, kind: KpiDef["kind"] = "flow"): KpiDef => ({ key, en, es, unit: "n", kind, range, hint });
-const mil = (key: string, en: string, es: string, hint: string, range: R, kind: KpiDef["kind"] = "stock"): KpiDef => ({ key, en, es, unit: "M", kind, range, hint: `${hint}, in millions (e.g. '1,243 thousand' -> 1.243; '48.6 million' -> 48.6)` });
-const ch = (id: string, en: string, es: string, type: KpiChart["type"], keys: string[], extra: Partial<KpiChart> = {}): KpiChart => ({ id, en, es, type, keys, ...extra });
+export type R = [number, number];
+export const usd = (key: string, en: string, es: string, hint: string, range: R = [-500000, 5000000], kind: KpiDef["kind"] = "flow"): KpiDef => ({ key, en, es, unit: "$M", kind, range, hint: `${hint}, in millions of USD (e.g. '$2.4 billion' -> 2400)` });
+export const lvl = (key: string, en: string, es: string, hint: string, range: R = [-100, 200], kind: KpiDef["kind"] = "avg"): KpiDef => ({ key, en, es, unit: "share", kind, range, hint: `${hint}, in % (e.g. 52.3)` });
+export const gr = (key: string, en: string, es: string, hint: string, range: R = [-80, 300]): KpiDef => ({ key, en, es, unit: "%", kind: "avg", range, hint: `${hint}, year-over-year % change for the quarter (three months, not year-to-date), e.g. 'up 7%' -> 7` });
+export const dol = (key: string, en: string, es: string, hint: string, range: R, kind: KpiDef["kind"] = "stock"): KpiDef => ({ key, en, es, unit: "$", kind, range, hint: `${hint}, in USD` });
+export const num = (key: string, en: string, es: string, hint: string, range: R, kind: KpiDef["kind"] = "flow"): KpiDef => ({ key, en, es, unit: "n", kind, range, hint });
+export const mil = (key: string, en: string, es: string, hint: string, range: R, kind: KpiDef["kind"] = "stock"): KpiDef => ({ key, en, es, unit: "M", kind, range, hint: `${hint}, in millions (e.g. '1,243 thousand' -> 1.243; '48.6 million' -> 48.6)` });
+export const ch = (id: string, en: string, es: string, type: KpiChart["type"], keys: string[], extra: Partial<KpiChart> = {}): KpiChart => ({ id, en, es, type, keys, ...extra });
 
 // Previsión de ingresos del trimestre siguiente (gráfico "ingresos frente a la previsión", como NVDA)
-const guide = (): KpiDef => usd("guidance_next", "Revenue outlook for next quarter", "Previsión de ingresos del trimestre siguiente", "Revenue outlook for the NEXT quarter given in this release (midpoint of the range), attach it to the quarter being reported", [100, 2000000]);
-const guideChart = () => ch("guide", "Revenue vs. prior-quarter outlook", "Ingresos frente a la previsión del trimestre anterior", "bar", ["revenue", "guidance_next"], { derived: "guidance" });
-const gmG = () => lvl("gm_gaap", "GAAP gross margin", "Margen bruto GAAP", "GAAP gross margin of the quarter", [0, 100]);
-const gmN = () => lvl("gm_nongaap", "Non-GAAP gross margin", "Margen bruto no GAAP", "Non-GAAP (adjusted) gross margin of the quarter", [0, 100]);
-const opmN = (label = "Non-GAAP operating margin") => lvl("opm_nongaap", label, "Margen operativo ajustado", `${label} of the quarter`, [-100, 100]);
-const fcf = (label = "Free cash flow") => usd("fcf", label, "Flujo de caja libre", `${label} for the quarter (three months; omit if only year-to-date or trailing twelve months)`);
-const gmChart = () => ch("gm", "Gross margin (GAAP / non-GAAP)", "Margen bruto (GAAP / no GAAP)", "line", ["gm_gaap", "gm_nongaap"]);
-const fcfChart = () => ch("fcf", "Free cash flow", "Flujo de caja libre", "bar", ["fcf"]);
+export const guide = (): KpiDef => usd("guidance_next", "Revenue outlook for next quarter", "Previsión de ingresos del trimestre siguiente", "Revenue outlook for the NEXT quarter given in this release (midpoint of the range), attach it to the quarter being reported", [100, 2000000]);
+export const guideChart = () => ch("guide", "Revenue vs. prior-quarter outlook", "Ingresos frente a la previsión del trimestre anterior", "bar", ["revenue", "guidance_next"], { derived: "guidance" });
+export const gmG = () => lvl("gm_gaap", "GAAP gross margin", "Margen bruto GAAP", "GAAP gross margin of the quarter", [0, 100]);
+export const gmN = () => lvl("gm_nongaap", "Non-GAAP gross margin", "Margen bruto no GAAP", "Non-GAAP (adjusted) gross margin of the quarter", [0, 100]);
+export const opmN = (label = "Non-GAAP operating margin") => lvl("opm_nongaap", label, "Margen operativo ajustado", `${label} of the quarter`, [-100, 100]);
+export const fcf = (label = "Free cash flow") => usd("fcf", label, "Flujo de caja libre", `${label} for the quarter (three months; omit if only year-to-date or trailing twelve months)`);
+export const gmChart = () => ch("gm", "Gross margin (GAAP / non-GAAP)", "Margen bruto (GAAP / no GAAP)", "line", ["gm_gaap", "gm_nongaap"]);
+export const fcfChart = () => ch("fcf", "Free cash flow", "Flujo de caja libre", "bar", ["fcf"]);
 
 // Semiconductores y hardware que dan previsión trimestral
-const chipCo = (extra: KpiDef[] = [], extraCharts: KpiChart[] = []): CompanyKpis => ({
+export const chipCo = (extra: KpiDef[] = [], extraCharts: KpiChart[] = []): CompanyKpis => ({
   from: "2023-01-01",
   kpis: [guide(), gmG(), gmN(), opmN(), fcf(), ...extra],
   charts: [guideChart(), gmChart(), ch("opm", "Non-GAAP operating margin", "Margen operativo ajustado", "line", ["opm_nongaap"]), fcfChart(), ...extraCharts],
 });
 
 // Bancos
-const bank = (o: { loans: R; deposits: R; extra?: KpiDef[]; extraCharts?: KpiChart[]; card?: boolean }): CompanyKpis => ({
+export const bank = (o: { loans: R; deposits: R; extra?: KpiDef[]; extraCharts?: KpiChart[]; card?: boolean }): CompanyKpis => ({
   from: "2023-01-01",
   kpis: [
     usd("nii", "Net interest income", "Margen de intereses", "Net interest income in the quarter (firmwide, as reported)", [100, 200000]),
@@ -59,7 +59,7 @@ const bank = (o: { loans: R; deposits: R; extra?: KpiDef[]; extraCharts?: KpiCha
 });
 
 // Farmacéuticas: ventas de sus productos principales
-const pharma = (products: [string, string, string][], groups: { id: string; en: string; es: string; keys: string[] }[], minChars?: number): CompanyKpis => ({
+export const pharma = (products: [string, string, string][], groups: { id: string; en: string; es: string; keys: string[] }[], minChars?: number): CompanyKpis => ({
   from: "2023-01-01",
   ...(minChars ? { minChars } : {}),
   kpis: products.map(([key, name, extra]) => usd(key, name, name, `${name}${extra ? ` (${extra})` : ""} worldwide sales in the quarter`, [0, 200000])),

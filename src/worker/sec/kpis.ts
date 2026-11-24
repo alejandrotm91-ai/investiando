@@ -14,6 +14,7 @@
 import { cik10, fetchBudgetLeft, secFetch } from "./client";
 import { askClaudeJson, KPI_MODEL, type ClaudeEnv } from "./claude";
 import { KPI_DEFS_MORE } from "./kpisMore";
+import { KPI_DEFS_MORE2 } from "./kpisMore2";
 import { fetchPressRelease } from "./earnings";
 import { getSecFinancials, isBudgetError, normTicker } from "./sync";
 import { SEC_UNIVERSE } from "./universe";
@@ -669,6 +670,8 @@ export const KPI_DEFS: Record<string, CompanyKpis> = {
   },
   // Las otras 69 empresas del universo (kpisMore.ts)
   ...KPI_DEFS_MORE,
+  // Empresas 101-300 del universo (kpisMore2.ts)
+  ...KPI_DEFS_MORE2,
 };
 
 const MAX_TEXT = 120_000;
@@ -846,6 +849,8 @@ export async function processKpiRelease(db: D1Database, env: ClaudeEnv & { SEC_U
       await set({ status: "skipped", error: `comunicado corto (${pr.text.length} caracteres): sin tablas de KPIs`, doc_url: pr.url });
       return "skipped";
     }
+    const fin = await getSecFinancials(db, row.ticker, { syncIfMissing: false });
+    if (!fin?.quarterly?.length) return "no-sec"; // queda pendiente hasta que se carguen sus estados
     const r = await askClaudeJson<Extract>(env, {
       system: SYSTEM,
       user: `Empresa: ${row.ticker}\n${def.revenueHint ? `Ingresos: ${def.revenueHint}\n` : ""}KPIs a extraer: ${def.kpis.map((d) => `${d.key} = ${d.hint}`).join("; ")}\n\nComunicado (8-K del ${row.filed}):\n${pr.text.slice(0, MAX_TEXT)}`,
@@ -854,7 +859,6 @@ export async function processKpiRelease(db: D1Database, env: ClaudeEnv & { SEC_U
       effort: "low",
       model: KPI_MODEL,
     });
-    const fin = await getSecFinancials(db, row.ticker, { syncIfMissing: false });
     const v = validateKpis(r.data, def.kpis, fin?.quarterly ?? [], def.anchor);
     await set({
       status: v.ok ? "done" : "rejected",
@@ -889,7 +893,9 @@ export async function runKpisCron(db: D1Database, env: ClaudeEnv & { SEC_USER_AG
     if (fetchBudgetLeft() < 10) break;
     const meta = await db.prepare("SELECT updated_at FROM sec_meta WHERE key = ?").bind(`kpis_queue:${ticker}`).first<{ updated_at: number }>();
     if (meta && Date.now() - meta.updated_at < DAY / 2) continue;
-    const c = await db.prepare("SELECT cik FROM sec_companies WHERE ticker = ?").bind(ticker).first<{ cik: number }>();
+    // Solo empresas con los estados de la SEC ya cargados: sin ellos no hay con qué validar los ingresos
+    // (las recién añadidas al universo esperan a que la capa 1 las cargue)
+    const c = await db.prepare("SELECT cik FROM sec_companies WHERE ticker = ? AND quarterly IS NOT NULL").bind(ticker).first<{ cik: number }>();
     if (!c) continue;
     await queueReleases(db, ticker, c.cik, KPI_DEFS[ticker], env.SEC_USER_AGENT).catch((e) => {
       if (isBudgetError(e)) throw e;
